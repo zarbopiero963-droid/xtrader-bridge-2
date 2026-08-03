@@ -65,7 +65,7 @@ def example_parser() -> CustomParserDef:
 
     Usa value-map `selectionname`/`bettype`; pronto da personalizzare."""
     return CustomParserDef(
-        name="Esempio P.Bet.",
+        name="Esempio: Match/Esito/Quota/Lato",
         description="Esempio: Match/Esito/Quota/Lato con value-map dizionario.",
         rules=[
             FieldRule(target="Provider", fixed_value="TG_CUSTOM"),

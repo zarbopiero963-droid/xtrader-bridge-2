@@ -5,7 +5,8 @@
 > un messaggio Telegram, **senza modificare il codice**. Quando è attivo per una
 > chat è **autoritativo**. Nel percorso **live** NON c'è fallback al parser hardcoded
 > storico (CP-09b): se per la chat non è attivo alcun parser personalizzato il messaggio
-> è **ignorato**. Il parser hardcoded P.Bet resta nel repo solo per **compatibilità/test**.
+> è **ignorato**. Il parser hardcoded storico è stato **rimosso dal repository**
+> (#76 P3-15): non esiste più alcun fallback, né nel live né altrove.
 
 Questo documento descrive il comportamento reale del codice (non promesse): come
 si definisce un parser, come vengono estratti e tradotti i valori, quali gate di
