@@ -550,6 +550,39 @@ def _guides_base_dir(base_dir=None) -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def fence_ranges(righe) -> tuple:
+    """Blocchi di codice recintati di `righe` → `(recinti_chiusi, riga_apertura_orfana | None)`.
+
+    FONTE UNICA dell'accoppiamento dei recinti, usata sia dal parser (`guide_sections`) sia dal
+    gate che controlla le guide del repository. Non è un dettaglio di stile: un gate che contasse
+    i recinti per conto proprio — «numero pari» — userebbe una regola **diversa** da quella del
+    parser e col tempo i due divergerebbero, che è il difetto trovato nella #216 (lo scanner dei
+    commit conosceva i token GitHub, il redattore dei log no) e di nuovo nella #217. Il gate deve
+    leggere un **fatto** prodotto dal parser, non ricalcolarlo.
+
+    La chiusura deve COMBACIARE con l'apertura per carattere e lunghezza, come vuole CommonMark:
+    accoppiare qualunque recinto con qualunque altro fa danno nella direzione peggiore — un ```
+    dentro un blocco `~~~`, cioè un esempio Markdown annidato come quelli che queste guide
+    contengono, chiuderebbe il blocco in anticipo e il vero delimitatore finale ne aprirebbe uno
+    **fantasma** che nasconde le sezioni successive.
+
+    Il secondo valore è la riga (0-based) di un'apertura mai chiusa, o `None`. Serve al gate per
+    dire **dove** sta il problema: cercare un recinto orfano a mano in 144.000 caratteri è il
+    genere di compito che fa ignorare un test rosso."""
+    aperto, marcatore, recinti = None, "", []
+    for i, riga in enumerate(righe):
+        m = _GUIDE_FENCE_RE.match(riga)
+        if not m:
+            continue
+        segno = m.group(1)
+        if aperto is None:
+            aperto, marcatore = i, segno
+        elif segno[0] == marcatore[0] and len(segno) >= len(marcatore):
+            recinti.append((aperto, i))
+            aperto, marcatore = None, ""
+    return recinti, aperto
+
+
 def guide_sections(text: str) -> list:
     """Indice dei titoli di `text`: lista di `(livello, titolo, riga_iniziale, riga_finale)`.
 
@@ -567,30 +600,7 @@ def guide_sections(text: str) -> list:
 
     Funzione pura (nessun I/O): il test la esercita direttamente, senza toccare il filesystem."""
     righe = (text or "").splitlines(keepends=True)
-
-    # Primo passaggio: i blocchi recintati CHIUSI. Un fence rimasto aperto a fine file **non**
-    # conta (rilievo GPT-5.5/Fable #217, ed era una regressione mia): col vecchio interruttore
-    # `dentro_codice = not dentro_codice`, un ``` non chiuso — cosa che capita in una guida scritta
-    # a mano — spegneva il riconoscimento fino in fondo e faceva sparire dall'indice **tutte** le
-    # sezioni successive. Misurato: 2 sezioni vere perse su 3. Nascondere titoli veri è peggio che
-    # mostrarne uno falso: nel dubbio si sbaglia nella direzione che lascia la guida raggiungibile.
-    # La chiusura deve COMBACIARE con l'apertura per carattere e lunghezza, come vuole CommonMark
-    # (rilievo GPT-5.5 + Fable #217). Accoppiare qualunque recinto con qualunque altro fa danno
-    # nella direzione peggiore: un ``` dentro un blocco `~~~` — cioè un esempio Markdown annidato,
-    # esattamente ciò che queste guide contengono — chiuderebbe il blocco in anticipo, e il vero
-    # delimitatore finale ne aprirebbe uno **fantasma** che nasconde le sezioni successive. Di
-    # nuovo la classe «titoli veri che spariscono», che è il difetto peggiore qui.
-    aperto, marcatore, recinti = None, "", []
-    for i, riga in enumerate(righe):
-        m = _GUIDE_FENCE_RE.match(riga)
-        if not m:
-            continue
-        segno = m.group(1)
-        if aperto is None:
-            aperto, marcatore = i, segno
-        elif segno[0] == marcatore[0] and len(segno) >= len(marcatore):
-            recinti.append((aperto, i))
-            aperto, marcatore = None, ""
+    recinti, _orfano = fence_ranges(righe)
 
     def _nel_codice(i):
         return any(a <= i <= b for a, b in recinti)

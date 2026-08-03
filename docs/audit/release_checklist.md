@@ -71,6 +71,11 @@
       distribuiti, che è il guasto peggiore di tutta la catena. Da rifare su ogni PC nuovo:
       il token **non** è nel backup completo (sta solo nel keyring).
 
+- [ ] **Le guide dell'assistente sono leggibili per sezione.** Il job `safety` include il gate
+      `test_nessuna_guida_del_repo_ha_un_recinto_APERTO`: se una guida ha un blocco di codice
+      aperto e mai chiuso, l'indice che l'assistente costruisce diventa ambiguo. Il test dice
+      file e riga; la correzione è chiudere il recinto nel documento, non toccare il parser.
+
 ## F. Verifica funzionale manuale (Windows + GUI)
 
 - [ ] App avviabile; START/STOP funzionano; chiusura finestra ferma il bridge.
