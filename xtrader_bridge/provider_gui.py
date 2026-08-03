@@ -92,16 +92,21 @@ class ProviderPanel(ctk.CTkFrame):
                 return []
         return provider_store.provider_names(cfg)
 
-    def _provider_usage(self) -> dict:
-        """`{provider: [parser che lo usano]}`, sola LETTURA e best-effort (#182 PR E).
+    def _provider_usage(self):
+        """`{provider: [parser che lo usano]}` in sola LETTURA, oppure **`None`** se i parser
+        non sono leggibili (#182 PR E).
 
-        Una sola passata sui file dei parser. Se la cartella non è leggibile i marcatori
-        spariscono ma l'elenco resta usabile: un marcatore mancante non deve impedire di
-        gestire l'anagrafica."""
+        ⚠️ La distinzione fra `{}` e `None` è di **sicurezza**, non di stile (rilievo GPT-5.5
+        sulla PR #230). Con la cartella dei parser illeggibile, restituire `{}` avrebbe fatto
+        scrivere **«— non usato» su OGNI riga**: cioè la rassicurazione «puoi rimuoverlo» proprio
+        quando il controllo NON è stato fatto. Un marcatore mancante è accettabile; un marcatore
+        che afferma il falso accanto a un pulsante distruttivo no.
+
+        `{}` = ho guardato, nessun parser fissa quel provider. `None` = non ho potuto guardare."""
         try:
             return custom_parser.provider_usage() or {}
-        except Exception:            # noqa: BLE001 — parser illeggibili: nessun marcatore, mai un crash
-            return {}
+        except Exception:            # noqa: BLE001 — parser illeggibili: stato IGNOTO, mai un falso «non usato»
+            return None
 
     @staticmethod
     def _quanti_usano(uso: dict, name: str) -> int:
@@ -132,16 +137,22 @@ class ProviderPanel(ctk.CTkFrame):
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=name, anchor="w").pack(side="left", fill="x",
                                                           expand=True, padx=6)
-            quanti = self._quanti_usano(uso, name)
-            ctk.CTkLabel(row,
-                         text=(i18n.tr("🧩 {n} parser").format(n=quanti) if quanti
-                               else i18n.tr("— non usato")),
-                         font=ctk.CTkFont(size=11),
-                         text_color=("gray" if quanti else ui_theme.STATUS_WARN)
-                         ).pack(side="right", padx=6)
+            # ORDINE DI PACK — il pulsante PRIMA del marcatore. Con `side="right"` Tk mette il
+            # primo impacchettato all'estrema destra, quindi impacchettando prima il marcatore
+            # sarebbe finito DOPO il pulsante: «nome … [🗑 Rimuovi] [🧩 2 parser]» invece di
+            # «nome … [🧩 2 parser] [🗑 Rimuovi]» (rilevato da GPT-5.5 e Fable sulla PR #230).
             ctk.CTkButton(row, text=i18n.tr("🗑  Rimuovi"), width=110, fg_color=ui_theme.DANGER,
                           hover_color=ui_theme.DANGER_HOV,
                           command=lambda n=name: self._remove(n)).pack(side="right", padx=3)
+            if uso is None:
+                testo, colore = i18n.tr("⚠ uso ignoto"), ui_theme.STATUS_ERR
+            else:
+                quanti = self._quanti_usano(uso, name)
+                testo = (i18n.tr("🧩 {n} parser").format(n=quanti) if quanti
+                         else i18n.tr("— non usato"))
+                colore = "gray" if quanti else ui_theme.STATUS_WARN
+            ctk.CTkLabel(row, text=testo, font=ctk.CTkFont(size=11),
+                         text_color=colore).pack(side="right", padx=6)
 
     # ── azioni (persistono subito, come il builder) ─────────────────────────
     def _persist(self, cfg: dict, ok_msg: str, fail_msg: str):
@@ -197,13 +208,20 @@ class ProviderPanel(ctk.CTkFrame):
         # scrivere quel valore nel CSV, ma la voce sparisce dalla tendina e alla prossima modifica
         # di quel parser non è più ri-selezionabile. Best-effort: parser illeggibili → nessun
         # elenco, la conferma resta quella di prima invece di bloccare la rimozione.
+        verificato = True
         try:
             usato_da = custom_parser.parsers_using_provider(name)
         except Exception:                        # noqa: BLE001 — anagrafica gestibile anche senza parser leggibili
-            usato_da = []
+            usato_da, verificato = [], False
         domanda = i18n.tr("Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella "
                           "sorgente non verranno più riconosciuti finché non lo reinserisci."
                           ).format(name=name)
+        if not verificato:
+            # Silenzio = l'utente deduce «non lo usa nessuno». Dirlo esplicitamente: il controllo
+            # non è stato fatto, la decisione resta sua ma informata (rilievo GPT-5.5 #230).
+            domanda += "\n\n" + i18n.tr(
+                "⚠️ Non è stato possibile leggere i parser salvati: non so dirti se qualcuno usa "
+                "questo provider.")
         if usato_da:
             domanda += "\n\n" + i18n.tr(
                 "⚠️ Usato da {count} parser: {elenco}.\nRestano funzionanti — scrivono comunque "

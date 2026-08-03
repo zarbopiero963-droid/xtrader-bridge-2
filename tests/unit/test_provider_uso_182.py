@@ -133,15 +133,31 @@ def test_il_conteggio_del_pannello_normalizza_come_lo_store(pg):
     assert pg.ProviderPanel._quanti_usano(None, "Bet365") == 0
 
 
-def test_i_marcatori_spariscono_se_i_parser_non_sono_leggibili_ma_l_elenco_resta(pg, monkeypatch):
-    """Fail-safe: senza i parser l'anagrafica dev'essere comunque gestibile."""
+def test_parser_illeggibili_danno_uso_IGNOTO_non_zero(pg, monkeypatch):
+    """⚠️ Rilievo GPT-5.5 sulla PR #230, ed era un difetto di sicurezza mio.
+
+    La prima versione tornava `{}` quando i parser non erano leggibili — e `{}` significa
+    «ho guardato, non lo usa nessuno». Risultato: **«— non usato» su OGNI riga** proprio quando
+    il controllo NON era stato fatto, cioè la rassicurazione «puoi rimuoverlo» accanto al
+    pulsante che rimuove. Ora `None` = stato IGNOTO, distinto da `{}` = verificato-e-vuoto."""
     finto = object.__new__(pg.ProviderPanel)
 
     def _esplode(*_a, **_k):
         raise OSError("cartella parser illeggibile")
 
     monkeypatch.setattr(pg.custom_parser, "provider_usage", _esplode)
-    assert pg.ProviderPanel._provider_usage(finto) == {}
+    assert pg.ProviderPanel._provider_usage(finto) is None, (
+        "parser illeggibili devono dare IGNOTO, non un dizionario vuoto che vale «non usato»")
+
+
+def test_la_riga_dice_uso_ignoto_quando_non_ha_potuto_controllare(pg, monkeypatch):
+    """La conseguenza visibile: nessuna riga deve dire «— non usato» se il controllo è fallito."""
+    testi = _disegna(pg, monkeypatch, ["Bet365", "Pinnacle"], None)
+    assert all(any(marc in t for marc in ("ignoto", "Bet365", "Pinnacle", "Rimuovi"))
+               for t in testi), testi
+    assert not any("non usato" in t for t in testi), (
+        f"falso «non usato» con i parser illeggibili: {testi}")
+    assert sum("ignoto" in t for t in testi) == 2, testi
 
 
 def _disegna(pg, monkeypatch, names, uso):
@@ -189,6 +205,68 @@ def test_un_provider_non_usato_LO_DICE(pg, monkeypatch):
     testi = _disegna(pg, monkeypatch, ["Orfano"], {})
     assert any("non usato" in t for t in testi), testi
     assert not any("🧩" in t for t in testi), testi
+
+
+def test_il_marcatore_sta_PRIMA_del_pulsante_rimuovi(pg, monkeypatch):
+    """Rilevato da GPT-5.5 **e** Fable sulla PR #230, indipendentemente.
+
+    Con `side="right"` Tk mette il **primo** impacchettato all'estrema destra. Impacchettando
+    prima il marcatore, la riga sarebbe risultata «nome … [🗑 Rimuovi] [🧩 2 parser]» invece di
+    «nome … [🧩 2 parser] [🗑 Rimuovi]». Qui si verifica l'ORDINE DI COSTRUZIONE, che è ciò che
+    determina la posizione: il pulsante va creato per primo."""
+    ordine = []
+
+    class _Label:
+        def __init__(self, master=None, **k):
+            ordine.append(("label", k.get("text", "")))
+        def pack(self, **k): pass
+
+    class _Button:
+        def __init__(self, master=None, **k):
+            ordine.append(("button", k.get("text", "")))
+        def pack(self, **k): pass
+
+    class _Frame:
+        def __init__(self, master=None, **k): pass
+        def pack(self, **k): pass
+        def winfo_children(self): return []
+        def destroy(self): pass
+
+    monkeypatch.setattr(pg.ctk, "CTkLabel", _Label, raising=False)
+    monkeypatch.setattr(pg.ctk, "CTkButton", _Button, raising=False)
+    monkeypatch.setattr(pg.ctk, "CTkFrame", _Frame, raising=False)
+    monkeypatch.setattr(pg.ctk, "CTkFont", lambda **k: None, raising=False)
+
+    finto = object.__new__(pg.ProviderPanel)
+    finto._rows_frame = _Frame()
+    finto._load_names = lambda cfg=None: ["Bet365"]
+    finto._provider_usage = lambda: {"Bet365": ["A", "B"]}
+    pg.ProviderPanel._reload(finto)
+
+    tipi = [t for t, _ in ordine]
+    i_bottone = tipi.index("button")
+    i_marcatore = next(i for i, (t, testo) in enumerate(ordine)
+                       if t == "label" and "🧩" in testo)
+    assert i_bottone < i_marcatore, (
+        "il pulsante Rimuovi va impacchettato PRIMA del marcatore, altrimenti con side=right "
+        f"finisce alla sua sinistra: {ordine}")
+
+
+def test_la_conferma_dice_se_NON_ha_potuto_verificare(pg, monkeypatch):
+    """Silenzio = l'utente deduce «non lo usa nessuno». Se il controllo non è stato fatto,
+    la conferma deve dirlo invece di lasciarlo intendere."""
+    def _esplode(*_a, **_k):
+        raise OSError("cartella parser illeggibile")
+
+    domande = []
+    monkeypatch.setattr(pg.gui_utils, "ask_confirm",
+                        lambda t, testo: domande.append(testo) or False)
+    monkeypatch.setattr(pg.custom_parser, "parsers_using_provider", _esplode)
+    finto = object.__new__(pg.ProviderPanel)
+    finto._status = types.SimpleNamespace(configure=lambda **k: None)
+
+    pg.ProviderPanel._remove(finto, "Bet365")
+    assert domande and "non so dirti" in domande[0].lower(), domande
 
 
 def test_elenco_vuoto_lo_dice(pg, monkeypatch):
@@ -256,7 +334,7 @@ def test_parser_illeggibili_non_bloccano_la_rimozione(pg, monkeypatch):
 
     pg.ProviderPanel._remove(finto, "Bet365")          # non deve sollevare
     assert domande and "Bet365" in domande[0]
-    assert "⚠️ Usato da" not in domande[0]
+    assert "⚠️ Usato da" not in domande[0], "non può elencare parser che non ha potuto leggere"
 
 
 def test_rimozione_annullata_non_tocca_la_config(pg, monkeypatch):

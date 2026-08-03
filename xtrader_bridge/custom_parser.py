@@ -732,7 +732,8 @@ def provider_usage(dir_path: str = None) -> dict:
     (`remove_provider` deduplica così): altrimenti un parser che scrive «Bet365 » risulterebbe
     non collegato alla voce «Bet365» e il badge direbbe «non usato» su un provider che invece
     romperebbe quel parser se eliminato. La chiave del dizionario è il nome **come salvato nel
-    parser**; i chiamanti confrontano normalizzando (vedi `provider_usage_for`).
+    parser**; i chiamanti confrontano normalizzando (vedi `parsers_using_provider` qui sotto e
+    `ProviderPanel._quanti_usano` nella GUI).
 
     Best-effort: i file non caricabili vengono saltati — un parser corrotto non deve far sparire
     i badge di tutti gli altri."""
