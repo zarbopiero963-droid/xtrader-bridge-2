@@ -139,7 +139,14 @@ def _is_rate_limited(payload) -> bool:
 
     Si cerca **solo un marcatore** nel campo `message`; il corpo **non viene mai ri-emesso** —
     potrebbe riportare header o dettagli della richiesta. Il messaggio mostrato all'utente è
-    scritto qui."""
+    scritto qui.
+
+    **Limite dichiarato** (rilievo GPT-5.5 #215): GitHub segnala il rate-limit anche via header
+    (`retry-after`, `x-ratelimit-remaining`), che il probe HTTP di questo modulo **non espone** —
+    ritorna `(status, payload)`. Se un giorno arrivasse un 403 di rate-limit con un corpo privo del
+    marcatore, l'utente leggerebbe il messaggio sui permessi. Si è preferito non allargare il
+    contratto del probe — che è iniettabile e condiviso da tutte le chiamate — per un caso che
+    GitHub oggi accompagna sempre con un `message` esplicito."""
     testo = str((payload or {}).get("message", "")).lower() if isinstance(payload, dict) else ""
     return "rate limit" in testo or "abuse detection" in testo
 

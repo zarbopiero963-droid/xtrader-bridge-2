@@ -387,3 +387,27 @@ def test_una_sola_costruzione_dellurl_contents_con_ref():
     http_b = _FakeHttp((200, {"sha": "x"}))
     publisher.get_file_sha(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http_b)
     assert http_a.calls[-1]["url"] == http_b.calls[-1]["url"]
+
+
+def test_publish_403_da_rate_limit_lo_distingue_anche_in_SCRITTURA():
+    """Rilievo GPT-5.5 #215: il ramo `publish` passa il corpo a `_error_message`, ma nulla lo
+    pretendeva. È il ramo che conta di più — il 403 da rate-limit arriva quasi sempre sulla PUT,
+    non sulla GET: mandare l'utente a cambiare i permessi mentre deve solo aspettare è proprio il
+    difetto che questa PR chiude."""
+    http = _FakeHttp((200, {"sha": "abc"}),                                   # GET: il file c'è
+                     (403, {"message": "You have exceeded a secondary rate limit."}))   # PUT
+    res = publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch=_BRANCH, token=_TOKEN,
+                            message="m", http=http)
+    assert res["ok"] is False
+    assert "contents" not in res["message"].lower(), res["message"]
+    assert _TOKEN not in res["message"]
+
+
+def test_publish_403_senza_rate_limit_resta_il_messaggio_dei_permessi():
+    """Non-regressione del gemello: il 403 «vero» in scrittura deve continuare a dire cosa
+    concedere al token."""
+    http = _FakeHttp((200, {"sha": "abc"}), (403, {"message": "Resource not accessible"}))
+    res = publisher.publish(_SIGNED, repo=_REPO, path=_PATH, branch=_BRANCH, token=_TOKEN,
+                            message="m", http=http)
+    assert res["ok"] is False and "contents" in res["message"].lower()
+    assert _REPO in res["message"]
