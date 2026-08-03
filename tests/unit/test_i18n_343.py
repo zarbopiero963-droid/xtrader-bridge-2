@@ -32,6 +32,11 @@ _WIZARD_SRC = _read("wizard_gui.py")
 # `_MARKET_HEADER_COLUMNS` e sono rese via `i18n.tr(text)` (indiretto): come per il Wizard,
 # l'anti-drift le cerca come literal VERBATIM nel sorgente (single-line nelle tuple).
 _NAMEMAP_SRC = _read("name_mapping_gui.py")
+# #182 PR C: l'elenco profili dei DUE pannelli Mapping (⚽ nomi · 🎯 mercati) è disegnato da
+# `ui_widgets.disegna_elenco_profili`, fonte unica condivisa. Le sue chiavi («🧩 {n}», «· {n}
+# righe», «⚠ {name} (solo riferito)», il vuoto-elenco) vivono quindi lì e non più nei pannelli:
+# senza questa riga l'anti-drift le direbbe stantie pur essendo vive e tradotte.
+_UIWIDGETS_SRC = _read("ui_widgets.py")
 # Hub «🧰 Strumenti» (#343 slice 4x): i titoli-scheda vivono in `TOOL_TITLES` e il titolo finestra
 # nel default `title="🧰 Strumenti"`; sono resi via `i18n.tr(variable)` a build-time (indiretto →
 # non estraibili come tr-constant). Come Wizard/Mapping, l'anti-drift li cerca come literal VERBATIM
@@ -147,7 +152,8 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
         for key in table:
             assert (key in _APP_SRC or key in _APP_TR or key in _DASH_SRC or key in _SECONDARY_TR
                     or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC
-                    or key in _TOOLS_SRC or key in _CONFIRM_TEXTS or key in _MODE_TR), (
+                    or key in _TOOLS_SRC or key in _CONFIRM_TEXTS or key in _MODE_TR
+                    or key in _UIWIDGETS_SRC), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
                 f"secondarie localizzate, nei banner, nel wizard, nel Mapping, nell'hub "
                 f"Strumenti né nei dialoghi di conferma modalità: {key!r}")

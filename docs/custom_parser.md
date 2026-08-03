@@ -435,7 +435,13 @@ per-riga offrono i valori per-sport senza cascading Mercato→Selezione (fuori s
 ### Mappatura mercati a frase (`market_mapping_profiles`)
 
 Alcuni canali scrivono il **mercato a parole** dentro il messaggio (es. `Quota 0,5 HT
-Prematch`). I **profili di mappatura mercati** (`market_mapping_store`, config
+Prematch`). Nel pannello **🗺️ Mapping → 🎯 Mercati** i profili sono in una **colonna sempre
+visibile** (#182 PR C) identica a quella del Dizionario nomi — stessi marcatori «🧩 N» e
+«· N righe», stesso click-singolo-apre, stessi avvisi **⚠ «solo riferiti»** per i profili che un
+parser richiede ma che non esistono più (lì la conseguenza è `MARKET_MAPPING_MISSING`). I due
+elenchi condividono la stessa implementazione, quindi restano allineati per costruzione.
+
+I **profili di mappatura mercati** (`market_mapping_store`, config
 `market_mappings`) leggono il mercato **da una posizione precisa** del messaggio e lo
 traducono nel **Mercato + Selezione XTrader** canonici (gli stessi del Catalogo del builder):
 

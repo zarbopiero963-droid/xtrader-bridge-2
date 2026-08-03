@@ -149,20 +149,23 @@ _ALLOWLIST = {
     "known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "
                            "eliminazione best-effort (avviso invece di crash; DictionaryBusy "
                            "gestita a parte per il fail-fast durante la sync)"),
-    "name_mapping_gui.py": (10, "GUI Tk mapping: render/azioni best-effort; "
+    "name_mapping_gui.py": (11, "GUI Tk mapping: render/azioni best-effort; "
                             "precompila nomi Betfair best-effort (#282 PR 11: provider "
                             "che solleva → avviso, nessun crash); #182 PR B, 3 nuovi nella "
                             "colonna profili sempre visibile: `_profile_var.trace_add` "
                             "(variabile non tracciabile = nessuna evidenziazione viva, ma "
                             "l'elenco resta usabile), `_profile_usage` (cartella parser "
                             "illeggibile = nessun badge 🧩 ma i profili si aprono comunque) e "
-                            "`_highlight_profiles` (widget distrutto durante un refresh)"),
+                            "`_highlight_profiles` (widget distrutto durante un refresh); #182 PR C, 1 nuovo: "
+                            "il `trace_add` gemello nel pannello 🎯 Mercati, stessa ragione"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
-    "ui_widgets.py": (1, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
+    "ui_widgets.py": (2, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
                       "`configure(takefocus=1)` è best-effort perché su un widget-spia dei "
                       "test o su un widget distrutto durante un refresh può sollevare, e non "
                       "poter rendere focusabile una riga non deve impedire di DISEGNARLA "
-                      "(resta comunque cliccabile col mouse)"),
+                      "(resta comunque cliccabile col mouse). PR C, 1 nuovo: `evidenzia_profilo` "
+                      "ricolora le righe e un widget distrutto durante un refresh non deve far "
+                      "saltare l'evidenziazione delle altre"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
     "config_agent.py": (12, "assistente di configurazione (#41 PR-1): dispatch di un tool "
