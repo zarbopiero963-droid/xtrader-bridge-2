@@ -31,6 +31,11 @@ import urllib.parse
 import urllib.request
 
 GITHUB_API = "https://api.github.com"
+
+# Fonte UNICA del messaggio «manca il token» (rilievo Sourcery #215): `publish` e `check_access`
+# lo dicevano con due frasi diverse per la stessa identica condizione, e due copie oggi sono due
+# copie divergenti domani.
+MSG_TOKEN_MANCANTE = "Token mancante: incollalo nelle impostazioni di pubblicazione e salva."
 DEFAULT_TIMEOUT_S = 20
 
 # Tetto di dimensione della risposta letta (una entry Contents API è piccola; evita di ingoiare un
@@ -68,6 +73,15 @@ def contents_url(repo: str, path: str) -> str:
     rompono l'URL — vedi `_quote_repo`)."""
     quoted = urllib.parse.quote(str(path or "").strip().lstrip("/"))
     return f"{GITHUB_API}/repos/{_quote_repo(repo)}/contents/{quoted}"
+
+
+def _contents_url_at_ref(repo: str, path: str, branch: str) -> str:
+    """URL Contents API per (repo, path) al `ref` indicato — **fonte unica** (rilievo CodeRabbit
+    #215): `check_access` e `get_file_sha` lo costruivano ognuno per conto suo, in modo identico.
+    Due costruzioni indipendenti dello stesso URL divergono in silenzio il giorno in cui una sola
+    viene aggiornata — ed è la classe di difetto che la regola della fonte unica esiste per
+    impedire."""
+    return contents_url(repo, path) + "?" + urllib.parse.urlencode({"ref": str(branch or "").strip()})
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -116,7 +130,21 @@ def _default_http(method: str, url: str, *, token: str, body=None,
     return status, (payload if isinstance(payload, dict) else None)
 
 
-def _error_message(status: int, action: str, repo: str = "") -> str:
+def _is_rate_limited(payload) -> bool:
+    """`True` se il corpo della risposta dice che è un **rate-limit** (rilievo Fable #215).
+
+    GitHub usa `403` sia per «permessi insufficienti» sia per il **rate-limit secondario**, e i due
+    chiedono cose opposte: concedere un permesso contro *aspettare qualche minuto*. Distinguerli è
+    lo stesso problema che questa PR risolve fra 401 e 403, un livello più in là.
+
+    Si cerca **solo un marcatore** nel campo `message`; il corpo **non viene mai ri-emesso** —
+    potrebbe riportare header o dettagli della richiesta. Il messaggio mostrato all'utente è
+    scritto qui."""
+    testo = str((payload or {}).get("message", "")).lower() if isinstance(payload, dict) else ""
+    return "rate limit" in testo or "abuse detection" in testo
+
+
+def _error_message(status: int, action: str, repo: str = "", payload=None) -> str:
     """Messaggio leggibile per un codice HTTP di errore. **Non** include mai token né corpo grezzo
     della risposta (che potrebbe riportare header/credenziali).
 
@@ -129,6 +157,9 @@ def _error_message(status: int, action: str, repo: str = "") -> str:
         return ("Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé "
                 "— sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.")
     if status == 403:
+        if _is_rate_limited(payload):
+            return ("GitHub ha applicato un limite di frequenza (403): non è un problema del token "
+                    "né dei permessi — aspetta qualche minuto e riprova.")
         dove = f" su «{repo}»" if str(repo or "").strip() else ""
         return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Se è un token "
                 "fine-grained: in «Repository access» dev'esserci questo repository, e in "
@@ -175,7 +206,7 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
     mai** nel risultato."""
     esito = {"ok": False, "message": "", "can_write": False, "file_exists": False}
     if not str(token or "").strip():
-        esito["message"] = "Token mancante: incollalo e salva le impostazioni, poi riprova."
+        esito["message"] = MSG_TOKEN_MANCANTE
         return esito
     caller = http or _default_http
     try:
@@ -189,7 +220,7 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
                                 "Con un token fine-grained un repo esistente ma NON concesso al "
                                 "token risponde comunque 404.")
         else:
-            esito["message"] = _error_message(status, "verifica", repo)
+            esito["message"] = _error_message(status, "verifica", repo, payload)
         return esito
     permessi = (payload or {}).get("permissions") or {}
     esito["can_write"] = bool(permessi.get("push"))
@@ -199,7 +230,7 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
 
     # Il repo è scrivibile: resta da vedere se il file c'è già (aggiornamento) o no (creazione).
     # Un errore QUI non invalida il permesso appena accertato, quindi non ribalta `ok`.
-    url = contents_url(repo, path) + "?" + urllib.parse.urlencode({"ref": str(branch or "").strip()})
+    url = _contents_url_at_ref(repo, path, branch)
     try:
         status, _payload = caller("GET", url, token=token, timeout=timeout)
     except Exception:       # noqa: BLE001 — rete instabile a metà verifica: si dichiara ciò che si sa
@@ -226,7 +257,7 @@ def get_file_sha(repo: str, path: str, branch: str, *, token: str, http=None,
     - `(None, None)` → **404**: non esiste ancora, si creerà;
     - `(None, messaggio)` → errore vero (credenziali, repo/branch errati, rete)."""
     caller = http or _default_http
-    url = contents_url(repo, path) + "?" + urllib.parse.urlencode({"ref": str(branch or "").strip()})
+    url = _contents_url_at_ref(repo, path, branch)
     try:
         status, payload = caller("GET", url, token=token, timeout=timeout)
     except Exception:       # noqa: BLE001 — qualunque problema di rete: esito strutturato, mai crash
@@ -237,7 +268,7 @@ def get_file_sha(repo: str, path: str, branch: str, *, token: str, http=None,
     # rifiutato di seguire (vedi `_NoRedirectHandler`); trattarlo come «ok» leggerebbe uno `sha`
     # inesistente e poi «pubblicherebbe» nel nulla.
     if status >= 300:
-        return None, _error_message(status, "lettura", repo)
+        return None, _error_message(status, "lettura", repo, payload)
     sha = (payload or {}).get("sha")
     return (str(sha) if sha else None), None
 
@@ -250,7 +281,7 @@ def publish(content: str, *, repo: str, path: str, branch: str, token: str, mess
     **Fail-safe**: nessuna eccezione verso il chiamante; ogni errore diventa `ok=False` con un
     messaggio leggibile. **Il token non compare mai** nel risultato."""
     if not str(token or "").strip():
-        return {"ok": False, "action": "", "message": "Token mancante: salvalo prima di pubblicare."}
+        return {"ok": False, "action": "", "message": MSG_TOKEN_MANCANTE}
     sha, err = get_file_sha(repo, path, branch, token=token, http=http, timeout=timeout)
     if err is not None:
         return {"ok": False, "action": "", "message": err}
@@ -269,7 +300,7 @@ def publish(content: str, *, repo: str, path: str, branch: str, token: str, mess
     except Exception:       # noqa: BLE001 — rete: esito strutturato, mai crash
         return {"ok": False, "action": "", "message": "Rete non disponibile: pubblicazione non riuscita."}
     if status >= 300:      # vedi sopra: un 3xx non è una pubblicazione riuscita
-        return {"ok": False, "action": "", "message": _error_message(status, "scrittura", repo)}
+        return {"ok": False, "action": "", "message": _error_message(status, "scrittura", repo, _payload)}
     verbo = "creata" if action == "created" else "aggiornata"
     return {"ok": True, "action": action,
             "message": f"Lista revoche {verbo} su {repo} ({path}, branch {branch})."}

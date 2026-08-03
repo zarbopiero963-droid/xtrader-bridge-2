@@ -2318,3 +2318,33 @@ def test_verifica_accesso_libera_sempre_il_lucchetto(gui, tmp_path):
     assert fake._check_access_async() is True     # worker inline: gira e rientra
     assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un errore imprevisto"
     assert any("imprevisto" in m for m in fake._msgs)
+
+
+def test_verifica_accesso_con_config_non_valida_non_contatta_github(gui, tmp_path):
+    """Rilievo Sourcery #215, lacuna vera: la validazione della config deve venire PRIMA di
+    qualunque chiamata di rete. Senza questo test, una regressione che invertisse l'ordine
+    manderebbe a GitHub un repo malformato — e l'utente riceverebbe un 404 da API invece del
+    messaggio che gli dice cosa correggere nel campo."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"                      # token c'è: il fallimento dev'essere la config
+    fake._load_publish_config = lambda directory=None: {"repo": "senza-slash", "path": "l.txt",
+                                                        "branch": "main", "interval_hours": 6,
+                                                        "enabled": True}
+    out = fake._evaluate_check_access()
+    assert out["ok"] is False
+    assert "repository" in out["message"].lower()   # è il messaggio di validate_config, non un 404
+    assert fake._check_access_calls == [], "ha contattato GitHub con una config non valida"
+
+
+def test_verifica_accesso_thread_non_avviabile_libera_il_lucchetto(gui, tmp_path):
+    """Rilievo Sourcery #215: il ramo «thread non avviabile» di `_check_access_async` non era
+    coperto. Se il flag restasse alzato, bloccherebbe per sempre anche la pubblicazione
+    automatica delle revoche — un lockout silenzioso, che è il modo peggiore di rompersi."""
+    fake = _fake(gui, tmp_path)
+
+    def _non_parte(_target):
+        raise RuntimeError("thread non avviabile")
+    fake._spawn_publish_thread = _non_parte
+    assert fake._check_access_async() is False
+    assert fake._publish_inflight is False, "lucchetto non rilasciato dopo un thread non avviato"

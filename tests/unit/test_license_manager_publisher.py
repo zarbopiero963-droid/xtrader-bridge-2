@@ -333,3 +333,57 @@ def test_check_access_non_espone_mai_il_token():
                      [(200, {"permissions": {"push": False}})]):
         res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=_FakeHttp(*risposte))
         assert _TOKEN not in json.dumps(res, ensure_ascii=False)
+
+
+# ── 403 non è sempre «permessi»: GitHub lo usa anche per il rate-limit (rilievo Fable #215) ──────
+
+def test_403_da_rate_limit_non_manda_a_cambiare_i_permessi():
+    """GitHub risponde 403 **anche** per il rate-limit secondario. Mandare l'utente a modificare i
+    permessi del token quando deve solo aspettare lo fa girare a vuoto — ed è il difetto che questa
+    PR sta correggendo, riprodotto un livello più in là."""
+    corpo = {"message": "You have exceeded a secondary rate limit. Please wait a few minutes."}
+    msg = publisher._error_message(403, "scrittura", repo=_REPO, payload=corpo)
+    basso = msg.lower()
+    assert "limit" in basso or "attend" in basso or "riprova" in basso, msg
+    assert "contents" not in basso, f"manda a cambiare i permessi per un rate-limit: {msg!r}"
+
+
+def test_403_da_rate_limit_non_ripete_il_corpo_grezzo_di_github():
+    """Il corpo della risposta non va mai ri-emesso: potrebbe riportare header o dettagli della
+    richiesta. Si riconosce il marcatore e si scrive un messaggio NOSTRO."""
+    corpo = {"message": "secondary rate limit", "documentation_url": "https://example.invalid/x"}
+    msg = publisher._error_message(403, "scrittura", repo=_REPO, payload=corpo)
+    assert "example.invalid" not in msg and "documentation_url" not in msg
+
+
+def test_403_senza_marcatore_resta_il_messaggio_dei_permessi():
+    """Non-regressione: il 403 «vero» (permessi) non deve essere scambiato per un rate-limit."""
+    for corpo in (None, {}, {"message": "Resource not accessible by personal access token"}):
+        msg = publisher._error_message(403, "scrittura", repo=_REPO, payload=corpo)
+        assert "contents" in msg.lower(), f"{corpo!r} → {msg!r}"
+
+
+def test_check_access_403_da_rate_limit_lo_dice(monkeypatch):
+    http = _FakeHttp((403, {"message": "You have exceeded a secondary rate limit."}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False
+    assert "contents" not in res["message"].lower(), res["message"]
+
+
+def test_una_sola_frase_per_manca_il_token(monkeypatch):
+    """Regola 3 (rilievo Sourcery #215): `publish` e `check_access` dicevano la stessa cosa con due
+    frasi diverse. Ora la fonte è una — se qualcuno ne riscrivesse una a mano, questo test cade."""
+    a = publisher.publish("x", repo=_REPO, path=_PATH, branch=_BRANCH, token="", message="m")
+    b = publisher.check_access(_REPO, _PATH, _BRANCH, token="")
+    assert a["message"] == b["message"] == publisher.MSG_TOKEN_MANCANTE
+
+
+def test_una_sola_costruzione_dellurl_contents_con_ref():
+    """Rilievo CodeRabbit #215 (regola 3): `check_access` e `get_file_sha` devono interrogare
+    ESATTAMENTE lo stesso URL. Se un domani divergessero, la verifica direbbe «il file c'è» su un
+    indirizzo diverso da quello che la pubblicazione poi aggiorna."""
+    http_a = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"sha": "x"}))
+    publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http_a)
+    http_b = _FakeHttp((200, {"sha": "x"}))
+    publisher.get_file_sha(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http_b)
+    assert http_a.calls[-1]["url"] == http_b.calls[-1]["url"]
