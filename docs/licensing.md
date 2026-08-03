@@ -687,14 +687,16 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   nomina anche **su quale** repository manca il permesso. Restano invariati 404 repo/branch,
   409/422 conflitto, 429 e 5xx.
 - **`check_access()`** — verifica **preventiva** che **non modifica nulla**. Tre `GET` (repo →
-  branch → file) più, quando il file esiste, **una `PUT` che non può riuscire**: porta uno `sha`
-  diverso *per costruzione* da quello reale, e GitHub valida i **permessi prima dello sha**. Quindi
-  `403` = il token non può scrivere (**prova definitiva**), `409/422` = poteva, e **nulla è stato
+  branch → file) più **una `PUT` che non può riuscire**: porta uno `sha` costante e inesistente
+  (`_SHA_PROBE`, quaranta zeri), e GitHub valida i **permessi prima dello sha**. Quindi `403` = il
+  token non può scrivere (**prova definitiva**), `409/422` = poteva, e **nulla è stato
   modificato**. Serve perché `permissions.push` è un'**inferenza**: se un token *fine-grained* con
   «Contents» in sola lettura lo riportasse `true`, la sonda direbbe «Accesso OK» proprio nel guasto
-  da diagnosticare (rilievo Fugu #215). Se il file **non esiste ancora** il probe si **astiene** —
-  una `PUT` senza sha lo creerebbe — e il messaggio lo **dichiara** invece di promettere una
-  scrittura non provata. La `PUT` di prova va su un **percorso usa-e-getta** (`probe_path`:
+  da diagnosticare (rilievo Fugu #215). La `PUT` parte **sempre**, anche alla **prima
+  pubblicazione** quando il file delle revoche non esiste ancora: proprio perché il bersaglio è un
+  percorso a parte, uno `sha` che non combacia con nulla è rifiutato a prescindere dall'esistenza
+  del file, e la verifica resta utile esattamente quando serve di più. La `PUT` di prova va su un
+  **percorso usa-e-getta** (`probe_path`:
   `<file>.xtrader-verifica-accesso`) e **mai** sul file delle revoche — bloccante Fugu #215: la
   difesa «GitHub valida i permessi prima dello sha» non è garantita su un proxy o un'API
   compatibile, e rilevare una sovrascrittura della lista **firmata** non è impedirla. Il potere

@@ -378,14 +378,14 @@ def test_403_senza_marcatore_resta_il_messaggio_dei_permessi():
         assert "contents" in msg.lower(), f"{corpo!r} → {msg!r}"
 
 
-def test_check_access_403_da_rate_limit_lo_dice(monkeypatch):
+def test_check_access_403_da_rate_limit_lo_dice():
     http = _FakeHttp((403, {"message": "You have exceeded a secondary rate limit."}))
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is False
     assert "contents" not in res["message"].lower(), res["message"]
 
 
-def test_una_sola_frase_per_manca_il_token(monkeypatch):
+def test_una_sola_frase_per_manca_il_token():
     """Regola 3 (rilievo Sourcery #215): `publish` e `check_access` dicevano la stessa cosa con due
     frasi diverse. Ora la fonte è una — se qualcuno ne riscrivesse una a mano, questo test cade."""
     a = publisher.publish("x", repo=_REPO, path=_PATH, branch=_BRANCH, token="", message="m")
@@ -629,7 +629,7 @@ def test_anomalia_cancella_il_file_temporaneo_che_ha_creato():
     assert "rimosso" in res["message"].lower() or "ripulit" in res["message"].lower()
 
 
-def test_anomalia_con_pulizia_FALLITA_lo_dice(monkeypatch):
+def test_anomalia_con_pulizia_FALLITA_lo_dice():
     """Se anche la cancellazione fallisce, l'utente deve saperlo: è l'unico caso in cui gli tocca
     intervenire a mano, e tacerlo lascerebbe un file ignoto nel repository."""
     http = _http_fino_al_probe((201, {"content": {"sha": "b" * 40}}), (500, None))
@@ -652,4 +652,31 @@ def test_anomalia_senza_sha_nel_payload_non_tenta_la_cancellazione():
     assert not [c for c in http.calls if c["method"] == "DELETE"], \
         "ha tentato una DELETE senza sha"
     assert "a mano" in res["message"].lower()
+    assert publisher.probe_path(_PATH) in res["message"], "non dice QUALE file resta da rimuovere"
+
+
+def test_pulizia_che_SOLLEVA_non_arriva_mai_alla_GUI():
+    """Rilievo CodeRabbit #215. La pulizia è best-effort e il docstring promette che «un fallimento
+    non solleva» — ma finora i test coprivano solo il fallimento *per status HTTP* (500), mai
+    un'eccezione del trasporto. Sono due rami diversi: la `DELETE` parte quando la rete ha già
+    dimostrato di poter cedere a metà verifica, e se l'eccezione risalisse, `check_access` — che la
+    GUI chiama senza `try` attorno — porterebbe un traceback dentro il thread di verifica invece
+    del messaggio che dice all'utente quale file resta da cancellare.
+
+    Non è un test decorativo: togliendo l'`except Exception` da `_rimuovi_file_di_prova` questo
+    test fallisce con l'`OSError` che risale (verificato per mutazione)."""
+    def http(method, url, *, token, body=None, timeout=None):
+        if method == "DELETE":
+            raise OSError("rete caduta durante la pulizia")
+        if method == "PUT":
+            return 201, {"content": {"sha": "b" * 40}}
+        if "/branches/" in url:
+            return 200, {"name": "main"}
+        if "/contents/" in url:
+            return 200, {"sha": _SHA_REALE}
+        return 200, {"permissions": {"push": True}}
+
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False
+    assert "a mano" in res["message"].lower(), res["message"]
     assert publisher.probe_path(_PATH) in res["message"], "non dice QUALE file resta da rimuovere"
