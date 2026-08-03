@@ -163,3 +163,27 @@ def test_score_to_over_resta_invariata_non_regressione():
     # un parser caricato perderebbe la trasformazione in silenzio al primo salvataggio).
     assert tr.apply("6-0", "score_to_over") == "Over 6,5"
     assert "score_to_over" in tr.available_transforms()
+
+
+def test_le_due_trasformazioni_condividono_ESATTAMENTE_i_cap():
+    """Regola 3, verificata invece che dichiarata: `_somma_gol` è la fonte unica dei cap, quindi
+    tempo pieno e primo tempo devono accettare e rifiutare gli STESSI punteggi — al limite
+    compreso. Se un domani qualcuno duplicasse la logica e spostasse un cap di uno, lo stesso
+    messaggio produrrebbe una linea con una trasformazione e nessuna con l'altra: un buco
+    invisibile finché non capita in produzione.
+
+    I limiti sono INCLUSIVI: somma 30 passa, 31 no (rilievo CodeRabbit su #213 — le docs
+    dicevano il contrario)."""
+    for score in ["0-0", "15-15", "30-0", "0-30",          # ammessi (somma ≤ 30, lato ≤ 30)
+                  "16-15", "31-0", "0-31", "20-20", "abc", ""]:   # rifiutati
+        ft = tr.apply(score, "score_to_over")
+        ht = tr.apply(score, "score_to_over_ht")
+        assert bool(ft) == bool(ht), (
+            f"{score!r} accettato da una trasformazione e rifiutato dall'altra: "
+            f"ft={ft!r} ht={ht!r} — i cap sono divergenti")
+
+    # Il limite esatto, esplicito su entrambe: 30 passa, 31 no.
+    assert tr.apply("15-15", "score_to_over") == "Over 30,5"
+    assert tr.apply("15-15", "score_to_over_ht") == "over 30,5 ht"
+    assert tr.apply("16-15", "score_to_over") == ""
+    assert tr.apply("16-15", "score_to_over_ht") == ""

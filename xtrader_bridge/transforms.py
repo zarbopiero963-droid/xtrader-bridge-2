@@ -29,7 +29,7 @@ _MAX_GOALS_PER_SIDE = 30
 _MAX_GOALS_TOTAL = 30
 
 
-def _somma_gol(value: str):
+def _somma_gol(value: str) -> int | None:
     """Somma gol di un punteggio **plausibile**, oppure ``None`` se non lo è.
 
     FONTE UNICA della lettura del punteggio (regola 3): le trasformazioni Over — tempo

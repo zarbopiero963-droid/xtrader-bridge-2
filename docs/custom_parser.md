@@ -86,7 +86,8 @@ Derivano un valore calcolato da quello estratto. Built-in:
 Entrambe: input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
 **ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
 produce alcuna linea Over (#318 L2-1 · #166 P3-cp1). Stessi cap di plausibilità (fonte
-unica `_somma_gol`): oltre 30 gol per lato o 30 di somma → vuoto.
+unica `_somma_gol`): **oltre** 30 gol per lato o **oltre** 30 di somma → vuoto. I due limiti
+sono inclusivi, quindi `15-15` (somma 30) e `30-0` sono ancora ammessi.
 
 ⚠️ **Il periodo va scelto, non dedotto.** Il `SelectionName` risolto è **identico** fra i
 due tempi (`"Over 1,5 goal"`): a distinguere il mercato è solo il `MarketType`. Un parser
