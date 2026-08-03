@@ -136,6 +136,25 @@ def _default_http(method: str, url: str, *, token: str, body=None,
     return status, (payload if isinstance(payload, dict) else None)
 
 
+def _sha_che_non_combacia(sha_reale: str) -> str:
+    """Uno `sha` **diverso per costruzione** da quello reale — l'invariante di sicurezza del probe
+    di scrittura.
+
+    Il probe manda una `PUT` con questo sha per farsi dire da GitHub se il token *potrebbe*
+    scrivere. GitHub valida i **permessi prima dello sha**, quindi: 403 = non può scrivere;
+    409/422 = poteva, ma lo sha non combacia e **nulla viene modificato**.
+
+    Tutta la sicurezza sta qui: se questo sha combaciasse, la `PUT` **riuscirebbe** e
+    sovrascriverebbe la lista revoche con un contenuto segnaposto. Non ci si affida
+    all'improbabilità di una collisione — si prende lo sha reale e se ne cambia un carattere,
+    così la differenza è **garantita**, non sperata."""
+    reale = str(sha_reale or "").strip()
+    if not reale:
+        return ""
+    primo = "0" if reale[0] != "0" else "1"
+    return primo + reale[1:]
+
+
 def _is_rate_limited(payload) -> bool:
     """`True` se il corpo della risposta dice che è un **rate-limit** (rilievo Fable #215).
 
@@ -200,10 +219,13 @@ def repo_url(repo: str) -> str:
 
 def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
                  timeout: int = DEFAULT_TIMEOUT_S) -> dict:
-    """Verifica **preventiva e in sola lettura** che la pubblicazione funzionerà.
+    """Verifica **preventiva** che la pubblicazione funzionerà, **senza modificare nulla**.
 
     Ritorna ``{"ok", "message", "can_write", "file_exists"}``. **Non scrive mai** sul repository:
-    due `GET`, nessun `PUT` — non si sporca il repo delle revoche per fare una prova.
+    tre `GET` più — quando il file esiste — **una `PUT` che non può andare a buon fine**, perché
+    porta uno `sha` diverso *per costruzione* da quello reale (`_sha_che_non_combacia`). Non è una
+    scrittura: è l'unica domanda a cui GitHub risponde con certezza su «questo token può scrivere?»,
+    perché i permessi sono validati **prima** dello sha. Il repo delle revoche non viene toccato.
 
     Perché non basta leggere il file (il caso reale del proprietario, 2026-08-03): il repository
     delle revoche è **pubblico**, quindi una `GET` riesce con qualunque token valido. Una verifica
@@ -266,12 +288,53 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
         status, _payload = caller("GET", url, token=token, timeout=timeout)
     except Exception:       # noqa: BLE001 — rete instabile a metà verifica: si dichiara ciò che si sa
         status = None
-    esito["ok"] = True
     esito["file_exists"] = status == 200
+    sha_reale = (_payload or {}).get("sha") if status == 200 else None
+
+    # PROVA DEFINITIVA della scrittura (richiesta del proprietario, 2026-08-03). `permissions.push`
+    # è un'INFERENZA: nessuna chiamata di sola lettura dice con certezza se un token *fine-grained*
+    # può scrivere — se riportasse `push: true` con «Contents» in sola lettura, la sonda direbbe
+    # «Accesso OK» proprio nel guasto che deve diagnosticare (rilievo Fugu #215).
+    #
+    # Si tenta quindi una `PUT` con uno sha **che non può combaciare** (`_sha_che_non_combacia`):
+    # GitHub valida i permessi PRIMA dello sha, quindi 403 = non può scrivere (prova definitiva),
+    # 409/422 = poteva, e nulla è stato modificato. Non è una scrittura: è una domanda posta
+    # nell'unico modo a cui GitHub risponde con certezza.
+    #
+    # Senza sha reale il probe si ASTIENE: una `PUT` senza sha **creerebbe** il file, e non si
+    # sporca il repository delle revoche per fare una prova. In quel caso lo si dichiara.
+    fittizio = _sha_che_non_combacia(sha_reale)
+    if fittizio:
+        corpo = {"message": "verifica accesso (nessuna modifica)",
+                 "content": base64.b64encode(b"verifica").decode("ascii"),
+                 "branch": str(branch or "").strip(), "sha": fittizio}
+        try:
+            status_w, payload_w = caller("PUT", contents_url(repo, path), token=token, body=corpo,
+                                         timeout=timeout)
+        except Exception:       # noqa: BLE001 — rete a metà verifica: si dichiara ciò che si sa
+            status_w, payload_w = None, None
+        if status_w in (401, 403):
+            esito["can_write"] = False
+            esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
+            return esito
+        if status_w in (409, 422):
+            dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Permesso di scrittura "
+                         "CONFERMATO da GitHub (prova senza modifiche).")
+        else:
+            dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Il permesso di scrittura "
+                         "risulta concesso ma NON è stato confermato con una prova.")
+        esito["ok"] = True
+        esito["message"] = (f"✅ Accesso OK: il token può scrivere su «{repo}» (branch {branch}). "
+                            f"{dettaglio}")
+        return esito
+
+    esito["ok"] = True
     if status == 200:
         dettaglio = f"Il file «{path}» esiste già e verrà aggiornato."
     elif status == 404:
-        dettaglio = f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà."
+        dettaglio = (f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà. Il "
+                     "permesso di scrittura risulta concesso ma NON è stato verificato con una "
+                     "prova (si può farlo solo su un file esistente, senza crearne uno).")
     else:
         dettaglio = ("Permesso di scrittura verificato; lo stato del file non è stato letto "
                      "(riprova se la pubblicazione dovesse fallire).")

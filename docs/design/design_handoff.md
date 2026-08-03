@@ -1359,7 +1359,7 @@ in cui qualcosa non è andato liscio):
 | pubblicazione **già in corso** | «Una pubblicazione era già in corso e non contiene questa revoca: riprovo fra poco.» |
 | avvio **non riuscito** | «⚠️ La revoca è registrata ma la pubblicazione non è partita: NON è ancora attiva sui bridge. Usa «🚀 Pubblica ora» nella scheda «Revoche».» |
 
-#### «🔍 Verifica accesso» — sonda sola-lettura (collaudo proprietario, 2026-08-03)
+#### «🔍 Verifica accesso» — sonda che non modifica nulla (collaudo proprietario, 2026-08-03)
 
 Nasce da un guasto reale: installando il License Manager su un **secondo PC**, la pubblicazione
 falliva e l'unico modo di scoprire il perché era **tentare una pubblicazione vera** — cioè
@@ -1374,13 +1374,22 @@ contrario.
 
 | esito | messaggio (forma) |
 |---|---|
-| accesso **OK** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*).» + se il file esiste già («verrà aggiornato») o non ancora («la prima pubblicazione lo creerà») |
+| accesso **OK**, scrittura **confermata** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*). Il file «*path*» esiste già e verrà aggiornato. Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche).» |
+| accesso **OK**, scrittura **non provata** | come sopra, ma «… Il permesso di scrittura risulta concesso ma NON è stato verificato con una prova (si può farlo solo su un file esistente, senza crearne uno).» — è il caso della **prima** pubblicazione, quando il file non c'è ancora |
 | **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
 | **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
 | **404** sul branch | «⚠️ Il branch «*X*» non esiste su «*repo*» (404): controlla il nome (spesso è «main» o «master»). Il permesso di scrittura c'è.» |
 | token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
 | rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
+
+**Perché la sonda tenta una scrittura.** `permissions.push` è un'**inferenza**: se un token
+*fine-grained* con «Contents» in sola lettura lo riportasse `true`, la verifica direbbe «Accesso OK»
+proprio nel guasto che deve diagnosticare. L'unica prova certa è chiedere a GitHub — con una `PUT`
+che porta uno `sha` **diverso per costruzione** da quello reale, quindi **impossibile da applicare**.
+I permessi sono validati *prima* dello sha: `403` = non può scrivere, `409/422` = poteva, e **nulla
+è stato modificato**. Se il file non esiste ancora il probe si **astiene** (una `PUT` senza sha lo
+creerebbe) e il messaggio lo **dichiara**, invece di promettere una scrittura non provata.
 
 **401 e 403 sono voci separate di proposito.** Prima condividevano una frase sola — «Token non
 valido o senza permessi» — e chi la leggeva non poteva sapere quale dei due fosse, mentre i rimedi

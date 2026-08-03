@@ -8,6 +8,8 @@ import base64
 import json
 import urllib.parse
 
+import pytest
+
 from license_manager import publisher
 
 _REPO = "tizio/xtrader-revocation"
@@ -447,8 +449,77 @@ def test_check_access_branch_esistente_e_file_assente_resta_OK():
     assert res["ok"] is True and res["file_exists"] is False
 
 
-def test_check_access_sonda_il_branch_senza_scrivere():
-    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}), (200, {"sha": "x"}))
+def test_check_access_sonda_il_branch_e_non_MODIFICA_nulla():
+    """Contratto aggiornato il 2026-08-03. Prima pretendeva «nessun PUT»; ora la sonda ne fa UNA,
+    deliberatamente, perché è l'unico modo di sapere con certezza se il token può scrivere. Ciò che
+    va sorvegliato non è più «non fa PUT» ma «la PUT non può MODIFICARE nulla»: sha diverso per
+    costruzione, e una sola."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                     (200, {"sha": "x" * 40}), (409, None))
     publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
-    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], "la verifica ha scritto"
+    metodi = [c["method"] for c in http.calls]
+    assert metodi == ["GET", "GET", "GET", "PUT"], metodi
     assert "/branches/" in http.calls[1]["url"]
+    assert http.calls[3]["body"]["sha"] != "x" * 40, "la PUT avrebbe MODIFICATO il file"
+
+
+# ── Prova DEFINITIVA della scrittura, senza scrivere (richiesta del proprietario 2026-08-03) ─────
+#
+# `permissions.push` è un'inferenza: nessuna chiamata di sola lettura dice con certezza se un token
+# fine-grained può SCRIVERE. L'unica prova certa è tentare — e GitHub verifica i permessi PRIMA
+# dello `sha`, quindi un PUT con uno sha volutamente sbagliato distingue i due casi senza scrivere.
+
+_SHA_REALE = "a" * 40
+
+
+def _http_fino_al_probe(*coda):
+    """repo scrivibile → branch esiste → file esiste (sha noto) → poi la coda del test."""
+    return _FakeHttp((200, {"permissions": {"push": True}}),
+                     (200, {"name": "main"}),
+                     (200, {"sha": _SHA_REALE}),
+                     *coda)
+
+
+def test_probe_scrittura_403_smaschera_il_falso_ok_di_permissions_push():
+    """Il caso che rende inutile la sonda: `push: true` ma niente «Contents: Read and write».
+    Senza questo probe la verifica direbbe «✅ Accesso OK» proprio nel guasto da diagnosticare."""
+    http = _http_fino_al_probe((403, {"message": "Resource not accessible by personal access token"}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False, f"falso «Accesso OK» nonostante il 403 in scrittura: {res!r}"
+    assert res["can_write"] is False
+    assert "contents" in res["message"].lower()
+
+
+@pytest.mark.parametrize("status", [409, 422])
+def test_probe_scrittura_conflitto_significa_PERMESSO_CONFERMATO(status):
+    """409/422 = «avresti potuto scrivere, ma lo sha non combacia»: è la conferma del permesso.
+    Nulla è stato modificato."""
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN,
+                                 http=_http_fino_al_probe((status, {"message": "sha mismatch"})))
+    assert res["ok"] is True and res["can_write"] is True
+
+
+def test_probe_scrittura_manda_uno_sha_DIVERSO_da_quello_reale():
+    """L'invariante di sicurezza. Se il probe mandasse lo sha REALE la scrittura andrebbe a buon
+    fine e sovrascriverebbe la lista revoche con un contenuto segnaposto. Lo sha inviato dev'essere
+    diverso PER COSTRUZIONE — non «improbabile»: diverso."""
+    http = _http_fino_al_probe((409, None))
+    publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    put = [c for c in http.calls if c["method"] == "PUT"]
+    assert len(put) == 1, "il probe deve fare UNA sola PUT"
+    inviato = (put[0]["body"] or {}).get("sha")
+    assert inviato and inviato != _SHA_REALE, (
+        f"il probe ha inviato lo sha REALE ({inviato!r}): la scrittura sarebbe RIUSCITA")
+    assert len(inviato) == len(_SHA_REALE)
+
+
+def test_probe_scrittura_NON_parte_se_il_file_non_esiste_ancora():
+    """Senza sha reale non si può costruire uno sha «diverso per costruzione», e una PUT senza sha
+    CREEREBBE il file. Quindi il probe si astiene, e la verifica lo dichiara invece di fingere."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}), (404, None))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], "ha scritto senza sha reale"
+    assert res["ok"] is True and res["file_exists"] is False
+    testo = res["message"].lower()
+    assert "non è stato verificato" in testo or "non è stato confermato" in testo, \
+        f"promette una scrittura che non ha provato: {res['message']!r}"

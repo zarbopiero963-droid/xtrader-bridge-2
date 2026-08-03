@@ -762,8 +762,10 @@ class LicenseManagerApp(ctk.CTk):
             self._set_publish_inflight(False)
 
     def _evaluate_check_access(self) -> dict:
-        """Verifica **preventiva e in sola lettura** che la pubblicazione funzionerà.
-        Ritorna ``{"ok","message"}``. Non scrive nulla, né su GitHub né su disco.
+        """Verifica **preventiva** che la pubblicazione funzionerà. Ritorna ``{"ok","message"}``.
+
+        **Non modifica nulla**, né su GitHub né su disco: la prova di scrittura usa uno `sha` che
+        non può combaciare (vedi `publisher.check_access`), quindi GitHub la rifiuta sempre.
 
         Fail-safe come `_evaluate_publish_now`: nessuna eccezione verso la GUI, e il **token non
         compare mai** nel messaggio."""
@@ -1530,8 +1532,8 @@ class LicenseManagerApp(ctk.CTk):
             self._set_msg("⏳ Una pubblicazione è già in corso: attendi l'esito.")
 
     def _on_check_access(self) -> None:
-        """Verifica **in sola lettura** che il token possa davvero pubblicare, **in background**
-        (fa rete come la pubblicazione: sul thread Tk congelerebbe la finestra).
+        """Verifica che il token possa davvero pubblicare — **senza modificare nulla** — **in
+        background** (fa rete come la pubblicazione: sul thread Tk congelerebbe la finestra).
 
         Nasce dal collaudo del proprietario sul secondo PC: fino a ieri l'unico modo di scoprire
         che il token non aveva i permessi era **tentare una pubblicazione vera** — cioè

@@ -686,8 +686,15 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   *fine-grained*: «Repository access» deve includerlo e serve «Contents: Read and write»). Il 403
   nomina anche **su quale** repository manca il permesso. Restano invariati 404 repo/branch,
   409/422 conflitto, 429 e 5xx.
-- **`check_access()`** — verifica **preventiva e in sola lettura** (nessun `PUT`: non si sporca il
-  repo delle revoche per fare una prova). Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
+- **`check_access()`** — verifica **preventiva** che **non modifica nulla**. Tre `GET` (repo →
+  branch → file) più, quando il file esiste, **una `PUT` che non può riuscire**: porta uno `sha`
+  diverso *per costruzione* da quello reale, e GitHub valida i **permessi prima dello sha**. Quindi
+  `403` = il token non può scrivere (**prova definitiva**), `409/422` = poteva, e **nulla è stato
+  modificato**. Serve perché `permissions.push` è un'**inferenza**: se un token *fine-grained* con
+  «Contents» in sola lettura lo riportasse `true`, la sonda direbbe «Accesso OK» proprio nel guasto
+  da diagnosticare (rilievo Fugu #215). Se il file **non esiste ancora** il probe si **astiene** —
+  una `PUT` senza sha lo creerebbe — e il messaggio lo **dichiara** invece di promettere una
+  scrittura non provata. Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
   cioè la capacità di **scrivere**: il repository delle revoche è **pubblico**, quindi una `GET` sul
   file riesce con qualunque token valido e una verifica di sola lettura direbbe «tutto ok» per poi
   far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non
@@ -700,7 +707,7 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   presente» (legittimo) sia per «branch inesistente» (errore), e i due si distinguono solo così.
 - **GUI** (`license_manager/gui.py`, sezione «📤 Pubblicazione automatica (GitHub)»): campi repo/path/
   branch/intervallo + token (`show="*"`, svuotato dopo il salvataggio), checkbox on/off, **💾 Salva
-  impostazioni**, **🔍 Verifica accesso** (sonda sola-lettura, in background come la
+  impostazioni**, **🔍 Verifica accesso** (sonda che non modifica nulla, in background come la
   pubblicazione: la rete non congela la finestra; non tocca l'etichetta dell'ultima pubblicazione,
   perché non pubblica nulla) e **🚀 Pubblica ora**; un **tick** (`_publish_tick`/`_schedule_publish_tick`) ri-firma
   e ri-carica alla cadenza scelta, si **ri-arma sempre** (anche dopo un errore) e viene annullato alla
