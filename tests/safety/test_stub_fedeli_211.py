@@ -30,10 +30,26 @@ rispondeva rifiutando il token — un errore permanente. Con la rete bloccata l'
 infedele mascherava tutto: il suo `TypeError` era permanente e chiudeva il giro in fretta.
 """
 
+import ast
 import pathlib
-import re
 
 RADICE = pathlib.Path(__file__).resolve().parents[2]
+
+
+def _albero(percorso: pathlib.Path) -> ast.Module:
+    return ast.parse(percorso.read_text(encoding="utf-8"), filename=str(percorso))
+
+
+def _firma(fn) -> str:
+    """Firma leggibile del metodo, per il messaggio d'errore."""
+    a = fn.args
+    parti = [x.arg for x in (*a.posonlyargs, *a.args)]
+    if a.vararg:
+        parti.append("*" + a.vararg.arg)
+    parti += [x.arg for x in a.kwonlyargs]
+    if a.kwarg:
+        parti.append("**" + a.kwarg.arg)
+    return f"def {fn.name}({', '.join(parti)})"
 
 
 def _metodi_di_app_chiamati_con_argomenti() -> dict:
@@ -41,19 +57,50 @@ def _metodi_di_app_chiamati_con_argomenti() -> dict:
 
     Un metodo con parametro **opzionale** mai passato da nessun chiamante non è un problema:
     uno stub a zero argomenti lo soddisfa. Conta solo ciò che viene davvero chiamato con
-    argomenti, altrimenti il gate segnalerebbe stub innocui."""
-    src = (RADICE / "xtrader_bridge" / "app.py").read_text(encoding="utf-8")
-    firme = {m.group(1): m.group(2)
-             for m in re.finditer(r"^    def (_?\w+)\(self(.*?)\)\s*(?:->.*?)?:", src, re.MULTILINE)}
+    argomenti, altrimenti il gate segnalerebbe stub innocui.
+
+    Analisi via **AST**, non regex (rilievo convergente di Sourcery, GPT-5.5 e Fable sulla
+    PR #221). Il primo giro leggeva `app.py` con `re.finditer` su `^    def nome(self...)`:
+    una firma spezzata su piu' righe, un decoratore o un tipo di ritorno annotato la
+    facevano sparire dall'elenco — e un metodo che sparisce dall'elenco e' un metodo che il
+    gate **smette di sorvegliare in silenzio**, che e' il difetto peggiore possibile per un
+    gate. Con l'AST la formattazione non conta."""
+    albero = _albero(RADICE / "xtrader_bridge" / "app.py")
+    classe = next((n for n in ast.walk(albero)
+                   if isinstance(n, ast.ClassDef) and n.name == "App"), None)
+    assert classe is not None, "classe App non trovata in app.py: la scansione e' da rifare"
+
+    metodi = {}
+    for n in classe.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            a = n.args
+            # Un metodo che accetta SOLO self non puo' essere chiamato con argomenti.
+            if len(a.posonlyargs) + len(a.args) > 1 or a.kwonlyargs or a.vararg or a.kwarg:
+                metodi[n.name] = _firma(n)
+
     con_argomenti = {}
-    for nome, firma in firme.items():
-        if not firma.strip():
-            continue
-        for chiamata in re.findall(rf"self\.{re.escape(nome)}\(([^)]*)\)", src):
-            if chiamata.strip():
-                con_argomenti[nome] = f"def {nome}(self{firma})"
-                break
+    for n in ast.walk(albero):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "self"
+                and n.func.attr in metodi and (n.args or n.keywords)):
+            con_argomenti[n.func.attr] = metodi[n.func.attr]
     return con_argomenti
+
+
+def _stub_a_zero_argomenti(percorso: pathlib.Path):
+    """Assegnazioni `qualcosa.metodo = lambda: ...` nel file → (nome_metodo, riga).
+
+    Anche qui AST: `lambda` con lista argomenti VUOTA, indipendentemente da come e'
+    scritta o spezzata."""
+    for n in ast.walk(_albero(percorso)):
+        if not isinstance(n, ast.Assign) or not isinstance(n.value, ast.Lambda):
+            continue
+        a = n.value.args
+        if a.posonlyargs or a.args or a.kwonlyargs or a.vararg or a.kwarg:
+            continue                                   # lo stub accetta argomenti: fedele
+        for bersaglio in n.targets:
+            if isinstance(bersaglio, ast.Attribute):
+                yield bersaglio.attr, n.lineno
 
 
 def test_nessuno_stub_dei_test_ignora_gli_ARGOMENTI_del_metodo_vero():
@@ -67,11 +114,10 @@ def test_nessuno_stub_dei_test_ignora_gli_ARGOMENTI_del_metodo_vero():
     for f in sorted((RADICE / "tests").rglob("*.py")):
         if f.name == pathlib.Path(__file__).name:
             continue                                  # questo file cita i nomi negli esempi
-        for n, riga in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            m = re.match(r"\s*\w+\.(_\w+)\s*=\s*lambda\s*:", riga)
-            if m and m.group(1) in attesi:
-                infedeli.append(f"{f.relative_to(RADICE)}:{n} — {m.group(1)} "
-                                f"stub a 0 argomenti, ma «{attesi[m.group(1)]}» "
+        for nome, riga in _stub_a_zero_argomenti(f):
+            if nome in attesi:
+                infedeli.append(f"{f.relative_to(RADICE)}:{riga} — {nome} "
+                                f"stub a 0 argomenti, ma «{attesi[nome]}» "
                                 f"è chiamato CON argomenti")
 
     assert not infedeli, (
@@ -88,17 +134,37 @@ def test_chi_esegue_run_bot_deve_sostituire_ApplicationBuilder():
     permanente → esce; rete assente = `NetworkError` transitorio → backoff infinito).
 
     Fail-first: prima della correzione questo test elencava `test_bot_after_teardown_76.py`.
-    Lo stub `telegram.ext` del conftest NON basta: viene installato solo quando PTB è assente."""
+    Lo stub `telegram.ext` del conftest NON basta: viene installato solo quando PTB è assente.
+
+    **Il limite, dichiarato** (rilievo Sourcery/GPT-5.5 sulla PR #221). Il gate riconosce la
+    chiamata DIRETTA `App._run_bot(...)` e la sostituzione fatta NELLO STESSO file. Un test
+    che raggiungesse `_run_bot` per alias, o che ricevesse il builder finto da una fixture in
+    `conftest.py`, sarebbe segnalato qui pur essendo corretto. È il verso giusto in cui
+    sbagliare: un **falso positivo** fallisce rumorosamente e si sistema in un minuto,
+    mentre un falso negativo rimetterebbe in silenzio una connessione vera dentro la suite —
+    che è il difetto per cui questo file esiste. Se un domani la fixture condivisa diventa la
+    norma, il gate va esteso a riconoscerla, non allentato."""
+    io_stesso = pathlib.Path(__file__).name
     colpevoli = []
     for f in sorted((RADICE / "tests").rglob("*.py")):
-        if f.name == pathlib.Path(__file__).name:
+        if f.name == io_stesso:
             continue                                  # questo file nomina _run_bot nei commenti
-        testo = f.read_text(encoding="utf-8")
-        esegue = re.search(r"App\._run_bot\(", testo)
-        # Serve la SOSTITUZIONE vera, non una citazione: il primo giro di questo gate
-        # cercava la parola «ApplicationBuilder» nel file e passava per via del docstring
-        # che la nominava — un test decorativo che non provava niente.
-        sostituisce = re.search(r"setattr\(\s*\w+\s*,\s*[\"']ApplicationBuilder[\"']", testo)
+        esegue = sostituisce = False
+        for n in ast.walk(_albero(f)):
+            if not isinstance(n, ast.Call):
+                continue
+            # `App._run_bot(a, cfg, epoch)` — esecuzione del vero supervisor.
+            if isinstance(n.func, ast.Attribute) and n.func.attr == "_run_bot":
+                esegue = True
+            # Serve la SOSTITUZIONE vera, non una citazione: il primo giro di questo gate
+            # cercava la parola «ApplicationBuilder» nel testo e passava per via del
+            # docstring che la nominava — un test decorativo che non provava niente.
+            # `monkeypatch.setattr(app_mod, "ApplicationBuilder", ...)`: conta il secondo
+            # argomento, cioè il NOME sostituito, non una stringa qualunque nel file.
+            if (isinstance(n.func, ast.Attribute) and n.func.attr == "setattr"
+                    and len(n.args) >= 2 and isinstance(n.args[1], ast.Constant)
+                    and n.args[1].value == "ApplicationBuilder"):
+                sostituisce = True
         if esegue and not sostituisce:
             colpevoli.append(f.relative_to(RADICE))
 

@@ -176,7 +176,8 @@ class _TgAppFinta:
         return None
 
 
-def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
+def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running,
+                        dopo_creazione_loop=None):
     """App headless pronta a eseguire il VERO `_run_bot` in modo ERMETICO.
 
     `ApplicationBuilder` è sostituito esplicitamente (#211 R1): senza, `_run_bot`
@@ -184,6 +185,9 @@ def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
     per dipendere da COME la rete falliva — token rifiutato (permanente) → passava;
     rete assente → `NetworkError` transitorio → backoff, cioè stallo. Lo stub del
     conftest non copre il caso, perché esiste solo se PTB NON è installato.
+
+    `dopo_creazione_loop`, se passato, viene invocato SUBITO DOPO che il loop della
+    sessione è stato costruito. Serve al test del tripwire: vedi lì il perché.
 
     Ritorna (app, loop_creati)."""
     a = make_app(running=running)
@@ -199,6 +203,8 @@ def _pronta_per_run_bot(make_app, app_mod, monkeypatch, *, running):
     def _registra():
         loop = vero_new_loop()
         creati.append(loop)
+        if dopo_creazione_loop is not None:
+            dopo_creazione_loop()
         return loop
 
     monkeypatch.setattr(app_mod.asyncio, "new_event_loop", _registra)
@@ -262,18 +268,35 @@ def test_run_bot_non_apre_NESSUNA_socket(make_app, app_mod, monkeypatch):
       `MessageHandler` fa fallire `add_handler` con un `TypeError` permanente prima
       che si arrivi a `initialize()`. Quindi questo test da solo NON pinna la
       sostituzione del builder — quella la pinna il gate strutturale. I due si
-      coprono a vicenda: non rimuovere l'uno pensando che l'altro basti."""
-    a, creati = _pronta_per_run_bot(make_app, app_mod, monkeypatch, running=True)
+      coprono a vicenda: non rimuovere l'uno pensando che l'altro basti.
 
+    **Perché il tripwire si arma DOPO la creazione del loop, e non prima.** Su Windows
+    — il target principale — `ProactorEventLoop.__init__` costruisce la propria
+    self-pipe con `socket.socketpair()`, che nell'implementazione Windows è una
+    connessione TCP **vera** su `127.0.0.1`. Armando prima, il tripwire scattava
+    sull'impianto interno di asyncio invece che su Telegram: `windows-tests` è caduto
+    così su `598fc7a` (`connessione di rete VERA verso ('127.0.0.1', 60915)` da
+    `proactor_events.py:_make_self_pipe`), mentre su Linux il selector loop usa
+    `os.pipe` e non apre socket — il difetto era invisibile qui. Armare subito dopo la
+    costruzione del loop lascia fuori la self-pipe e dentro **tutto** ciò che il
+    supervisor fa dopo, che è esattamente il traffico da sorvegliare."""
     tentate = []
 
     def _tripwire(self, indirizzo):
         tentate.append(indirizzo)
         raise AssertionError(f"connessione di rete VERA verso {indirizzo}")
 
-    monkeypatch.setattr(socket.socket, "connect", _tripwire)
+    def _arma():
+        monkeypatch.setattr(socket.socket, "connect", _tripwire)
+
+    a, creati = _pronta_per_run_bot(make_app, app_mod, monkeypatch, running=True,
+                                    dopo_creazione_loop=_arma)
 
     app_mod.App._run_bot(a, {"bot_token": "finto", "chat_id": "-1"}, 1)
 
+    assert creati, "il loop della sessione non è mai stato creato: tripwire mai armato"
+    assert socket.socket.connect is _tripwire, (
+        "il tripwire non risulta armato a fine test: senza, l'assenza di connessioni "
+        "non proverebbe nulla")
     assert tentate == [], f"il test ha aperto socket reali: {tentate}"
     assert len(creati) == 1 and creati[0].is_closed()
