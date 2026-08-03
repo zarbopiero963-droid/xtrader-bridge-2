@@ -129,6 +129,21 @@ MAPPING_MISSING = "MAPPING_MISSING"
 # hanno estratto un mercato. Fail-closed: nessuna riga (un mercato sbagliato/inventato = bet
 # sbagliato). Vedi docs/audit/mercati_mapping_design.md §4-§5.
 MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"
+# Separatore squadre IMPOSTATO nel parser ma NON trovato nell'EventName (#182 PR S).
+# Fail-closed: nessuna riga. Prima la riga veniva scritta col nome VERBATIM più un avviso, con
+# questa motivazione: «normalizzare un formato non può creare una scommessa errata». Vera in
+# astratto, ma incompleta — se il separatore configurato non compare, il messaggio NON ha il
+# formato che il parser dichiara di aspettarsi, e scrivere lo stesso significa piazzare su un
+# evento che non si è saputo interpretare. Decisione del proprietario sulla #182.
+#
+# ⚠️ Codice DEDICATO e non un riuso di `MAPPING_MISSING`: sono due cause diverse — lì manca la
+# TRADUZIONE (dizionario incompleto), qui manca lo SPLIT (separatore sbagliato). Confonderle
+# manderebbe l'utente a cercare il problema nel dizionario invece che nel campo «Separatore».
+#
+# ⚠️ Riguarda SOLO il separatore esplicitamente impostato. Col campo VUOTO nulla cambia: il ramo
+# che produce questo esito non viene proprio raggiunto (vedi `elif (defn.team_separator …)`), e
+# quella è l'invariante che protegge tutti i parser esistenti.
+TEAM_SEPARATOR_NOT_FOUND = "TEAM_SEPARATOR_NOT_FOUND"
 
 
 def _handicap_bloccante(row: dict) -> bool:
@@ -466,10 +481,21 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                 row = dict(row)
                 row["EventName"] = recomposed
         elif original_event:
-            # separatore impostato ma non trovato tra le squadre → verbatim + avviso.
-            # L'avviso nomina il separatore che il messaggio sembra usare, quando c'è (#182 ⑨):
-            # il comportamento non cambia (riga scritta, nome verbatim), cambia solo il testo.
-            warnings.append(warn_team_separator_not_found(original_event))
+            # #182 PR S — separatore IMPOSTATO ma non trovato → NESSUNA RIGA (fail-closed).
+            #
+            # Prima: EventName verbatim + avviso, riga scritta. Il motivo storico era che
+            # «normalizzare un formato non può creare una scommessa errata» — ma se il
+            # separatore configurato non compare, il messaggio non ha il formato che il parser
+            # dichiara di aspettarsi: scrivere lo stesso significa piazzare su un evento che non
+            # si è saputo interpretare.
+            #
+            # Il messaggio dell'avviso è RIUSATO come `detail` invece di essere buttato: contiene
+            # già il separatore che il messaggio sembra usare (#182 ⑨), cioè esattamente cosa
+            # correggere. Uno scarto che non dice come rimediare sarebbe peggio dell'avviso che
+            # sostituisce.
+            return PipelineResult(TEAM_SEPARATOR_NOT_FOUND, row,
+                                  list(res.missing_required),
+                                  detail=warn_team_separator_not_found(original_event))
 
     # Mappatura mercati a frase (market_mapping_store, FASE 2). Solo se il parser seleziona
     # dei profili mercati. Regola di precedenza D1 (design §4): il DIZIONARIO VINCE sulle
@@ -535,8 +561,13 @@ _MULTI_OVERRIDE = (
 # Stati del gate base che impediscono di derivare righe multi: la riga base non è abbastanza
 # completa/coerente da fornire i campi comuni (evento, provider, handicap, mappature) → si
 # propaga la base (fail-closed: nessuna riga inventata).
+# `TEAM_SEPARATOR_NOT_FOUND` va QUI (#182 PR S) e NON in `_MULTI_RESOLVABLE`: nessuna riga multi
+# può «colmare» un separatore che non c'era nel messaggio — il difetto sta nell'EventName della
+# BASE, che tutte le righe derivate ereditano. Ometterlo avrebbe lasciato passare la generazione
+# multi con l'evento non interpretato, moltiplicando UNA scommessa sbagliata per N selezioni:
+# esattamente il tipo di sibling non allineato che sulla #16 ha prodotto B6, B10 e B17.
 _BASE_BLOCKING = (NOT_READY, INVALID_MISSING_PROVIDER, INVALID_HANDICAP,
-                  MAPPING_MISSING, MARKET_MAPPING_MISSING)
+                  MAPPING_MISSING, MARKET_MAPPING_MISSING, TEAM_SEPARATOR_NOT_FOUND)
 
 # Stati bloccanti della base che le righe multi POSSONO risolvere completando un campo (kyZ #192):
 # `NOT_READY` (obbligatorio della regola mancante) e `MARKET_MAPPING_MISSING` (mercato assente,

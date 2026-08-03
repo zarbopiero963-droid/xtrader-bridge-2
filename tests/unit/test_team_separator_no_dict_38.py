@@ -83,30 +83,38 @@ def test_separatore_simbolico_sbagliato_non_taglia_dentro_nome():
     # sep "-" su "Al-Kholood Club v Al-Hilal": non esiste " - " spaziato → NIENTE fallback compatto
     # nel percorso senza-dizionario → nome VERBATIM + avviso (mai "Al" / "Kholood Club v Al-Hilal").
     res = _event_of(_fixed_parser("Al-Kholood Club v Al-Hilal", "-"))
-    assert res.row["EventName"] == "Al-Kholood Club v Al-Hilal"    # invariato
-    # #182 PR A ⑨ — è ESATTAMENTE il caso che ha motivato l'avviso azionabile: qui il messaggio
-    # usa « v » e il parser ha « - », quindi l'avviso non si limita più a dire che non ha trovato
-    # niente, ma NOMINA il separatore da mettere nel campo. Il prefisso storico resta invariato
-    # (è cercabile nel log), il suggerimento si aggiunge in coda.
-    assert res.warnings[0].startswith(pipe.WARN_TEAM_SEPARATOR_NOT_FOUND)
-    assert "«v»" in res.warnings[0], res.warnings[0]
-    assert "Separatore squadre" in res.warnings[0]
-    # Il COMPORTAMENTO non cambia: una riga sola, nome verbatim, nessuno scarto (è la PR S,
-    # non questa, a introdurre il blocco). Guardia esplicita contro un cambio involontario.
-    assert len(res.warnings) == 1
+    # #182 PR S — IL COMPORTAMENTO ORA CAMBIA, ed è il cuore di questa PR.
+    # Fino alla PR A questo caso produceva una riga col nome VERBATIM più un avviso; la PR A
+    # aveva reso l'avviso azionabile lasciando il comportamento intatto, con una guardia che
+    # diceva «è la PR S a introdurre il blocco». Eccola: nessuna riga.
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
+    assert res.placeable is False, "una riga con separatore non trovato NON è piazzabile"
+    # Il nome resta comunque verbatim nella riga di diagnostica — non si inventa uno split che
+    # avrebbe tagliato dentro «Al-Kholood» (mai "Al" / "Kholood Club v Al-Hilal").
+    assert res.row["EventName"] == "Al-Kholood Club v Al-Hilal"
+    # …e lo scarto DICE COSA CORREGGERE: il `detail` porta il separatore che il messaggio sembra
+    # usare. Uno scarto muto sarebbe peggio dell'avviso che sostituisce.
+    assert res.detail and res.detail.startswith(pipe.WARN_TEAM_SEPARATOR_NOT_FOUND)
+    assert "«v»" in res.detail, res.detail
+    assert "Separatore squadre" in res.detail
 
 
 def test_slash_compatto_non_spezza_senza_forma_spaziata():
     # "Marseille/Lyon" con sep "/": nessuna forma spaziata → verbatim + avviso (no split compatto).
     res = _event_of(_fixed_parser("Marseille/Lyon", "/"))
-    assert res.row["EventName"] == "Marseille/Lyon"
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND      # #182 PR S: bloccata
+    assert res.row["EventName"] == "Marseille/Lyon"         # nessuno split compatto inventato
 
 
-def test_separatore_assente_nel_nome_verbatim_piu_avviso():
+def test_separatore_assente_nel_nome_BLOCCA():
+    """#182 PR S: separatore impostato e assente dal nome → nessuna riga.
+
+    Prima: riga scritta con «Milan Inter» verbatim. Il parser dichiarava di aspettarsi « v » e
+    il messaggio non ce l'ha: non si è saputo interpretare il formato, quindi non si scrive."""
     res = _event_of(_fixed_parser("Milan Inter", "v"))     # nessun " v " nel nome
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
+    assert res.placeable is False
     assert res.row["EventName"] == "Milan Inter"
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
 
 
 # ── caso 3 + retro-compatibilità: separatore vuoto → verbatim, nessun default "v", nessun avviso ─
@@ -203,14 +211,17 @@ def test_preview_avviso_su_split_fallito_nel_verdetto_e_previewrow():
     b = _builder("Marseille/Lyon", "/")
     res = b.test_message("msg", provider="TG", require_price=False)
     rows = b.preview_rows("msg", provider="TG", require_price=False)
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
-    assert rows[0].warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    # #182 PR S: l'anteprima deve mostrare lo SCARTO, non più un avviso su una riga scritta —
+    # ed è il requisito «lo scarto non deve mai essere silenzioso». Se qui passasse inosservato,
+    # l'utente vedrebbe «Pronto» per un messaggio che il runtime non scriverà.
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
+    assert res.placeable is False
     verdict = ParserBuilder.test_verdict(
         b.errors(), rows, diag_placeable=res.placeable, diag_status=res.status,
         res_row=res.row, res_missing_required=res.missing_required, res_detail=res.detail,
         res_warnings=res.warnings)
-    assert pipe.WARN_TEAM_SEPARATOR_NOT_FOUND in verdict
-    assert "⚠" in verdict
+    assert "⛔" in verdict, f"lo scarto non è visibile nel verdetto: {verdict}"
+    assert pipe.TEAM_SEPARATOR_NOT_FOUND in verdict or "eparatore" in verdict, verdict
 
 
 def test_verdict_nessun_avviso_quando_split_ok():
@@ -261,11 +272,12 @@ def test_multiriga_avviso_una_sola_volta_su_split_fallito():
             FieldRule(target="MarketType", fixed_value="MATCH_ODDS", required=True),
         ])
     results = pipe.build_validated_rows(defn, "msg", provider="TG", require_price=False)
-    assert len(results) == 2
-    assert all(r.row["EventName"] == "Marseille/Lyon" for r in results)   # verbatim
-    # avviso una sola volta (su out[0]), non duplicato per riga
-    all_warns = [w for r in results for w in r.warnings]
-    assert all_warns == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    # #182 PR S: la BASE è bloccata, quindi la generazione multi non parte proprio — nessuna
+    # delle N righe viene scritta. È la conseguenza corretta: se non si è saputo interpretare
+    # l'evento, moltiplicarlo per due selezioni produrrebbe DUE scommesse sbagliate invece di una.
+    assert all(r.status == pipe.TEAM_SEPARATOR_NOT_FOUND for r in results), \
+        [r.status for r in results]
+    assert not any(r.placeable for r in results)
 
 
 # ── router live: RouteResult.warnings popolato/vuoto (parità col log) ─────────────────────────
@@ -294,9 +306,10 @@ def test_router_warning_su_split_fallito(tmp_path):
     cp.save_parser(_router_parser("Marseille/Lyon", "/", name="R1"), str(tmp_path))
     msg = "Match: Marseille/Lyon\nSel: Pareggio"
     res = signal_router.resolve_row(msg, _cfg("R1"), chat_id="42", parsers_dir=str(tmp_path))
-    assert res.placeable is True
-    assert res.all_rows()[0]["EventName"] == "Marseille/Lyon"     # verbatim
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    # #182 PR S: è QUI che si vede il cambiamento che conta — il router è il percorso live.
+    # Prima `placeable is True` e la riga finiva nel CSV col nome verbatim; ora nessuna riga.
+    assert res.placeable is False, "il router piazzerebbe ancora un evento non interpretato"
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
 
 
 def test_router_nessun_warning_quando_split_ok(tmp_path):
@@ -361,9 +374,17 @@ def test_verdict_no_content_match_include_avviso():
     assert pipe.WARN_TEAM_SEPARATOR_NOT_FOUND in verdict
 
 
-def test_market_mapping_missing_preserva_avviso():
-    # split fallito (avviso) + mappatura mercati "none" senza mercato dalle regole → fail-closed
-    # MARKET_MAPPING_MISSING: l'avviso separatore deve sopravvivere sul risultato scartato.
+def test_separatore_precede_la_mappatura_mercati():
+    """#182 PR S — conseguenza d'ORDINE, decisa e non subita.
+
+    Prima: split fallito produceva un avviso, poi la mappatura mercati falliva e l'esito era
+    `MARKET_MAPPING_MISSING` con l'avviso separatore accodato. Ora il blocco separatore ritorna
+    PRIMA che i mercati vengano valutati, quindi l'esito è `TEAM_SEPARATOR_NOT_FOUND`.
+
+    È la scelta giusta: si riporta la PRIMA causa in ordine di pipeline, quella che l'utente deve
+    correggere per prima. Segnalare il mercato mentre l'evento non è stato interpretato manderebbe
+    a sistemare la cosa sbagliata. In entrambi i casi **nessuna riga viene scritta**: la direzione
+    fail-closed è identica, cambia solo quale causa viene nominata."""
     defn = CustomParserDef(
         name="MM", mode="NAME_ONLY", team_separator="/",
         market_mapping_profiles=["M"],
@@ -373,16 +394,23 @@ def test_market_mapping_missing_preserva_avviso():
         ])
     res = pipe.build_validated_row(defn, "msg", provider="TG", require_price=False,
                                    market_mapping_profiles=[[]])   # profilo vuoto → nessun match
-    assert res.status == "MARKET_MAPPING_MISSING"
-    assert res.row["EventName"] == "Marseille/Lyon"   # verbatim
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND, (
+        "il separatore va riportato PRIMA del mercato: è la causa da correggere per prima")
+    assert res.placeable is False          # fail-closed identico a prima: nessuna riga
+    assert res.row["EventName"] == "Marseille/Lyon"   # verbatim, nessuno split inventato
 
 
-def test_router_avviso_su_riga_scartata_non_fired(tmp_path):
-    # Gate parser OK (tutti i required estratti, separatore fallito → avviso) ma riga NON
-    # piazzabile perché il valore Price è invalido → RouteResult non-fired deve comunque portare
-    # l'avviso separatore (parità log su scarto). Nota: uno scarto per campo MANCANTE si ferma
-    # al gate parser PRIMA del ramo separatore (NOT_READY, nessun avviso) — è corretto.
+def test_router_scarto_separatore_dice_il_motivo_giusto(tmp_path):
+    """#182 PR S — lo scarto deve nominare il SEPARATORE, non un difetto a valle.
+
+    Prima: il gate parser passava, il separatore falliva (avviso), e la riga veniva poi scartata
+    per un difetto successivo (BetType mancante) — l'avviso separatore viaggiava accodato allo
+    scarto altrui. Ora il separatore è **esso stesso** il motivo dello scarto, e il router lo
+    riporta come tale.
+
+    Perché conta: con lo scarto attribuito a BetType, l'utente sarebbe andato a sistemare il
+    BetType e il messaggio avrebbe continuato a non passare. Nota: uno scarto per campo MANCANTE
+    si ferma al gate parser PRIMA del ramo separatore (`NOT_READY`) — quello resta invariato."""
     defn = CustomParserDef(
         name="RD", mode="NAME_ONLY", team_separator="/",
         rules=[
@@ -399,4 +427,5 @@ def test_router_avviso_su_riga_scartata_non_fired(tmp_path):
     msg = "Match: Marseille/Lyon\nQuota: 999\n"
     res = signal_router.resolve_row(msg, cfg, chat_id="42", parsers_dir=str(tmp_path))
     assert res.placeable is False
-    assert res.warnings == [pipe.WARN_TEAM_SEPARATOR_NOT_FOUND]
+    assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND, (
+        "lo scarto deve dire «separatore», non un difetto a valle che l'utente sistemerebbe invano")

@@ -4963,3 +4963,59 @@ prima, tutti e tre avevano segnalato un `NameError` inesistente. Non c'è nulla 
 va risposto con l'evidenza.
 
 Suite: **4326 passed, 14 skipped**.
+
+---
+
+## #182 PR S — il blocco del separatore: perché una PR di comportamento in un'epica di design
+
+**Decisione di sicurezza, 2026-08-03.** L'epica #182 è di sola presentazione: cinque PR (N, A, B,
+C, E) che non cambiano di una virgola cosa il bridge scrive. La PR S è **l'unica eccezione**, ed è
+stata tenuta separata apposta — mescolarla alle altre avrebbe reso impossibile dire, guardando un
+merge, se un segnale mancante fosse un bug di presentazione o l'effetto voluto.
+
+### Cosa cambia
+
+Separatore squadre **impostato** nel parser ma **non trovato** nel nome evento: prima la riga
+veniva scritta con l'`EventName` verbatim più un avviso, ora non viene scritta affatto
+(`TEAM_SEPARATOR_NOT_FOUND`).
+
+La motivazione storica del non-blocco era scritta nel codice: «normalizzare un formato non può
+creare una scommessa errata; un formato non normalizzato non è un evento sbagliato». È vera in
+astratto e **incompleta in pratica**: se il separatore configurato non compare, il messaggio non
+ha il formato che il parser **dichiara** di aspettarsi. Scrivere lo stesso significa piazzare su
+un evento che non si è saputo interpretare.
+
+### Il compromesso, registrato perché non venga riscoperto come bug
+
+Un messaggio con formato **occasionalmente** diverso dal solito (`vs` invece di `v`) prima
+produceva una riga col nome verbatim, ora non produce nulla. **È un segnale perso.** Va nella
+direzione fail-closed — meno scommesse, mai di più — ma chi in futuro vedrà «un segnale che prima
+passava e ora no» deve poter trovare qui che è **voluto**, non una regressione.
+
+È per questo che lo scarto è visibile in **tre posti** e non uno: verdetto dell'anteprima, log, e
+diario eventi (campo `status`). Uno scarto silenzioso sarebbe stato peggio del problema.
+
+### Due decisioni di dettaglio che sembrano minori e non lo sono
+
+**Codice dedicato, non riuso di `MAPPING_MISSING`.** Sono due cause diverse: lì manca la
+*traduzione* (dizionario incompleto), qui manca lo *split* (separatore sbagliato). Riusare un
+codice solo avrebbe mandato l'utente a cercare il problema nel dizionario invece che nel campo
+«Separatore squadre» — cioè a sistemare la cosa sbagliata.
+
+**Il nuovo esito è in `_BASE_BLOCKING`, non in `_MULTI_RESOLVABLE`.** Nessuna riga multi può
+«colmare» un separatore assente dal messaggio: il difetto sta nell'`EventName` della base, che
+tutte le righe derivate ereditano. Ometterlo avrebbe fatto partire la generazione multi con
+l'evento non interpretato, moltiplicando **una** scommessa sbagliata **per N selezioni**. Il buco
+è stato intercettato da un test esistente durante lo sviluppo, non da una rilettura: è la stessa
+classe di sibling non allineato che sulla #16 ha prodotto B6, B10 e B17.
+
+### Cosa NON cambia, ed è la parte più protetta
+
+Il **campo vuoto**. Col separatore non impostato non c'è alcuna aspettativa di formato da tradire,
+quindi non c'è nulla da bloccare: la riga si scrive col nome verbatim, come sempre. È la
+condizione che tiene in piedi tutti i parser esistenti che non usano il separatore, e ha guardie
+dedicate **verdi prima e dopo** la patch — se cadessero, il bridge smetterebbe di scrivere righe
+che oggi scrive correttamente, un danno molto maggiore di quello che questa PR previene.
+
+Invariato anche il percorso **con dizionario attivo** (`MAPPING_MISSING`): area dichiarata sana
+dall'audit, non toccata.
