@@ -554,6 +554,56 @@ def test_banner_NASCOSTO_con_licenza_valida(App, app_mod):
     assert app._license_banner.packed is False
 
 
+def test_banner_AGGIORNATO_se_cambia_la_CAUSA_restando_bloccati(App, app_mod):
+    """FAIL-FIRST — rilievo di Fable 5 e Fugu Ultra (indipendenti) sulla PR #235.
+
+    Scenario reale: bridge già bloccato per licenza ASSENTE (banner «non valida»); l'utente incolla
+    una chiave **firmata valida ma REVOCATA**. Il lock resta `True` → **nessuna transizione** →
+    prima della fix il banner continuava a dire «attiva una licenza nella scheda Licenza», cioè il
+    rimedio SBAGLIATO: la chiave del revocato è valida, e reincollarla non lo sblocca mai.
+
+    È lo stesso difetto che questa PR esiste per eliminare, un livello più in là."""
+    app = _app_con_banner(app_mod, valid=False)          # nessuna licenza
+    app._apply_license_lock()
+    assert "REVOCATA" not in (app._license_banner.text or "").upper()
+    assert app._license_locked is True
+
+    # ora il pannello riporta una licenza VALIDA, ma la revoca la nega
+    app._license_panel = types.SimpleNamespace(current_status=lambda: _status(True))
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    app._on_license_status()                              # è il percorso reale dell'attivazione
+
+    assert app._license_locked is True, "il lock non doveva sbloccarsi: la licenza è revocata"
+    assert "REVOCATA" in (app._license_banner.text or "").upper(), (
+        f"banner con la causa VECCHIA a lock invariato: {app._license_banner.text!r}")
+
+
+def test_il_LOG_non_si_ripete_a_ogni_cambio_causa(App, app_mod):
+    """Contro-guardia della fix qui sopra: il banner è uno stato CORRENTE e va rinfrescato, il log
+    è una CRONOLOGIA e resta una riga per transizione — non una raffica a ogni rivalutazione."""
+    app = _app_con_banner(app_mod, valid=False)
+    app._apply_license_lock()
+    righe_dopo_transizione = len(app.logs)
+
+    app._license_cause_dirty = True
+    app._apply_license_lock()                             # stesso lock, causa marcata
+    assert len(app.logs) == righe_dopo_transizione, f"log duplicato: {app.logs}"
+
+
+def test_causa_non_riletta_se_nessun_evento_la_ha_cambiata(App, app_mod):
+    """La diagnosi resta PIGRA: leggerla significa `load_license()` da disco sul thread Tk, e il
+    lock si ri-applica a ogni tick (~60 s). Senza un evento che possa aver cambiato la causa, la
+    rilettura non deve avvenire."""
+    app = _app_con_banner(app_mod, valid=False)
+    app._apply_license_lock()
+
+    letture = []
+    app._license_bloccata_da_revoca = lambda: letture.append(1) or False
+    app._apply_license_lock()                             # tick muto: nessun marcatore
+    assert letture == [], "causa riletta da disco su un tick senza eventi"
+
+
 # ── FONTE UNICA: una sola definizione di «la revoca nega» (Regola 3) ──────────────────────────
 
 

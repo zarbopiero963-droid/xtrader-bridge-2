@@ -857,6 +857,11 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   > 2 giorni» e l'unico segnale del blocco era **una riga di log**, che scorre via. L'indicatore
   > principale di un controllo di sicurezza diceva l'opposto della verità. Chi disegna la UI **non
   > deve** rendere questo banner richiudibile o temporaneo: sparisce solo quando il blocco cessa.
+  >
+  > **Il banner segue la CAUSA, non solo il blocco.** Se da bloccati la causa cambia — tipicamente
+  > incollando una chiave **firmata valida ma revocata** mentre si è fermi per licenza assente — il
+  > lock resta identico ma il testo passa da «licenza non valida» a «REVOCATA», perché cambia il
+  > rimedio. Il **log** invece resta una riga per transizione: è cronologia, non stato corrente.
 
   > ⚖️ **Fail-OPEN — invariante di sicurezza, decisione proprietario 2026-07-30.** Lista non
   > raggiungibile, hosting giù, lista stantia, cache assente, errore imprevisto nel gate: **nessuno di
