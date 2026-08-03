@@ -181,12 +181,15 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
       └─ ① 📇 Provider           → anagrafica nomi Provider
    ② Lettura messaggi
       ├─ ② 🧩 Parser             → Parser Personalizzato (regole + 🔗 Traduzioni attive + multi-riga)
-      └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati · 🌳 Mapping guidato)
+      └─ ② 🗺️ Mapping            → dizionari mappatura (sotto-tab: ⚽ Calcio nomi · 🎯 Mercati)
+                                    · (🌳 Mapping guidato → NASCOSTA: albero Sport→Competizione→Squadre
+                                       dal DB Betfair, vuoto senza «Betfair Sync». Codice ritenuto.)
    ③ Dizionario
-      ├─ ③ 📒 Diario             → vista sola-lettura del diario eventi (event journal)
-      └─ ③ 🧹 Nomi squadra       → ripulitura dei nomi squadra del dizionario (sfoglia + elimina)
+      └─ ③ 📒 Diario             → vista sola-lettura del diario eventi (event journal)
       · (③ 📖 Dizionario         → NASCOSTA: viewer sola-lettura del DB Betfair, vuoto senza
                                     «Betfair Sync» (rimosso). Codice/etichetta ritenuti: riattivabile.)
+      · (③ 🧹 Nomi squadra       → NASCOSTA (#182 PR N): ripulitura dei nomi squadra dello stesso
+                                    DB Betfair vuoto. Etichetta, pannello, factory e DB ritenuti.)
    ④ Impostazioni
       ├─ ④ 📁 Profili            → profili impostazioni salvabili
       └─ ④ 📋 Riepilogo          → colpo d'occhio sola-lettura: modalità + dizionario locale + canali «Pronto?»
@@ -1102,11 +1105,12 @@ NON** viene salvato nei profili). Campo nome + **"💾 Salva profilo"**; lista c
   **"⚠️ Scheda &lt;nome&gt; non aggiornata dal profilo (mostra ancora i valori precedenti): …"**
   — l'utente sa che quella tab è stantia invece di crederla aggiornata.
 
-### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 3 sotto-tab
+### 7.5 🗺️ Mapping (`name_mapping_gui.py`) — 2 sotto-tab
 
 **Localizzazione (#343 slice 4i).** La **chrome** dei due pannelli **⚽ Calcio (Dizionario nomi)**
 e **🎯 Mercati** è ora tradotta EN/ES via `i18n.tr`: titoli, sottotitoli, **etichette colonna**,
-pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Precompila da Betfair/Salva profilo),
+pulsanti (Profilo/Nuovo/Rinomina/Elimina/Aggiungi riga/Salva profilo — «Precompila da
+Betfair» è **nascosto**, vedi sotto),
 placeholder e **tutti i messaggi di stato/dialogo** (creato/rinominato/eliminato, save FALLITO,
 avvisi `MAPPING_MISSING`/`MARKET_MAPPING_MISSING`, righe incomplete/senza delimitatori). Restano
 robusti anche i casi limite. **Cap di render (P3-30 #76):** le tabelle dei due dizionari mostrano al più **500 righe** (stesso cap del «Mapping guidato»); oltre, avviso ambra *«ℹ️ Mostrate le prime 500 righe di N: le altre M restano nel profilo e al Salva sono conservate intatte.»* — le righe non mostrate NON vanno perse al Salva; l'avviso viene **azzerato a ogni nuovo render** (passando a un profilo ≤ 500 righe non resta il messaggio stantio del profilo grande). Casi limite (P3-26/P3-32 #76, batch design 2): **config illeggibile al cambio

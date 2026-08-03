@@ -174,7 +174,7 @@ SIMULAZIONE→SIMULATION/SIMULACIÓN, slice 4s), la scheda **🧹 Nomi squadra**
 **🌳 Mapping guidato** completo (chrome + messaggi di stato dinamici: profilo, competizioni, squadre,
 salvataggio, slice 4v–4w) e — dalla slice 4x — l'**hub 🧰 Strumenti** (titolo finestra + i
 titoli-scheda: 📡 Chat sorgenti, 📇 Provider, 🧩 Parser, 🗺️ Mapping, 📒 Diario,
-🧹 Nomi squadra, 📁 Profili, 📋 Riepilogo — **8 schede mostrate**; l'etichetta «📖 Dizionario» resta
+📁 Profili, 📋 Riepilogo — **7 schede mostrate**; le etichette «📖 Dizionario» e «🧹 Nomi squadra» restano
 ritenuta e tradotta ma la scheda è **oggi nascosta**, vedi sotto; «Provider»/«Parser» restano termini prodotto) e — dalla
 slice 4y — i **dialoghi modali di conferma modalità** (attivazione REALE con frase da digitare,
 COLLAUDO, MULTI-segnale e i due gate di avvio automatico/START in modalità reale; la parola da
@@ -366,7 +366,9 @@ avvia (dettagli e flusso completo in [Licenza](#licenza-necessaria-per-operare) 
 > finché non verrà aggiunta, un **DB pre-popolato è di fatto un prerequisito** per l'arricchimento
 > ID. Senza dizionario popolato il bridge funziona comunque **a nomi** (`recognition_mode`
 > `NAME_ONLY`, il default per le config nuove): i nomi già presenti si ripuliscono dalla scheda
-> «🧹 Nomi squadra» (la scheda «📖 Dizionario» di sola consultazione è oggi nascosta, vedi sopra).
+> (le schede «📖 Dizionario» e «🧹 Nomi squadra», entrambe viste sul DB Betfair locale, sono
+> oggi **nascoste**: quel DB è vuoto e non popolabile dall'app da quando il «Betfair Sync»
+> è stato rimosso. Codice, etichette e dati restano — vedi sopra.)
 > La definizione dello schema custom e del suo import è lavoro dell'utente/futuro, fuori dallo
 > scope di questa rimozione.
 

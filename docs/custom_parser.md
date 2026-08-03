@@ -309,7 +309,11 @@ dizionario locale per i 5 sport:
 - inserimenti ripetuti **accumulano** senza duplicare (idempotente); un evento a un solo nome
   (torneo/outright, es. «ATP Finals») **non** è una squadra e viene saltato.
 
-**Precompila (GUI, PR 11).** Nell'area **⚽ Calcio** del Mapping (scheda «🗺️ Mapping» →
+**Precompila (GUI, PR 11).** ⚠️ **Il pulsante è oggi NASCOSTO** (#182 PR N): precompilava dal DB
+Betfair locale, che è **vuoto e non popolabile dall'app** da quando il «Betfair Sync» è stato
+rimosso, quindi premuto si limitava ad avvisare. Il metodo `_prefill_betfair_names`, il
+resolver e il DB restano: si riattiva rimettendo il pulsante. Comportamento, quando attivo:
+nell'area **⚽ Calcio** del Mapping (scheda «🗺️ Mapping» →
 `name_mapping_gui.NameMappingPanel`) il pulsante **«📥 Precompila da Betfair»** aggiunge una
 riga per ogni nome noto: **nome Betfair già scritto** nel campo (nessun menu a tendina —
 resta editabile), **Sport** impostato e **Tipo** `team`; tu scrivi solo l'**alias del
@@ -321,7 +325,9 @@ il DB con probe non bloccante, come il viewer del dizionario). Fonte dati:
 `BetfairLocalDB.known_teams(sport)` (sola lettura).
 
 **Ripulitura manuale (GUI, PR 11-bis).** I nomi permanenti crescono nel tempo (mai
-disattivati): la scheda **«🧹 Nomi squadra»** dell'hub Strumenti
+disattivati): la scheda **«🧹 Nomi squadra»** dell'hub Strumenti — ⚠️ **oggi NASCOSTA**
+(#182 PR N), per la stessa ragione: legge il DB Betfair vuoto. Pannello, etichetta, factory e
+`delete_known_team` restano ritenuti e riattivabili —
 (`known_teams_gui.KnownTeamsPanel`) li **sfoglia per sport** e li **elimina** uno per uno
 (pulsante **«🗑 Elimina»**), l'unico modo per togliere un nome obsoleto/errato (squadra
 retrocessa/rinominata) — `BetfairLocalDB.delete_known_team(sport, normalized_name)`. Come le

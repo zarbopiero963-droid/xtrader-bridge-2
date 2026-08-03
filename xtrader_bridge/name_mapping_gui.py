@@ -171,11 +171,15 @@ class NameMappingPanel(ctk.CTkFrame):
         actions.pack(fill="x", padx=12, pady=(0, 4))
         ctk.CTkButton(actions, text=i18n.tr("➕ Aggiungi riga"), width=140,
                       command=self._add_row).pack(side="left", padx=3)
-        # Precompila la colonna Betfair coi nomi squadra permanenti (#282 PR 11): riempie
-        # le righe coi nomi reali già raccolti dalla sync, tu affianchi solo l'alias del
-        # canale nella colonna «Come lo scrive il canale». Niente tendina: scritti direttamente.
-        ctk.CTkButton(actions, text=i18n.tr("📥 Precompila da Betfair"), width=190, fg_color=ui_theme.ACCENT,
-                      hover_color=ui_theme.ACCENT_HOV, command=self._prefill_betfair_names).pack(side="left", padx=3)
+        # Il pulsante «📥 Precompila da Betfair» è NASCOSTO (#182 PR N): precompilava la colonna
+        # Betfair coi nomi squadra permanenti (#282 PR 11), ma quei nomi vengono dal DB Betfair
+        # locale, vuoto e non popolabile dall'app da quando il «Betfair Sync» è stato rimosso.
+        # Premuto, avvisava soltanto di popolare il dizionario — un'azione impossibile.
+        # RITENUTO: il metodo `_prefill_betfair_names` (più sotto), il resolver e il DB. Riattivare
+        # = rimettere queste due righe:
+        #     ctk.CTkButton(actions, text=i18n.tr("📥 Precompila da Betfair"), width=190,
+        #                   fg_color=ui_theme.ACCENT, hover_color=ui_theme.ACCENT_HOV,
+        #                   command=self._prefill_betfair_names).pack(side="left", padx=3)
         ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color=ui_theme.SUCCESS,
                       hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
@@ -1072,13 +1076,21 @@ class MappingPanel(ctk.CTkFrame):
         self._mercati = MarketMappingPanel(mercati, on_saved=on_saved, is_running=is_running)
         self._mercati.pack(fill="both", expand=True)
 
-        # Import locale per non appesantire l'avvio di chi non apre il Mapping.
-        from .guided_mapping_gui import GuidedMappingPanel
-        guidato = self._tabs.add("🌳 Mapping guidato")
-        self._guidato = GuidedMappingPanel(
-            guidato, competitions_provider=competitions_provider,
-            teams_provider=teams_provider, on_saved=on_saved, is_running=is_running)
-        self._guidato.pack(fill="both", expand=True)
+        # La sotto-scheda «🌳 Mapping guidato» è NASCOSTA (#182 PR N): l'albero
+        # Sport → Competizione → Squadre legge il DB Betfair locale, che senza il «Betfair Sync»
+        # (rimosso) resta vuoto — quindi il pannello appariva rotto e il suo messaggio «Popola il
+        # dizionario locale, poi riprova» chiedeva una cosa impossibile dall'app.
+        # RITENUTI, per riattivarla quando tornerà una sorgente dati: `guided_mapping_gui.py`,
+        # `betfair/guided_mapping.py`, i provider `competitions_provider`/`teams_provider` qui
+        # sopra e il loro cablaggio in `app.py`. Riattivare = rimettere le quattro righe seguenti:
+        #     from .guided_mapping_gui import GuidedMappingPanel
+        #     guidato = self._tabs.add("🌳 Mapping guidato")
+        #     self._guidato = GuidedMappingPanel(
+        #         guidato, competitions_provider=competitions_provider,
+        #         teams_provider=teams_provider, on_saved=on_saved, is_running=is_running)
+        #     self._guidato.pack(fill="both", expand=True)
+        # …e togliere la guardia `if self._guidato is not None` in `refresh`.
+        self._guidato = None
 
     def refresh(self, cfg=None):
         """Ricarica tutte le aree (nomi, mercati, mapping guidato) — anti-stale: un profilo
@@ -1091,7 +1103,12 @@ class MappingPanel(ctk.CTkFrame):
         sono read-only, ma una futura mutazione locale non deve propagarsi alle sorelle)."""
         self._calcio.refresh(copy.deepcopy(cfg) if cfg is not None else None)
         self._mercati.refresh(copy.deepcopy(cfg) if cfg is not None else None)
-        self._guidato.refresh(copy.deepcopy(cfg) if cfg is not None else None)
+        # Guardia di ritenzione (#182 PR N): con la sotto-scheda «🌳 Mapping guidato» nascosta
+        # `self._guidato` è None. Senza questo `if`, OGNI refresh del Mapping solleverebbe
+        # AttributeError — è il consumatore, non il sito, e il difetto sarebbe stato invisibile
+        # leggendo solo il punto in cui la scheda viene creata.
+        if self._guidato is not None:
+            self._guidato.refresh(copy.deepcopy(cfg) if cfg is not None else None)
 
 
 class NameMappingWindow(ctk.CTkToplevel):

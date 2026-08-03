@@ -15,6 +15,19 @@
 > `betfair_auto_sync`/`_hour`/`betfair_sync_sports` e il path di stato auto-sync. Le voci PR-P*
 > qui sotto che descrivono login/sync/auto-sync restano come **storico**, non come stato attuale.
 
+> 🧾 **Debito tecnico — tre viste GUI nascoste perché orfane di una sorgente dati** (#182 PR N).
+> Il «dizionario locale» sopravvive come substrato, ma **l'app non ha alcun modo di popolarlo**:
+> `upsert_sport`/`upsert_competition`/`upsert_event` esistono in `betfair/local_db.py` e **non
+> hanno alcun chiamante nel codice di prodotto**. I loro lettori mostravano quindi pannelli vuoti
+> e invitavano a «popolare il dizionario locale», azione impossibile dall'interfaccia. Sono stati
+> **nascosti, non rimossi**: la scheda **«🧹 Nomi squadra»**, la sotto-scheda **«🌳 Mapping
+> guidato»** e il pulsante **«📥 Precompila da Betfair»** — insieme alla scheda **«📖 Dizionario»**,
+> già nascosta prima. Codice, etichette (tradotte EN/ES), factory, provider, DB e resolver restano
+> tutti: riattivare è una modifica locale, descritta in un commento su ciascun punto e presidiata
+> da `tests/integration/test_hide_orphan_tools_182.py`, che fallisce sia se una scheda riappare
+> sia se il codice sottostante viene cancellato. **Il debito si chiude quando tornera una sorgente
+> dati** (nuovo import, sync sostitutiva o popolamento manuale esposto in GUI).
+
 ## Regole di processo (valgono per OGNI PR)
 
 1. Si lavora **solo** sul branch della PR, mai su `main`.

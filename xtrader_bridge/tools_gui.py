@@ -31,7 +31,15 @@ TOOL_GROUPS = (
     # pannello (`betfair/dictionary_viewer_gui.py`), DB e resolver sono TUTTI ritenuti: per
     # riattivarla quando tornerà una sorgente dati basta rimettere "dictionary" come prima voce
     # di questo gruppo. `build_tool_panels` renderizza solo ciò che è elencato qui.
-    ("③", "Dizionario", ("journal", "known_teams")),
+    # NB: anche «🧹 Nomi squadra» (`known_teams`) è NASCOSTA dalla stessa slice (#182 PR N) e per
+    # la stessa ragione della "dictionary" qui sopra: legge il DB Betfair locale, che senza il
+    # «Betfair Sync» (rimosso) resta vuoto — `upsert_sport`/`upsert_competition`/`upsert_event`
+    # esistono ma NON hanno alcun chiamante nel codice di prodotto. Il pannello sembrava rotto e
+    # invitava a «popolare il dizionario locale», cosa impossibile dall'app. Etichetta
+    # (TOOL_TITLES["known_teams"]), factory (`app._make_known_teams`), pannello
+    # (`known_teams_gui.py`), DB e resolver sono TUTTI ritenuti: per riattivarla quando tornerà
+    # una sorgente dati basta rimettere "known_teams" in questo gruppo.
+    ("③", "Dizionario", ("journal",)),
     ("④", "Impostazioni", ("profiles", "summary")),
 )
 
@@ -52,6 +60,8 @@ TOOL_TITLES = {
     # tradotta nei cataloghi i18n, pronta per la riattivazione quando tornerà il Betfair Sync.
     "dictionary": "📖 Dizionario",
     "journal": "📒 Diario",
+    # "known_teams" è una scheda NASCOSTA (non elencata in TOOL_GROUPS, #182 PR N): come per
+    # "dictionary" l'etichetta resta qui, tradotta nei cataloghi i18n, pronta alla riattivazione.
     "known_teams": "🧹 Nomi squadra",
     "profiles": "📁 Profili",
     "summary": "📋 Riepilogo",
