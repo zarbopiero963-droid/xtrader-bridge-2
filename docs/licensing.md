@@ -694,12 +694,14 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   «Contents» in sola lettura lo riportasse `true`, la sonda direbbe «Accesso OK» proprio nel guasto
   da diagnosticare (rilievo Fugu #215). Se il file **non esiste ancora** il probe si **astiene** —
   una `PUT` senza sha lo creerebbe — e il messaggio lo **dichiara** invece di promettere una
-  scrittura non provata. Il probe parte **solo** con uno sha reale plausibile (40 esadecimali):
-  su un payload anomalo si astiene, perché senza uno sha valido non si può costruire un «diverso
-  per costruzione» affidabile. E un **2xx dal probe è trattato come ANOMALIA fail-closed**, non
-  come successo: significherebbe che il file **è stato modificato** nonostante lo sha fosse
-  costruito per fallire, e il messaggio dice all'utente di ripubblicare subito la lista firmata
-  (bloccanti GPT-5.5 #215). Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
+  scrittura non provata. La `PUT` di prova va su un **percorso usa-e-getta** (`probe_path`:
+  `<file>.xtrader-verifica-accesso`) e **mai** sul file delle revoche — bloccante Fugu #215: la
+  difesa «GitHub valida i permessi prima dello sha» non è garantita su un proxy o un'API
+  compatibile, e rilevare una sovrascrittura della lista **firmata** non è impedirla. Il potere
+  diagnostico non cambia (il permesso «Contents» vale per l'intero repository), il danno peggiore
+  sì: un file inerte invece della lista che i bridge scaricano. Un **2xx dal probe resta trattato
+  come ANOMALIA fail-closed** (bloccante GPT-5.5 #215), col messaggio che dice esplicitamente che
+  le revoche sono intatte e che il file temporaneo va cancellato a mano. Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
   cioè la capacità di **scrivere**: il repository delle revoche è **pubblico**, quindi una `GET` sul
   file riesce con qualunque token valido e una verifica di sola lettura direbbe «tutto ok» per poi
   far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non

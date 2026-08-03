@@ -280,11 +280,17 @@ def test_nessun_messaggio_di_errore_contiene_mai_il_token():
 
 def test_check_access_ok_quando_il_token_puo_scrivere():
     # GET /repos/... → permissions.push=True ; poi GET contents → 200 (il file esiste già)
-    http = _FakeHttp((200, {"permissions": {"push": True, "pull": True}}), (200, {"sha": "abc"}))
+    http = _FakeHttp((200, {"permissions": {"push": True, "pull": True}}), (200, {"name": "main"}),
+                     (200, {"sha": "abc"}), (422, None))
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is True and res["can_write"] is True
-    assert http.calls[0]["method"] == "GET" and http.calls[1]["method"] == "GET", \
-        "la verifica NON deve scrivere nulla sul repository"
+    # Le tre letture non toccano nulla; l'unica PUT è la prova, e va sul percorso usa-e-getta.
+    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET", "PUT"]
+    # Confronto ESATTO, non `not in`: il percorso di prova ha quello reale come PREFISSO
+    # («…revocation_list.txt.xtrader-verifica-accesso»), quindi un `not in` sarebbe sempre falso
+    # e il test non direbbe nulla.
+    assert http.calls[3]["url"] != publisher.contents_url(_REPO, _PATH)
+    assert http.calls[3]["url"] == publisher.contents_url(_REPO, publisher.probe_path(_PATH))
 
 
 def test_check_access_su_repo_pubblico_senza_scrittura_NON_dice_va_tutto_bene():
@@ -318,7 +324,8 @@ def test_check_access_file_non_ancora_presente_resta_OK():
     lasciare due risposte farebbe cadere il 404 sul branch, provando tutt'altro."""
     http = _FakeHttp((200, {"permissions": {"push": True}}),   # repo scrivibile
                      (200, {"name": "main"}),                   # branch esiste
-                     (404, None))                               # file no: si creerà
+                     (404, None),                               # file no: si creerà
+                     (422, None))                               # prova: permesso confermato
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is True and res["file_exists"] is False
 
@@ -390,11 +397,13 @@ def test_una_sola_costruzione_dellurl_contents_con_ref():
     """Rilievo CodeRabbit #215 (regola 3): `check_access` e `get_file_sha` devono interrogare
     ESATTAMENTE lo stesso URL. Se un domani divergessero, la verifica direbbe «il file c'è» su un
     indirizzo diverso da quello che la pubblicazione poi aggiorna."""
-    http_a = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"sha": "x"}))
+    http_a = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                       (200, {"sha": "a" * 40}), (422, None))
     publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http_a)
     http_b = _FakeHttp((200, {"sha": "x"}))
     publisher.get_file_sha(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http_b)
-    assert http_a.calls[-1]["url"] == http_b.calls[-1]["url"]
+    letture_a = [c for c in http_a.calls if c["method"] == "GET"]
+    assert letture_a[-1]["url"] == http_b.calls[-1]["url"]
 
 
 def test_publish_403_da_rate_limit_lo_distingue_anche_in_SCRITTURA():
@@ -444,7 +453,8 @@ def test_check_access_branch_esistente_e_file_assente_resta_OK():
     pubblicazione, e spaventare l'utente lì sarebbe un falso allarme."""
     http = _FakeHttp((200, {"permissions": {"push": True}}),   # repo
                      (200, {"name": "main"}),                   # branch c'è
-                     (404, None))                               # file no: si creerà
+                     (404, None),                               # file no: si creerà
+                     (422, None))                               # prova: permesso confermato
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is True and res["file_exists"] is False
 
@@ -514,64 +524,55 @@ def test_probe_scrittura_manda_uno_sha_DIVERSO_da_quello_reale():
     assert len(inviato) == len(_SHA_REALE)
 
 
-def test_probe_scrittura_NON_parte_se_il_file_non_esiste_ancora():
-    """Senza sha reale non si può costruire uno sha «diverso per costruzione», e una PUT senza sha
-    CREEREBBE il file. Quindi il probe si astiene, e la verifica lo dichiara invece di fingere."""
-    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}), (404, None))
-    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
-    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], "ha scritto senza sha reale"
-    assert res["ok"] is True and res["file_exists"] is False
-    testo = res["message"].lower()
-    assert "non è stato verificato" in testo or "non è stato confermato" in testo, \
-        f"promette una scrittura che non ha provato: {res['message']!r}"
+def test_il_probe_non_scrive_MAI_sul_percorso_reale_delle_revoche():
+    """Bloccante Fugu #215, e l'invariante centrale di questa sonda. La prova puntava al **file
+    revoche reale**, difesa solo dall'ordine «permessi-prima-di-sha» di GitHub — che non è
+    garantito su un proxy o un'API compatibile. Se quella PUT fosse stata applicata, la lista
+    **firmata** sarebbe stata sovrascritta e i bridge sarebbero rimasti senza. Rilevare il danno
+    (ramo ANOMALIA) non è impedirlo, ed è la differenza che conta su un artefatto di sicurezza vivo.
 
-
-# ── Il probe dev'essere FAIL-CLOSED sull'esito più pericoloso (bloccanti GPT-5.5 #215) ───────────
-
-@pytest.mark.parametrize("status", [200, 201])
-def test_probe_scrittura_ACCETTATA_e_un_allarme_non_un_ok(status):
-    """Il caso peggiore possibile, e finora finiva nel ramo «ok». Se GitHub accettasse la PUT
-    nonostante lo sha fittizio — o se rispondesse un proxy/API compatibile — il file **è stato
-    modificato**, e dire «Accesso OK» sarebbe la bugia più dannosa che questa funzione possa
-    raccontare: l'utente crederebbe di aver solo verificato, mentre la lista revoche pubblicata
-    non è più quella firmata."""
-    http = _http_fino_al_probe((status, {"content": {}}))
-    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
-    assert res["ok"] is False, f"una PUT ACCETTATA riportata come «ok»: {res!r}"
-    testo = res["message"].lower()
-    assert "modificat" in testo or "accettata" in testo, res["message"]
-    assert "ripubblica" in testo, "non dice all'utente come rimettere a posto il file"
-
-
-@pytest.mark.parametrize("sha_anomalo", ["x", "", "   ", "abc", "z" * 40, "a" * 39, "a" * 41, None])
-def test_probe_NON_parte_con_uno_sha_reale_non_plausibile(sha_anomalo):
-    """`_sha_che_non_combacia` accettava qualunque stringa non vuota: con un payload anomalo («x»)
-    avrebbe inviato «0», una richiesta semanticamente diversa da quella attesa. Se lo sha reale non
-    è uno sha Git plausibile (40 esadecimali) non si può costruire un «diverso per costruzione»
-    affidabile → ci si astiene, che è l'unica scelta sicura."""
-    http = _http_fino_al_probe()   # nessuna risposta in coda: se partisse, si vedrebbe la PUT
-    http.responses[2] = (200, {"sha": sha_anomalo})
+    L'asimmetria era pesata male: su un percorso usa-e-getta il potere diagnostico è identico — il
+    permesso «Contents» vale per l'intero repository, non per singolo file — e il danno peggiore
+    diventa un file inerte che nessun bridge legge."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                     (200, {"sha": "a" * 40}), (422, None))
     publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
-    assert [c["method"] for c in http.calls] == ["GET", "GET", "GET"], \
-        f"probe partito con sha reale {sha_anomalo!r}: {[c['method'] for c in http.calls]}"
+    put = [c for c in http.calls if c["method"] == "PUT"]
+    assert len(put) == 1, "la prova deve fare UNA sola PUT"
+    # Confronto ESATTO, non `not in`: il percorso di prova ha quello reale come PREFISSO
+    # («…revocation_list.txt.xtrader-verifica-accesso»), quindi un `not in` sarebbe sempre falso.
+    assert put[0]["url"] != publisher.contents_url(_REPO, _PATH), (
+        f"la prova scrive sul FILE REALE delle revoche: {put[0]['url']}")
+    assert put[0]["url"] == publisher.contents_url(_REPO, publisher.probe_path(_PATH))
+    assert publisher.probe_path(_PATH) != _PATH
 
 
-def test_sha_che_non_combacia_rifiuta_gli_sha_non_plausibili():
-    assert publisher._sha_che_non_combacia("a" * 40) != "a" * 40
-    assert len(publisher._sha_che_non_combacia("a" * 40)) == 40
-    for cattivo in ("x", "", "abc", "z" * 40, "a" * 39, "a" * 41, None):
-        assert publisher._sha_che_non_combacia(cattivo) == "", cattivo
-
-
-def test_astensione_per_sha_anomalo_lo_DICHIARA_invece_di_promettere():
-    """Buco trovato verificando la patch dei bloccanti: con uno sha reale non plausibile il probe
-    si astiene (giusto), ma il messaggio diceva comunque «✅ Accesso OK … verrà aggiornato», senza
-    alcun accenno al fatto che la scrittura NON era stata provata. È la stessa promessa non
-    mantenuta che si era evitata nel caso «file non ancora esistente»: qui va detta uguale."""
-    http = _http_fino_al_probe()
-    http.responses[2] = (200, {"sha": "non-uno-sha"})
+def test_il_probe_parte_ANCHE_se_il_file_revoche_non_esiste_ancora():
+    """Effetto collaterale positivo del percorso usa-e-getta: non serve più lo sha del file reale,
+    quindi la prova funziona anche alla PRIMA pubblicazione — il caso in cui prima ci si asteneva,
+    cioè proprio quando l'utente configura tutto per la prima volta e ha più bisogno di sapere."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                     (404, None),          # il file revoche non c'è ancora
+                     (422, None))          # prova sul percorso usa-e-getta: permesso confermato
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
-    assert res["ok"] is True
+    assert res["ok"] is True and res["can_write"] is True and res["file_exists"] is False
+    assert "confermato" in res["message"].lower()
+
+
+def test_il_probe_403_resta_la_prova_definitiva_del_permesso_mancante():
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                     (200, {"sha": "a" * 40}), (403, None))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False and res["can_write"] is False
+    assert "contents" in res["message"].lower()
+
+
+def test_anomalia_sul_percorso_usa_e_getta_dice_che_le_revoche_sono_INTATTE():
+    """Anche nel caso peggiore il messaggio deve dire la cosa che tranquillizza davvero: il file
+    creato non è la lista revoche, quindi nessun bridge è stato toccato."""
+    http = _FakeHttp((200, {"permissions": {"push": True}}), (200, {"name": "main"}),
+                     (200, {"sha": "a" * 40}), (201, {}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False
     testo = res["message"].lower()
-    assert "non è stato verificato" in testo or "non è stato confermato" in testo, \
-        f"promette una scrittura che non ha provato: {res['message']!r}"
+    assert "revoche" in testo and ("intatt" in testo or "non è stat" in testo), res["message"]

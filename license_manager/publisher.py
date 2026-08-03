@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -137,31 +136,24 @@ def _default_http(method: str, url: str, *, token: str, body=None,
     return status, (payload if isinstance(payload, dict) else None)
 
 
-# Uno sha Git è 40 esadecimali. Il probe di scrittura parte SOLO con uno sha reale di questa forma:
-# vedi `_sha_che_non_combacia`.
-_SHA_GIT_RE = re.compile(r"[0-9a-fA-F]{40}")
+def probe_path(path: str) -> str:
+    """Percorso **usa-e-getta** su cui si fa la prova di scrittura — mai il file delle revoche.
+
+    Bloccante Fugu #215. La prova puntava al file reale, difesa solo dall'ordine
+    «permessi-prima-di-sha» di GitHub: se un proxy o un'API compatibile applicasse comunque la
+    `PUT`, la lista **firmata** verrebbe sovrascritta e i bridge resterebbero senza. Rilevare il
+    danno (ramo ANOMALIA) non è impedirlo, e su un artefatto di sicurezza vivo la differenza conta.
+
+    Il potere diagnostico non cambia: il permesso «Contents» vale per l'intero **repository**, non
+    per singolo file. Cambia il danno peggiore: da «lista revoche sovrascritta» a «un file inerte
+    che nessun bridge legge, cancellabile a mano»."""
+    return f"{str(path or '').strip().lstrip('/')}.xtrader-verifica-accesso"
 
 
-def _sha_che_non_combacia(sha_reale: str) -> str:
-    """Uno `sha` **diverso per costruzione** da quello reale — l'invariante di sicurezza del probe
-    di scrittura.
-
-    Il probe manda una `PUT` con questo sha per farsi dire da GitHub se il token *potrebbe*
-    scrivere. GitHub valida i **permessi prima dello sha**, quindi: 403 = non può scrivere;
-    409/422 = poteva, ma lo sha non combacia e **nulla viene modificato**.
-
-    Tutta la sicurezza sta qui: se questo sha combaciasse, la `PUT` **riuscirebbe** e
-    sovrascriverebbe la lista revoche con un contenuto segnaposto. Non ci si affida
-    all'improbabilità di una collisione — si prende lo sha reale e se ne cambia un carattere,
-    così la differenza è **garantita**, non sperata."""
-    reale = str(sha_reale or "").strip()
-    if not _SHA_GIT_RE.fullmatch(reale):
-        # Sha reale non plausibile (payload anomalo, API non-GitHub, campo mancante): non si può
-        # costruire un «diverso per costruzione» affidabile, e mandare una PUT alla cieca su un
-        # file di revoche è esattamente ciò che non si deve fare. Astenersi (bloccante GPT-5.5).
-        return ""
-    primo = "0" if reale[0] != "0" else "1"
-    return primo + reale[1:]
+# Sha di prova: forma valida (40 esadecimali) ma riferito a un file che **non esiste**, quindi
+# GitHub risponde «conflitto» invece di scrivere. Costante e innocua: il bersaglio è il percorso
+# usa-e-getta, non le revoche.
+_SHA_PROBE = "0" * 40
 
 
 def _is_rate_limited(payload) -> bool:
@@ -231,10 +223,12 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
     """Verifica **preventiva** che la pubblicazione funzionerà, **senza modificare nulla**.
 
     Ritorna ``{"ok", "message", "can_write", "file_exists"}``. **Non modifica mai** il repository:
-    tre `GET` più — quando il file esiste — **una `PUT` che non può andare a buon fine**, perché
-    porta uno `sha` diverso *per costruzione* da quello reale (`_sha_che_non_combacia`). Non è una
-    scrittura: è l'unica domanda a cui GitHub risponde con certezza su «questo token può scrivere?»,
-    perché i permessi sono validati **prima** dello sha. Il repo delle revoche non viene toccato.
+    tre `GET` più **una `PUT` su un percorso usa-e-getta** (`probe_path`), **mai** sul file delle
+    revoche, con uno `sha` riferito a un file inesistente. Non è una scrittura: è l'unica domanda a
+    cui GitHub risponde con certezza su «questo token può scrivere?», perché i permessi sono
+    validati **prima** dello sha. E se anche quella `PUT` venisse applicata da un proxy o un'API
+    compatibile, nascerebbe un file inerte che nessun bridge legge — non una lista revoche
+    corrotta (bloccante Fugu #215: rilevare il danno non è impedirlo).
 
     Perché non basta leggere il file (il caso reale del proprietario, 2026-08-03): il repository
     delle revoche è **pubblico**, quindi una `GET` riesce con qualunque token valido. Una verifica
@@ -305,74 +299,54 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
     except Exception:       # noqa: BLE001 — rete instabile a metà verifica: si dichiara ciò che si sa
         status = None
     esito["file_exists"] = status == 200
-    sha_reale = (_payload or {}).get("sha") if status == 200 else None
 
     # PROVA DEFINITIVA della scrittura (richiesta del proprietario, 2026-08-03). `permissions.push`
     # è un'INFERENZA: nessuna chiamata di sola lettura dice con certezza se un token *fine-grained*
     # può scrivere — se riportasse `push: true` con «Contents» in sola lettura, la sonda direbbe
     # «Accesso OK» proprio nel guasto che deve diagnosticare (rilievo Fugu #215).
     #
-    # Si tenta quindi una `PUT` con uno sha **che non può combaciare** (`_sha_che_non_combacia`):
-    # GitHub valida i permessi PRIMA dello sha, quindi 403 = non può scrivere (prova definitiva),
-    # 409/422 = poteva, e nulla è stato modificato. Non è una scrittura: è una domanda posta
-    # nell'unico modo a cui GitHub risponde con certezza.
-    #
-    # Senza sha reale il probe si ASTIENE: una `PUT` senza sha **creerebbe** il file, e non si
-    # sporca il repository delle revoche per fare una prova. In quel caso lo si dichiara.
-    fittizio = _sha_che_non_combacia(sha_reale)
-    if fittizio:
-        corpo = {"message": "verifica accesso (nessuna modifica)",
-                 "content": base64.b64encode(b"verifica").decode("ascii"),
-                 "branch": str(branch or "").strip(), "sha": fittizio}
-        try:
-            status_w, payload_w = caller("PUT", contents_url(repo, path), token=token, body=corpo,
-                                         timeout=timeout)
-        except Exception:       # noqa: BLE001 — rete a metà verifica: si dichiara ciò che si sa
-            status_w, payload_w = None, None
-        if status_w in (401, 403):
-            esito["can_write"] = False
-            esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
-            return esito
-        if status_w is not None and 200 <= status_w < 300:
-            # L'esito PIÙ PERICOLOSO, e va trattato come tale (bloccante GPT-5.5 #215). Lo sha era
-            # diverso per costruzione, quindi GitHub non avrebbe dovuto accettare: se l'ha fatto —
-            # o se ha risposto un proxy/API compatibile — il file **è stato modificato** e la lista
-            # pubblicata non è più quella firmata. Dire «Accesso OK» qui sarebbe la bugia più
-            # dannosa che questa funzione possa raccontare. Fail-closed, e si dice cosa fare.
-            esito["can_write"] = True
-            esito["ok"] = False
-            esito["message"] = (
-                f"⚠️ ANOMALIA: la prova di scrittura su «{path}» è stata ACCETTATA da GitHub "
-                f"(HTTP {status_w}) nonostante fosse costruita per fallire. Il file potrebbe "
-                "essere stato MODIFICATO: usa subito «🚀 Pubblica ora» per ripubblicare la lista "
-                "firmata, poi segnala l'accaduto.")
-            return esito
-        if status_w in (409, 422):
-            dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Permesso di scrittura "
-                         "CONFERMATO da GitHub (prova senza modifiche).")
-        else:
-            dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Il permesso di scrittura "
-                         "risulta concesso ma NON è stato confermato con una prova.")
-        esito["ok"] = True
-        esito["message"] = (f"✅ Accesso OK: il token può scrivere su «{repo}» (branch {branch}). "
-                            f"{dettaglio}")
+    # Si tenta una `PUT` sul percorso USA-E-GETTA (`probe_path`), MAI sul file delle revoche
+    # (bloccante Fugu #215), con uno sha riferito a un file inesistente. GitHub valida i permessi
+    # PRIMA dello sha: 403 = non può scrivere (prova definitiva), 409/422 = poteva, e nulla è
+    # stato creato. Nel caso peggiore — una `PUT` comunque applicata da un proxy o un'API
+    # compatibile — nasce un file inerte che nessun bridge legge, non una lista revoche corrotta.
+    corpo = {"message": "verifica accesso (file temporaneo, ignorare)",
+             "content": base64.b64encode(b"verifica accesso").decode("ascii"),
+             "branch": str(branch or "").strip(), "sha": _SHA_PROBE}
+    try:
+        status_w, payload_w = caller("PUT", contents_url(repo, probe_path(path)), token=token,
+                                     body=corpo, timeout=timeout)
+    except Exception:       # noqa: BLE001 — rete a metà verifica: si dichiara ciò che si sa
+        status_w, payload_w = None, None
+
+    if status_w in (401, 403):
+        esito["can_write"] = False
+        esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
+        return esito
+    if status_w is not None and 200 <= status_w < 300:
+        # Non avrebbe dovuto passare. Il danno è però circoscritto per costruzione: il file creato
+        # NON è la lista revoche. Fail-closed lo stesso, dicendo la cosa che conta davvero.
+        esito["can_write"] = True
+        esito["ok"] = False
+        esito["message"] = (
+            f"⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP {status_w}) "
+            f"nonostante fosse costruita per fallire. La lista revoche «{path}» è **intatta** — la "
+            f"prova scrive solo su «{probe_path(path)}» — ma quel file temporaneo va cancellato a "
+            "mano dal repository, e l'accaduto segnalato.")
         return esito
 
     esito["ok"] = True
-    if status == 200:
-        # Si arriva qui col file ESISTENTE solo se il probe si è astenuto (sha reale non
-        # plausibile): il permesso non è stato provato, e va detto — promettere una scrittura non
-        # verificata è la stessa disonestà evitata nel ramo «file non ancora esistente».
-        dettaglio = (f"Il file «{path}» esiste già e verrà aggiornato. Il permesso di scrittura "
-                     "risulta concesso ma NON è stato verificato con una prova (GitHub non ha "
-                     "restituito un identificativo di file utilizzabile).")
-    elif status == 404:
-        dettaglio = (f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà. Il "
-                     "permesso di scrittura risulta concesso ma NON è stato verificato con una "
-                     "prova (si può farlo solo su un file esistente, senza crearne uno).")
+    if status_w in (409, 422):
+        conferma = "Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche)."
     else:
-        dettaglio = ("Permesso di scrittura verificato; lo stato del file non è stato letto "
-                     "(riprova se la pubblicazione dovesse fallire).")
+        conferma = ("Il permesso di scrittura risulta concesso ma NON è stato confermato con una "
+                    "prova.")
+    if status == 200:
+        dettaglio = f"Il file «{path}» esiste già e verrà aggiornato. {conferma}"
+    elif status == 404:
+        dettaglio = f"Il file «{path}» non c'è ancora: la prima pubblicazione lo creerà. {conferma}"
+    else:
+        dettaglio = f"Lo stato del file «{path}» non è stato letto. {conferma}"
     esito["message"] = (f"✅ Accesso OK: il token può scrivere su «{repo}» (branch {branch}). "
                         f"{dettaglio}")
     return esito

@@ -1376,7 +1376,7 @@ contrario.
 |---|---|
 | accesso **OK**, scrittura **confermata** | «✅ Accesso OK: il token può scrivere su «*repo*» (branch *X*). Il file «*path*» esiste già e verrà aggiornato. Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche).» |
 | accesso **OK**, scrittura **non provata** | come sopra, ma «… Il permesso di scrittura risulta concesso ma NON è stato verificato con una prova (si può farlo solo su un file esistente, senza crearne uno).» — è il caso della **prima** pubblicazione, quando il file non c'è ancora |
-| prova **ACCETTATA** (anomalia) | «⚠️ ANOMALIA: la prova di scrittura su «*path*» è stata ACCETTATA da GitHub (HTTP *n*) nonostante fosse costruita per fallire. Il file potrebbe essere stato MODIFICATO: usa subito «🚀 Pubblica ora» per ripubblicare la lista firmata, poi segnala l'accaduto.» |
+| prova **ACCETTATA** (anomalia) | «⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP *n*) nonostante fosse costruita per fallire. La lista revoche «*path*» è **intatta** — la prova scrive solo su «*path*.xtrader-verifica-accesso» — ma quel file temporaneo va cancellato a mano dal repository, e l'accaduto segnalato.» |
 | **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
 | **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
@@ -1387,10 +1387,12 @@ contrario.
 **Perché la sonda tenta una scrittura.** `permissions.push` è un'**inferenza**: se un token
 *fine-grained* con «Contents» in sola lettura lo riportasse `true`, la verifica direbbe «Accesso OK»
 proprio nel guasto che deve diagnosticare. L'unica prova certa è chiedere a GitHub — con una `PUT`
-che porta uno `sha` **diverso per costruzione** da quello reale, quindi **impossibile da applicare**.
+su un **percorso usa-e-getta** (`<file>.xtrader-verifica-accesso`), **mai** sul file delle revoche.
 I permessi sono validati *prima* dello sha: `403` = non può scrivere, `409/422` = poteva, e **nulla
-è stato modificato**. Se il file non esiste ancora il probe si **astiene** (una `PUT` senza sha lo
-creerebbe) e il messaggio lo **dichiara**, invece di promettere una scrittura non provata.
+è stato creato**. Il bersaglio usa-e-getta non è un dettaglio: se quella `PUT` venisse comunque
+applicata da un proxy o un'API compatibile, nascerebbe un file inerte invece di una lista revoche
+sovrascritta — e i bridge scaricano quella. Effetto collaterale positivo: la prova funziona anche
+alla **prima** pubblicazione, quando il file non esiste ancora.
 
 **401 e 403 sono voci separate di proposito.** Prima condividevano una frase sola — «Token non
 valido o senza permessi» — e chi la leggeva non poteva sapere quale dei due fosse, mentre i rimedi
