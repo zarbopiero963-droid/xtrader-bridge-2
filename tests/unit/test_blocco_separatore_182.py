@@ -68,9 +68,15 @@ def test_caso_reale_della_issue_al_kholood_con_trattino():
     res = _res(_parser("Al-Kholood Club v Al-Hilal", "-"))
     assert res.status == pipe.TEAM_SEPARATOR_NOT_FOUND
     assert res.placeable is False
-    # …e MAI lo split sbagliato che la guardia `spaced_only` impedisce.
+    # …e MAI lo split sbagliato che la guardia `spaced_only` impedisce. Col fallback compatto
+    # (percorso dizionario) `-` spezzerebbe in «Al» / «Kholood Club v Al-Hilal»: qui il nome
+    # deve restare INTERO. L'asserzione confronta la stringa esatta, non una sua parte —
+    # una versione precedente finiva con `or True` ed era una guardia morta (rilievo Fable
+    # sulla PR #231): in una PR di sicurezza è peggio di nessuna asserzione, perché sembra
+    # copertura senza esserlo.
     assert res.row["EventName"] == "Al-Kholood Club v Al-Hilal"
-    assert "Kholood" not in res.row["EventName"].split(" - ")[0] or True  # nome intatto
+    assert res.row["EventName"] != "Al", "split compatto: il nome è stato tagliato dentro"
+    assert " - " not in res.row["EventName"], "nome ricomposto da uno split che non doveva avvenire"
 
 
 def test_alfabetico_e_simbolico_bloccano_uguale():

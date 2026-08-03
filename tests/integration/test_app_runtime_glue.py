@@ -23,7 +23,7 @@ un `RouteResult` reale.
 import csv
 from pathlib import Path
 
-from xtrader_bridge import safety_guard, signal_dedupe, signal_queue
+from xtrader_bridge import custom_pipeline, safety_guard, signal_dedupe, signal_queue
 
 _APP_SRC = Path(__file__).resolve().parents[2] / "xtrader_bridge" / "app.py"
 
@@ -1950,3 +1950,47 @@ def test_start_non_inventa_avvisi_su_una_config_sana(app_mod, tmp_path):
     logs = _avvia_e_raccogli(app_mod, cfg, tmp_path / "out.csv")
 
     assert not [m for m in logs if "nomi Betfair diversi" in m], logs
+
+
+# ── #182 PR S — il separatore non trovato non deve MAI produrre una riga CSV ─────────────────
+
+def test_process_separatore_non_trovato_non_scrive_nel_csv(make_app, app_mod, monkeypatch, tmp_path):
+    """⚠️ La verifica END-TO-END che la #182 PR S promette: **nessuna riga nel CSV**.
+
+    Rilievo GPT-5.5 sulla PR #231, e giusto: i test della pipeline verificano che il router
+    *dica* di non piazzare, non che il file resti vuoto. Per una PR il cui scopo è «nessuna
+    riga», l'evidenza diretta è il CSV — e sta nella glue dell'app, non nella pipeline.
+
+    Qui `resolve_row` ritorna un `RouteResult` NON piazzabile con lo stato reale della PR S,
+    esattamente come farebbe il router su un messaggio col separatore sbagliato."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, running=True,
+                 tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    spy = _spy_writer(monkeypatch, app_mod, fail=False)
+    scartato = app_mod.signal_router.RouteResult(
+        row=None, status=custom_pipeline.TEAM_SEPARATOR_NOT_FOUND,
+        detail="separatore non trovato tra le squadre: nome lasciato invariato")
+    monkeypatch.setattr(app_mod.signal_router, "resolve_row", lambda *a, **k: scartato)
+
+    app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert spy["n"] == 0, "una riga è stata scritta per un evento che non si è saputo interpretare"
+    assert q.active_rows() == [], "il segnale scartato è finito comunque in coda"
+
+
+def test_process_separatore_TROVATO_scrive_ancora(make_app, app_mod, monkeypatch, tmp_path):
+    """Contro-guardia della precedente: il blocco non deve aver spento la scrittura in generale.
+    Senza questa, un `_process` che non scrive MAI passerebbe il test qui sopra."""
+    path = str(tmp_path / "segnali.csv")
+    q = signal_queue.SignalQueue(mode=signal_queue.OVERWRITE_LAST, default_timeout=120)
+    a = make_app(csv_path=path, queue=q, running=True,
+                 tracker=signal_dedupe.SignalTracker(),
+                 daily=safety_guard.DailyLimiter(max_per_day=10))
+    spy = _spy_writer(monkeypatch, app_mod, fail=False)
+    _patch_resolve(monkeypatch, app_mod, _row("Inter - Milan"))
+
+    app_mod.App._process(a, "msg", {"csv_path": path, "dry_run": False}, chat_id="1")
+
+    assert spy["n"] == 1, "il percorso di scrittura è rotto: il test del blocco varrebbe zero"
