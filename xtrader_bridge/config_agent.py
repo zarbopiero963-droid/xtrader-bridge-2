@@ -526,6 +526,11 @@ MAX_GUIDE_CHARS = 12000
 # documento dà **di sé**, non un prefisso arbitrario, quindi orienta senza indurre a rispondere.
 MAX_GUIDE_PREAMBLE_CHARS = 1500
 
+# Tetto sull'elenco delle sotto-sezioni accodato a una sezione troncata. Senza, con molte
+# sotto-sezioni dai titoli lunghi quell'elenco cresceva finché l'output sforava il tetto che deve
+# rispettare — misurato 64.954 caratteri contro 12.000 (bloccante Fable/Fugu #217).
+MAX_GUIDE_SUBINDEX_CHARS = 2000
+
 # Titoli che formano l'indice: `##` e `###`. Misurato sulle guide reali: 18-48 voci, cioè un
 # indice completo sta comodamente sotto il tetto anche per la guida più grande. Scendere a `####`
 # non ridurrebbe la sezione massima (misurato) e allungherebbe l'indice per nulla.
@@ -547,10 +552,23 @@ def guide_sections(text: str) -> list:
     Spezzarla al primo sottotitolo darebbe un frammento peggiore del troncamento che stiamo
     togliendo di mezzo.
 
+    I blocchi di codice recintati (```) sono **saltati**: in queste guide gli esempi contengono
+    righe che iniziano per `#` (commenti shell, esempi Markdown), e prenderle per titoli creerebbe
+    sezioni fasulle con confini sbagliati — cioè restituirebbe all'assistente un pezzo di
+    documentazione diverso da quello chiesto, che è il difetto da cui nasce tutta questa modifica
+    (bloccante Fable #217). Oggi nelle guide reali non ce ne sono, ma basterebbe un esempio
+    Markdown in una PR futura perché comparissero, in silenzio.
+
     Funzione pura (nessun I/O): il test la esercita direttamente, senza toccare il filesystem."""
     righe = (text or "").splitlines(keepends=True)
     titoli = []
+    dentro_codice = False
     for i, riga in enumerate(righe):
+        if riga.lstrip().startswith("```"):
+            dentro_codice = not dentro_codice
+            continue
+        if dentro_codice:
+            continue
         m = _GUIDE_HEADING_RE.match(riga)
         if m:
             titoli.append((len(m.group(1)), m.group(2), i))
@@ -629,27 +647,55 @@ def build_guide_tools(*, base_dir=None) -> list:
         sezioni = guide_sections(text)
 
         if section:
+            if not sezioni:
+                # Guida senza titoli: `section` non ha nulla da selezionare. Dirle «sezioni
+                # disponibili:» seguito da un elenco vuoto manderebbe il modello a ritentare con
+                # un titolo che non esiste (rilievo Sourcery #217).
+                return (f"La guida «{name}» non ha sezioni indirizzabili: `section` non si applica. "
+                        "Richiamala senza `section` per il testo (troncato se supera il tetto).")
             trovata = _trova_sezione(sezioni, section)
             if trovata is None:
                 return (f"Sezione «{section}» non trovata nella guida «{name}». "
                         f"Sezioni disponibili:\n{_indice(sezioni)}\n\n"
-                        "Richiama 'read_guide' con uno di questi titoli in `section`.")
+                        "Richiama 'read_guide' con uno di questi titoli in `section`."
+                        )[:MAX_GUIDE_CHARS]
             livello, titolo, inizio, fine = trovata
             corpo = "".join(righe[inizio:fine])
             intestazione = f"Guida «{name}» → sezione «{titolo}»\n\n"
-            if len(corpo) > MAX_GUIDE_CHARS:
+            if len(intestazione) + len(corpo) > MAX_GUIDE_CHARS:
+                # Il confronto include l'INTESTAZIONE (rilievo Sourcery #217). Misurandolo sul
+                # solo `corpo`, una sezione appena sotto il tetto passava di qui senza avviso e
+                # poi il clamp finale le tagliava la coda **in silenzio**: cioè esattamente il
+                # difetto che questa PR esiste per togliere, reintrodotto dalla rete di sicurezza.
                 # Anche una sezione può eccedere il tetto (la più grande misurata è 45.873
                 # caratteri). Si tronca, ma DICENDOLO e indicando le sotto-sezioni: il modello
                 # può stringere ancora invece di credere di aver letto tutto.
                 interne = [s for s in sezioni if s[2] > inizio and s[3] <= fine and s[0] > livello]
-                coda = ("\n\n[…sezione troppo lunga, mostrata solo la prima parte."
-                        + (f" Sotto-sezioni che puoi chiedere in `section`:\n{_indice(interne)}"
-                           if interne else " Non ha sotto-sezioni: chiedi all'utente di essere "
-                                           "più specifico su cosa gli serve.")
-                        + "]")
+                avviso = "\n\n[…sezione troppo lunga, mostrata solo la prima parte."
+                if interne:
+                    elenco = _indice(interne)
+                    # La coda va CAPATA a sua volta: con molte sotto-sezioni dai titoli lunghi
+                    # cresceva senza limite e l'output sforava il tetto che deve rispettare —
+                    # misurato 64.954 caratteri contro 12.000 (bloccante Fable/Fugu #217).
+                    # L'avviso di troncamento è la parte onesta e non si perde mai: si accorcia
+                    # l'elenco, dicendo quante voci restano fuori.
+                    if len(elenco) > MAX_GUIDE_SUBINDEX_CHARS:
+                        tenute = []
+                        usati = 0
+                        for riga_indice in elenco.split("\n"):
+                            if usati + len(riga_indice) + 1 > MAX_GUIDE_SUBINDEX_CHARS:
+                                break
+                            tenute.append(riga_indice)
+                            usati += len(riga_indice) + 1
+                        elenco = "\n".join(tenute) + f"\n  … e altre {len(interne) - len(tenute)}"
+                    coda = f"{avviso} Sotto-sezioni che puoi chiedere in `section`:\n{elenco}]"
+                else:
+                    coda = (f"{avviso} Non ha sotto-sezioni: chiedi all'utente di essere più "
+                            "specifico su cosa gli serve.]")
                 disponibili = MAX_GUIDE_CHARS - len(intestazione) - len(coda)
                 corpo = corpo[:max(0, disponibili)] + coda
-            return intestazione + corpo
+            # Clamp finale: nessun ramo può restituire più del tetto, comunque sia composto.
+            return (intestazione + corpo)[:MAX_GUIDE_CHARS]
 
         if len(text) <= MAX_GUIDE_CHARS:
             return text                          # guida piccola: invariata, testo intero
@@ -672,14 +718,37 @@ def build_guide_tools(*, base_dir=None) -> list:
         prima_sezione = sezioni[0][2]
         preambolo = "".join(righe[:prima_sezione])[:MAX_GUIDE_PREAMBLE_CHARS].rstrip()
         quanti = f"{len(text):,}".replace(",", ".")      # separatore migliaia all'italiana
-        testa = (f"Guida «{name}» — {quanti} caratteri: TROPPO GRANDE per essere letta "
+        avvio = (f"Guida «{name}» — {quanti} caratteri: TROPPO GRANDE per essere letta "
                  f"intera.\n\nRichiama 'read_guide' con `section` per leggere la sezione che ti "
                  "serve. NON rispondere all'utente basandoti solo su questo indice: qui ci sono i "
-                 "titoli, non il contenuto.\n\n"
-                 f"INDICE COMPLETO ({len(sezioni)} sezioni):\n")
-        blocco = testa + _indice(sezioni)
-        if preambolo:
-            blocco += f"\n\nApertura della guida:\n{preambolo}"
+                 "titoli, non il contenuto.\n\n")
+
+        # Anche l'INDICE può eccedere il tetto, con abbastanza titoli (bloccante CodeRabbit #217):
+        # prima il clamp finale ne tagliava la coda mentre l'intestazione continuava a dichiarare
+        # «INDICE COMPLETO (N sezioni)». Misurato: 400 sezioni annunciate, 69 elencate. È lo stesso
+        # difetto che questa PR esiste per togliere — una promessa di completezza su contenuto
+        # amputato — reintrodotto un livello più in su, e per giunta dalla rete di sicurezza.
+        # Quindi: o l'indice ci sta tutto e si dichiara completo, o si dice quante voci mancano.
+        voci = _indice(sezioni).split("\n")
+        coda_parziale = "\n… l'indice non ci sta tutto: chiedi all'utente di quale argomento ha " \
+                        "bisogno, oppure leggi una delle sezioni elencate."
+        budget = MAX_GUIDE_CHARS - len(avvio) - len(coda_parziale) - 120   # 120 ≈ riga di conteggio
+        tenute, usati = [], 0
+        for voce in voci:
+            if usati + len(voce) + 1 > budget:
+                break
+            tenute.append(voce)
+            usati += len(voce) + 1
+
+        if len(tenute) == len(voci):
+            blocco = avvio + f"INDICE COMPLETO ({len(sezioni)} sezioni):\n" + "\n".join(tenute)
+            if preambolo:
+                blocco += f"\n\nApertura della guida:\n{preambolo}"
+        else:
+            # Niente preambolo qui: lo spazio serve ai titoli, che sono l'informazione utile.
+            blocco = (avvio + f"INDICE PARZIALE: mostrate {len(tenute)} sezioni su "
+                      f"{len(sezioni)} — le altre esistono ma non entrano nella risposta.\n"
+                      + "\n".join(tenute) + coda_parziale)
         return blocco[:MAX_GUIDE_CHARS]
 
     return [

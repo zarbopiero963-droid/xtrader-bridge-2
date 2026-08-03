@@ -345,7 +345,27 @@ fare (avviare il listener live, passare a modalità reale, impostare token/chat/
   | `section` trovata | la sezione, estesa fino al titolo di livello **pari o superiore** (un `##` include i suoi `###`) |
   | `section` oltre il tetto | troncata **dichiarandolo**, con l'elenco delle sotto-sezioni per stringere |
   | `section` non trovata | lo dice + indice per riprovare, **nessuna eccezione** |
+  | `section` su guida **senza titoli** | lo dichiara («non ha sezioni indirizzabili»), non offre un elenco vuoto |
   | guida > tetto **senza titoli** | taglio classico, con nota veritiera («non ha sezioni») |
+
+  **Il tetto vale su ogni ramo, e il taglio non torna mai silenzioso.** Tre correzioni arrivate
+  dalla review della PR #217, tutte con test di regressione:
+  - i titoli dentro i **blocchi di codice** (```) non fanno sezione: un `## …` in un esempio
+    Markdown creerebbe una sezione fasulla e sposterebbe il confine di quella vera, restituendo un
+    pezzo di documentazione **diverso** da quello chiesto. Oggi nelle guide reali non ce ne sono —
+    il bug era latente, e sarebbe comparso in silenzio alla prima PR che documenta il Markdown;
+  - l'elenco delle sotto-sezioni accodato a una sezione troncata è **capato**
+    (`MAX_GUIDE_SUBINDEX_CHARS`): con molte sotto-sezioni dai titoli lunghi cresceva senza limite e
+    l'output sforava il tetto — misurato **64.954 contro 12.000**. L'avviso di troncamento non si
+    perde mai: si accorcia l'elenco dichiarando quante voci restano fuori;
+  - la soglia di «sezione troppo lunga» include l'**intestazione**. Misurata sul solo corpo, una
+    sezione appena sotto il tetto non entrava nel ramo con l'avviso e veniva poi accorciata dal
+    clamp finale: troncamento **silenzioso** reintrodotto proprio dalla rete di sicurezza;
+  - **l'indice non si dichiara mai «COMPLETO» se è stato tagliato.** Con abbastanza titoli l'indice
+    stesso supera il tetto: il clamp ne tagliava la coda mentre l'intestazione continuava ad
+    annunciare *«INDICE COMPLETO (N sezioni)»* — misurato **400 annunciate, 69 elencate**. Lo
+    stesso difetto della issue, un livello più in su. Ora o l'indice ci sta tutto, o diventa
+    **«INDICE PARZIALE: mostrate X su N»** e invita a chiedere l'argomento all'utente.
 
   Il tetto **non si alza**: `design_handoff.md` è 144.683 caratteri e cresce a ogni PR di design —
   non starà mai in un contesto ragionevole. A cambiare è che il taglio non è più cieco.

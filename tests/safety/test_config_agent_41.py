@@ -1083,24 +1083,51 @@ def test_read_guide_con_section_resta_SOLA_LETTURA(tmp_path):
     """La disciplina di estensione dell'assistente: il parametro nuovo non deve cambiare il
     permesso del tool né toccare il disco."""
     reg = _scrivi_guida_grande(tmp_path)
-    prima = sorted(p.name for p in tmp_path.rglob("*"))
+
+    def _istantanea():
+        """Percorso → BYTE, non solo i nomi (rilievo CodeRabbit #217): confrontando l'elenco dei
+        file, una riscrittura **sul posto** di una guida esistente sarebbe passata inosservata —
+        ed è il modo più probabile in cui un tool di lettura potrebbe sporcare il disco."""
+        return {str(p.relative_to(tmp_path)): p.read_bytes()
+                for p in sorted(tmp_path.rglob("*")) if p.is_file()}
+
+    prima = _istantanea()
     res = reg.dispatch("read_guide", {"name": "parser_personalizzato", "section": "4. Coda"},
                        allow_writes=False)
     assert res.refused is False
-    assert sorted(p.name for p in tmp_path.rglob("*")) == prima, "ha scritto sul disco"
+    assert _istantanea() == prima, "ha scritto o modificato un file sul disco"
 
 
 def test_section_non_apre_una_strada_fuori_dall_allowlist(tmp_path):
     """`section` è un TITOLO, non un percorso: non deve poter diventare un modo per leggere file
-    che l'allowlist non contempla. `name` resta l'unica chiave, e resta vincolato a GUIDES."""
+    che l'allowlist non contempla. `name` resta l'unica chiave, e resta vincolato a GUIDES.
+
+    La prima versione di questo test era **vacua** e non per la ragione che sembrava (bloccanti
+    Fable 5 e Fugu Ultra #217, convergenti). Piantava l'esca in `tmp_path/segreto.md` e poi
+    provava `../segreto.md`, che da `tmp_path` punta al **padre**: nessun tentativo colpiva il
+    file piantato, quindi il test sarebbe passato anche con `section` usata come percorso —
+    verificato per mutazione. Ora l'esca sta in **entrambi** i posti che un traversal
+    raggiungerebbe, e ogni tentativo è costruito per centrarne uno."""
     reg = _scrivi_guida_grande(tmp_path)
-    tmp_path.joinpath("segreto.md").write_text("TOKEN=non-deve-uscire", encoding="utf-8")
-    for tentativo in ("../segreto.md", "/etc/passwd", "segreto"):
+    esca = "chiave-segreta-che-non-deve-uscire"
+    tmp_path.joinpath("segreto.md").write_text(esca, encoding="utf-8")          # dentro la radice
+    tmp_path.parent.joinpath("segreto_fuori.md").write_text(esca, encoding="utf-8")   # fuori
+    tentativi = (
+        "segreto.md",                       # relativo alla radice delle guide
+        "./segreto.md",
+        "docs/../segreto.md",               # traversal che rientra
+        "../segreto_fuori.md",              # traversal che esce davvero
+        f"../{tmp_path.name}/segreto.md",   # esce e rientra
+        "/etc/passwd",                      # assoluto
+    )
+    for tentativo in tentativi:
         out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
                                           "section": tentativo}).content
-        assert "non-deve-uscire" not in out
+        assert esca not in out, f"«{tentativo}» ha fatto uscire il contenuto del file"
+        assert "root:" not in out, f"«{tentativo}» ha letto un file di sistema"
+    # e `name` resta l'unica chiave dell'allowlist
     out = reg.dispatch("read_guide", {"name": "../segreto.md"}).content
-    assert "non trovata" in out and "non-deve-uscire" not in out
+    assert "non trovata" in out and esca not in out
 
 
 def test_indice_delle_guide_reali_sotto_il_tetto():
@@ -1110,3 +1137,130 @@ def test_indice_delle_guide_reali_sotto_il_tetto():
     for nome in sorted(ca.GUIDES):
         out = tools["read_guide"].handler({"name": nome})
         assert len(out) <= ca.MAX_GUIDE_CHARS, f"{nome}: {len(out)} caratteri"
+
+
+def test_i_titoli_dentro_un_blocco_di_codice_NON_sono_sezioni(tmp_path):
+    """Bloccante Fable 5 + Fugu Ultra #217, convergenti. Le guide contengono esempi di codice e di
+    Markdown: una riga `## …` dentro ``` non è un titolo. Prenderla per tale creerebbe una sezione
+    fasulla e sposterebbe il confine di quella vera — cioè restituirebbe all'assistente un pezzo
+    di documentazione DIVERSO da quello chiesto, che è esattamente il difetto da cui nasce tutta
+    questa modifica.
+
+    Oggi nelle guide reali non ce ne sono (misurato): il bug è latente. Basterebbe una PR futura
+    che documenta la sintassi Markdown perché comparisse, in silenzio."""
+    testo = ("## 1. Vera\n" + "a" * 100 + "\n\n"
+             "```markdown\n"
+             "## 2. FINTA (esempio dentro il code fence)\n"
+             "### 2.1 anche questa e' finta\n"
+             "```\n\n"
+             + "b" * 100 + "\n\n"
+             "## 3. Vera anche questa\n" + "c" * 100 + "\n")
+    reg = _scrivi_guida_grande(tmp_path, testo + "riempitivo\n" * 3000)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+    assert "1. Vera" in out and "3. Vera anche questa" in out
+    assert "FINTA" not in out, "un titolo dentro il code fence è finito nell'indice"
+    assert "2.1 anche questa" not in out
+
+    # e il confine della sezione vera non dev'essere stato spostato dal titolo fasullo
+    sez = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "1. Vera"}).content
+    assert "a" * 100 in sez and "b" * 100 in sez, "la sezione è stata troncata dal titolo fasullo"
+    assert "c" * 100 not in sez, "ha sconfinato nella sezione 3"
+
+
+def test_sezione_troncata_con_TANTE_sottosezioni_resta_sotto_il_tetto(tmp_path):
+    """Bloccante Fable 5 + Fugu Ultra #217. L'elenco delle sotto-sezioni accodato a una sezione
+    troppo lunga poteva crescere senza limite: `disponibili` diventava negativo e l'output valeva
+    `intestazione + coda`, sforando il tetto che il tool esiste per rispettare. Misurato prima
+    della correzione: **64.954 caratteri contro 12.000**.
+
+    L'avviso di troncamento è la parte onesta e non deve sparire nel rientro: si accorcia
+    l'elenco, dichiarando quante voci restano fuori."""
+    sotto = "".join(
+        f"### {i:03d} " + "titolo lungo per gonfiare l'elenco delle sotto-sezioni " * 4 + "\n"
+        + "y" * 50 + "\n\n" for i in range(300))
+    testo = "## 1. Madre\n" + "x" * (ca.MAX_GUIDE_CHARS + 3000) + "\n\n" + sotto
+    reg = _scrivi_guida_grande(tmp_path, testo)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "1. Madre"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS, f"sfora il tetto: {len(out)} caratteri"
+    assert "troppo lunga" in out, "l'avviso di troncamento è andato perso nel rientro"
+    assert "e altre" in out, "non dice quante sotto-sezioni restano fuori"
+
+
+def test_ogni_ramo_di_read_guide_rispetta_il_tetto(tmp_path):
+    """Contratto trasversale: qualunque combinazione di guida e sezione, l'output non sfora. È la
+    garanzia che il tool non gonfi il contesto — la ragione per cui il tetto esiste."""
+    reg = _scrivi_guida_grande(tmp_path)
+    casi = [{}, {"section": "1. Introduzione"}, {"section": "4. Coda"},
+            {"section": "inesistente"}, {"section": ""}, {"section": "x" * 5000}]
+    for extra in casi:
+        out = reg.dispatch("read_guide", dict({"name": "parser_personalizzato"}, **extra)).content
+        assert len(out) <= ca.MAX_GUIDE_CHARS, f"{extra}: {len(out)} caratteri"
+
+
+def test_una_sezione_al_limite_NON_viene_tagliata_in_silenzio(tmp_path):
+    """Rilievo Sourcery #217, ed è il più insidioso del giro: il clamp finale — la rete di
+    sicurezza contro lo sforamento — poteva reintrodurre il difetto che questa PR toglie.
+
+    Il confronto era sul solo `corpo`. Una sezione appena sotto il tetto lo superava una volta
+    aggiunta l'intestazione, non entrava nel ramo «troppo lunga» (quindi nessun avviso) e veniva
+    accorciata dal clamp: troncamento **silenzioso**, di nuovo. Ora il confronto include
+    l'intestazione, quindi o la sezione arriva intera o il taglio si dichiara."""
+    quasi = ca.MAX_GUIDE_CHARS - 60          # sotto il tetto da solo, sopra con l'intestazione
+    testo = "## 1. Al limite\n" + "k" * quasi + "\n\n## 2. Altra\n" + "z" * 100 + "\n"
+    reg = _scrivi_guida_grande(tmp_path, testo + "riempitivo\n" * 3000)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "1. Al limite"}).content
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+    intera = ("k" * quasi) in out
+    assert intera or "troppo lunga" in out, (
+        "la sezione è stata accorciata SENZA dichiararlo: troncamento silenzioso")
+
+
+def test_section_su_una_guida_senza_titoli_lo_dice_chiaramente(tmp_path):
+    """Rilievo Sourcery #217. Con una guida priva di titoli, `section` non ha nulla da
+    selezionare: rispondere «Sezioni disponibili:» seguito da un elenco vuoto manderebbe il
+    modello a ritentare con un titolo che non esiste, in cerchio."""
+    reg = _scrivi_guida_grande(tmp_path, "X" * (ca.MAX_GUIDE_CHARS + 500))
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato",
+                                      "section": "qualcosa"}).content
+    assert "non ha sezioni indirizzabili" in out
+    assert "Sezioni disponibili" not in out, "offre un elenco vuoto da cui scegliere"
+
+
+def test_l_indice_non_dichiara_COMPLETO_quando_e_stato_tagliato(tmp_path):
+    """Bloccante CodeRabbit #217, e nessun altro reviewer l'ha visto.
+
+    Con abbastanza titoli l'INDICE stesso supera il tetto: il clamp finale ne tagliava la coda
+    mentre l'intestazione continuava a dire «INDICE COMPLETO (N sezioni)». Misurato prima della
+    correzione: **400 sezioni annunciate, 69 elencate**.
+
+    È lo stesso difetto che questa PR esiste per togliere — una promessa di completezza su
+    contenuto amputato — reintrodotto un livello più in su, e per giunta dalla rete di sicurezza
+    messa a proteggere il tetto. Ora: o l'indice ci sta tutto e si dichiara completo, o si dice
+    quante voci mancano."""
+    testo = "Preambolo.\n\n" + "".join(
+        f"## {i:04d} " + "titolo lungo che gonfia l'indice " * 5 + "\n" + "x" * 30 + "\n\n"
+        for i in range(400))
+    reg = _scrivi_guida_grande(tmp_path, testo)
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+
+    assert len(out) <= ca.MAX_GUIDE_CHARS
+    elencate = out.count("\n- ")
+    if "INDICE COMPLETO" in out:
+        assert elencate == 400, (
+            f"dichiara COMPLETO ma elenca {elencate} sezioni su 400: promessa di completezza "
+            "su un elenco amputato")
+    else:
+        assert "INDICE PARZIALE" in out, "taglia l'indice senza dichiararlo"
+        assert f"su {400}" in out or "400" in out, "non dice quante sezioni esistono davvero"
+        assert elencate > 0, "non ha elencato nulla"
+
+
+def test_indice_che_ci_sta_resta_dichiarato_COMPLETO(tmp_path):
+    """Contropartita del test sopra: non si deve degradare a «PARZIALE» per prudenza quando
+    l'indice ci sta davvero tutto — sarebbe un'altra dichiarazione falsa, all'incontrario."""
+    reg = _scrivi_guida_grande(tmp_path)          # 5 sezioni, indice minuscolo
+    out = reg.dispatch("read_guide", {"name": "parser_personalizzato"}).content
+    assert "INDICE COMPLETO" in out and "PARZIALE" not in out
