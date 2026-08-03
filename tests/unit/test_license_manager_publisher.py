@@ -636,3 +636,20 @@ def test_anomalia_con_pulizia_FALLITA_lo_dice(monkeypatch):
     res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
     assert res["ok"] is False
     assert "a mano" in res["message"].lower() or "manualmente" in res["message"].lower()
+
+
+def test_anomalia_senza_sha_nel_payload_non_tenta_la_cancellazione():
+    """Rilievo GPT-5.5 #215. Una `PUT` accettata ma con payload privo di `content.sha` non dà lo
+    sha necessario alla `DELETE`. Il comportamento giusto è **non tentarla** — una cancellazione
+    senza sha su GitHub non è una no-op, e improvvisare qui significherebbe agire alla cieca
+    accanto alla lista firmata — e dire all'utente che quel file resta da rimuovere a mano.
+
+    Era già così, ma nulla lo pretendeva: senza questo test una futura «semplificazione» potrebbe
+    mandare una DELETE senza sha e nessuno se ne accorgerebbe."""
+    http = _http_fino_al_probe((201, {}))          # accettata, ma nessun content.sha
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False
+    assert not [c for c in http.calls if c["method"] == "DELETE"], \
+        "ha tentato una DELETE senza sha"
+    assert "a mano" in res["message"].lower()
+    assert publisher.probe_path(_PATH) in res["message"], "non dice QUALE file resta da rimuovere"
