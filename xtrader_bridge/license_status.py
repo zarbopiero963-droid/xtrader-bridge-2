@@ -74,3 +74,21 @@ def status_message(status: LicenseStatus) -> str:
         CLOCK_ROLLBACK: i18n.tr("⛔ Orologio spostato indietro: licenza sospesa."),
         MALFORMED: i18n.tr("⛔ Chiave licenza non valida (formato errato)."),
     }.get(status.reason, i18n.tr("⛔ Licenza non valida."))
+
+
+def revoked_message() -> str:
+    """Messaggio per una licenza **REVOCATA dal fornitore** (incidente 2026-08-04).
+
+    Sta qui, accanto agli altri messaggi della schermata Licenza, per **fonte unica** (Regola 3):
+    lo usano sia l'etichetta del pannello sia il banner della finestra principale, e due copie
+    divergerebbero alla prima riscrittura.
+
+    Non è un `reason` di `LicenseStatus`: la revoca è una condizione **esterna** alla chiave
+    firmata (la firma resta valida, è il fornitore ad averla bloccata), quindi non passa da
+    `verify_license` — che NON va toccata (area dichiarata sana dall'audit). È una
+    **sovrapposizione di presentazione** su una licenza altrimenti valida.
+
+    Il testo nomina il rimedio GIUSTO: un revocato mandato a «riattivare» nella scheda Licenza
+    reincollerebbe all'infinito una chiave che è valida — il blocco non è suo, è del fornitore."""
+    return i18n.tr("⛔ Licenza REVOCATA dal fornitore — per tornare operativo serve una nuova "
+                   "licenza dal fornitore.")

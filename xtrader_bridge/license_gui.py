@@ -47,13 +47,18 @@ class LicensePanel(ctk.CTkFrame):
     """
 
     def __init__(self, master=None, *, hardware_id_provider=None, load_state=None,
-                 save_state=None, now_provider=None, on_status_change=None):
+                 save_state=None, now_provider=None, on_status_change=None,
+                 revoked_provider=None):
         super().__init__(master)
         self._hardware_id_provider = hardware_id_provider
         self._load_state = load_state
         self._save_state = save_state
         self._now_provider = now_provider
         self._on_status_change = on_status_change
+        # Seam REVOCA (incidente 2026-08-04): `callable() -> bool`, «la revoca sta negando».
+        # L'app lo cabla sullo STESSO gate che blocca (`_revoca_nega`), così ciò che la scheda
+        # MOSTRA e ciò che il bridge FA non possono più divergere. `None` = comportamento storico.
+        self._revoked_provider = revoked_provider
         self._entry = None
         self._status_lbl = None
         self._msg_lbl = None
@@ -227,6 +232,26 @@ class LicensePanel(ctk.CTkFrame):
                             issued=status.issued, expiry=status.expiry, days_left=0)
         return status
 
+    def _revoca_nega(self, status) -> bool:
+        """`True` se la revoca sta negando una licenza **altrimenti valida**.
+
+        Due condizioni, entrambe necessarie:
+        - `status.valid` — la revoca è una sovrapposizione su una licenza sana; una licenza
+          scaduta deve continuare a dire «scaduta», non farsi mascherare da «revocata»;
+        - il seam `_revoked_provider` dice di sì.
+
+        **Fail-safe su `False`** (stessa politica di `app._license_bloccata_da_revoca`): seam
+        assente, non chiamabile o che solleva → nessuna accusa. L'unico blocco legittimo è quello
+        **dimostrato** da una lista firmata; accusare di revoca per un bug nostro manderebbe un
+        utente in regola dal fornitore a chiedere una licenza che ha già."""
+        provider = getattr(self, "_revoked_provider", None)
+        if provider is None or not bool(getattr(status, "valid", False)):
+            return False
+        try:
+            return bool(provider())
+        except Exception:       # noqa: BLE001 — in dubbio NON si accusa di revoca
+            return False
+
     def refresh_options(self) -> None:
         """Ricalcola e mostra Hardware ID + stato dalla persistenza (hook al cambio scheda)."""
         # `current_status` non solleva: racchiude i provider al suo interno (un provider difettoso
@@ -240,9 +265,17 @@ class LicensePanel(ctk.CTkFrame):
             if getattr(self, "_hw_value", None) is not None:
                 self._hw_value.configure(text=hwid or "—")
             if self._status_lbl is not None:
-                sev = license_status.status_severity(status)
-                self._status_lbl.configure(text=license_status.status_message(status),
-                                           text_color=_SEVERITY_COLOR.get(sev, _COLOR_MUTED))
+                if self._revoca_nega(status):
+                    # Sovrapposizione REVOCA: la chiave è valida, ma il fornitore l'ha bloccata.
+                    # Senza questa riga la scheda diceva VERDE «Licenza attiva» a un revocato
+                    # mentre il bridge era bloccato — l'indicatore principale di un controllo di
+                    # sicurezza mostrava l'opposto della verità (collaudo 2026-08-04).
+                    self._status_lbl.configure(text=license_status.revoked_message(),
+                                               text_color=_SEVERITY_COLOR["error"])
+                else:
+                    sev = license_status.status_severity(status)
+                    self._status_lbl.configure(text=license_status.status_message(status),
+                                               text_color=_SEVERITY_COLOR.get(sev, _COLOR_MUTED))
         except Exception:       # noqa: BLE001 — render Tk best-effort
             pass
         # Hook di stato FUORI dal try (review Fable #144): in PR 4 questo sarà il **gate del lock** —
