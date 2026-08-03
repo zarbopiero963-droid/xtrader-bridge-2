@@ -293,6 +293,33 @@ def test_i_due_pannelli_usano_LA_STESSA_funzione_di_disegno():
         "il testo dei fantasmi è ricomparso nel pannello: il disegno è stato duplicato")
 
 
+def test_click_ed_evidenziazione_hanno_UNA_sola_definizione(nmg):
+    """Rilievo CodeRabbit sulla PR #228: `_gestore_click` e `_highlight_profiles` erano rimasti
+    duplicati **byte per byte** nei due pannelli, pur avendo estratto il disegno.
+
+    Era una contraddizione col principio stesso di questa PR: una correzione futura alla
+    propagazione del click o all'evidenziazione sarebbe dovuta atterrare in due posti. Ora
+    vivono in `_ElencoProfiliMixin` e i pannelli le ereditano — questo test lo pretende sia
+    contando le definizioni nel sorgente, sia verificando che i due pannelli condividano
+    davvero **lo stesso oggetto funzione** (non due copie che sembrano uguali)."""
+    import ast
+    import pathlib
+    sorgente = pathlib.Path("xtrader_bridge/name_mapping_gui.py").read_text(encoding="utf-8")
+    albero = ast.parse(sorgente)
+    for nome in ("_gestore_click", "_highlight_profiles"):
+        definizioni = [n for n in ast.walk(albero)
+                       if isinstance(n, ast.FunctionDef) and n.name == nome]
+        assert len(definizioni) == 1, (
+            f"{nome}: {len(definizioni)} definizioni invece di 1 — la duplicazione è tornata")
+
+    # …e l'ereditarietà è reale: stesso oggetto funzione per entrambi i pannelli.
+    assert nmg.NameMappingPanel._gestore_click is nmg.MarketMappingPanel._gestore_click
+    assert nmg.NameMappingPanel._highlight_profiles is nmg.MarketMappingPanel._highlight_profiles
+    # …e il mixin precede il framework nella MRO, altrimenti un omonimo di CTkFrame vincerebbe.
+    mro = nmg.NameMappingPanel.__mro__
+    assert mro.index(nmg._ElencoProfiliMixin) < len(mro) - 1
+
+
 def test_conta_righe_legge_lo_store_MERCATI(nmg):
     """Il conteggio del pannello mercati deve venire da `market_mapping_store`, non da quello
     dei nomi: sono due dizionari diversi e confonderli mostrerebbe numeri di un altro profilo."""

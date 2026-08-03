@@ -94,7 +94,45 @@ def _label_to_language(label: str) -> str:
     return "" if label == _LANGUAGE_ALL else label
 
 
-class NameMappingPanel(ctk.CTkFrame):
+class _ElencoProfiliMixin:
+    """Comportamenti condivisi delle righe-profilo: apertura su click ed evidenziazione.
+
+    Fonte unica per `NameMappingPanel` e `MarketMappingPanel` (#182 PR C, rilievo CodeRabbit
+    sulla PR #228). Il disegno era già estratto in `ui_widgets.disegna_elenco_profili`, ma questi
+    due metodi erano rimasti duplicati **byte per byte** nei due pannelli — la stessa classe di
+    duplicazione che l'estrazione doveva eliminare: una correzione futura alla propagazione del
+    click o all'evidenziazione sarebbe dovuta atterrare in due posti.
+
+    Il mixin va **prima** di `ctk.CTkFrame` nella MRO, così questi metodi vincono su eventuali
+    omonimi del framework."""
+
+    def _gestore_click(self, nome):
+        """Click su una riga-profilo: apre il profilo e FERMA la propagazione.
+
+        Metodo normale e non `staticmethod`: Tk invoca l'handler con il **solo evento**, quindi
+        `self` deve arrivare dalla chiusura. Il `"break"` impedisce che un click sull'etichetta
+        risalga al frame eseguendo il cambio profilo due volte — e un cambio profilo AUTO-SALVA,
+        quindi il doppione non sarebbe innocuo."""
+        def _click(_evento=None):
+            self._on_profile_change(nome)
+            return "break"
+        return _click
+
+    def _highlight_profiles(self):
+        """Evidenzia la riga del profilo selezionato, leggendo `_profile_var`.
+
+        Legata al `trace_add` della variabile: ogni `_profile_var.set(...)` esistente — inclusi
+        i **rollback** di `_on_profile_change` quando la config è illeggibile o il salvataggio
+        fallisce — riallinea l'elenco da solo, senza che quei rami debbano saperne nulla."""
+        # `self.__dict__.get` e non `getattr`: su un `CTkFrame` con lo stato Tk incompleto un
+        # attributo mancante finisce nel `__getattr__` di tkinter, che ricorre invece di
+        # sollevare `AttributeError` (rilievo CodeRabbit sulla PR #223).
+        var = self.__dict__.get("_profile_var")
+        ui_widgets.evidenzia_profilo(self.__dict__.get("_profile_rows"),
+                                     var.get() if var is not None else "", ui_theme.ACCENT)
+
+
+class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
     """Pannello del Dizionario nomi squadra (area "Calcio" del Mapping) — incassabile
     in finestra standalone (`NameMappingWindow`) o come area della scheda "Mapping"
     della finestra "🧰 Strumenti".
@@ -239,34 +277,6 @@ class NameMappingPanel(ctk.CTkFrame):
             on_click=self._gestore_click)
         self._highlight_profiles()
 
-    def _gestore_click(self, nome):
-        """Gestore del click su una riga-profilo: apre il profilo e FERMA la propagazione.
-
-        Metodo normale e non `staticmethod`: Tk invoca l'handler con il **solo evento**, quindi
-        `self` deve arrivare dalla chiusura. Con uno `staticmethod` il primo parametro avrebbe
-        raccolto l'evento credendolo `self`.
-
-        Il `"break"` è incondizionato e non dipende da cosa ritorna `_on_profile_change`:
-        riga ed etichetta sono entrambe legate, quindi senza di esso un click sull'etichetta
-        scatterebbe lì e poi risalirebbe al frame, eseguendo il cambio profilo due volte — e
-        un cambio profilo AUTO-SALVA, quindi non è un no-op innocuo."""
-        def _click(_evento=None):
-            self._on_profile_change(nome)
-            return "break"
-        return _click
-
-    def _highlight_profiles(self):
-        """Evidenzia la riga del profilo selezionato, leggendo `_profile_var`.
-
-        Legata al `trace_add` della variabile: ogni `_profile_var.set(...)` esistente — inclusi
-        i **rollback** di `_on_profile_change` quando la config è illeggibile o il salvataggio
-        fallisce — riallinea l'elenco da solo, senza che quei rami debbano saperne nulla."""
-        # `self.__dict__.get` e non `getattr`: su un `CTkFrame` con lo stato Tk incompleto un
-        # attributo mancante finisce nel `__getattr__` di tkinter, che ricorre invece di
-        # sollevare `AttributeError` (rilievo CodeRabbit sulla PR #223).
-        var = self.__dict__.get("_profile_var")
-        ui_widgets.evidenzia_profilo(self.__dict__.get("_profile_rows"),
-                                     var.get() if var is not None else "", ui_theme.ACCENT)
 
     def _reload_profiles(self, select=None, select_first=False, cfg=None):
         """Ricarica l'elenco dei profili da config e seleziona quello indicato.
@@ -666,7 +676,7 @@ class NameMappingPanel(ctk.CTkFrame):
                 text_color=ui_theme.STATUS_WARN)
 
 
-class MarketMappingPanel(ctk.CTkFrame):
+class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
     """Pannello del Dizionario MERCATI (area "🎯 Mercati" del Mapping) — incassabile come
     area della scheda "Mapping" della finestra "🧰 Strumenti".
 
@@ -822,27 +832,6 @@ class MarketMappingPanel(ctk.CTkFrame):
             on_click=self._gestore_click)
         self._highlight_profiles()
 
-    def _gestore_click(self, nome):
-        """Click su una riga-profilo: apre il profilo e FERMA la propagazione.
-
-        Metodo normale e non `staticmethod`: Tk invoca l'handler con il **solo evento**, quindi
-        `self` deve arrivare dalla chiusura. Il `"break"` impedisce che un click sull'etichetta
-        risalga al frame eseguendo il cambio profilo due volte — e un cambio profilo AUTO-SALVA,
-        quindi il doppione non sarebbe innocuo."""
-        def _click(_evento=None):
-            self._on_profile_change(nome)
-            return "break"
-        return _click
-
-    def _highlight_profiles(self):
-        """Evidenzia la riga del profilo selezionato, leggendo `_profile_var` (vedi il `trace_add`
-        in `_build_ui`: è ciò che tiene visibili i rollback di `_on_profile_change`)."""
-        # `self.__dict__.get` e non `getattr`: su un `CTkFrame` con stato Tk incompleto un
-        # attributo mancante finisce nel `__getattr__` di tkinter, che ricorre invece di
-        # sollevare `AttributeError` (rilievo CodeRabbit sulla PR #223).
-        var = self.__dict__.get("_profile_var")
-        ui_widgets.evidenzia_profilo(self.__dict__.get("_profile_rows"),
-                                     var.get() if var is not None else "", ui_theme.ACCENT)
 
     def _reload_rows(self, cfg=None):
         # P3-30 #76: come nel pannello nomi — l'avviso-cap non deve sopravvivere al
