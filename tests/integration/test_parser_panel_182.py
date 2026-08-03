@@ -351,3 +351,79 @@ def test_il_gate_NON_tocca_validate_parser_def(cpg):
     # …e non deve nemmeno riscrivere i valori salvati del builder
     for vietato in ("rule.transform =", "rule.value_map =", ".set("):
         assert vietato not in src, f"il gate ⑥ modifica lo stato salvato ({vietato}): è sola presentazione"
+
+
+def test_il_gate_si_riapplica_quando_il_valore_fisso_CAMBIA(cpg):
+    """Rilievo Fugu (#223): il gate valeva solo alla creazione della riga.
+
+    Fail-first: prima della correzione `_segui_valore_fisso` non esisteva, e scrivendo il
+    valore fisso DOPO il disegno le tendine avanzate restavano abilitate e l'avviso stantio."""
+    mod = cpg
+    riapplicati = []
+    finto = types.SimpleNamespace(
+        _gate_fixed_value=lambda r: riapplicati.append("gate"),
+        _mostra_avviso_valore_fisso=lambda: riapplicati.append("avviso"),
+    )
+
+    # forma StringVar (menu Provider / combo): si aggancia con trace_add
+    tracce = {}
+    class _Var:
+        def trace_add(self, modo, cb): tracce[modo] = cb
+    refs_var = {"fixed_value": _Var()}
+    mod.CustomParserPanel._segui_valore_fisso(finto, refs_var)
+    assert "write" in tracce, "nessun trace agganciato al StringVar del valore fisso"
+    tracce["write"]()                                  # simula la scrittura dell'utente
+    assert riapplicati == ["gate", "avviso"]
+
+    # forma CTkEntry (testo libero): si aggancia con bind
+    riapplicati.clear()
+    legati = {}
+    class _Entry:
+        def bind(self, evento, cb): legati[evento] = cb
+    refs_entry = {"fixed_value": _Entry()}
+    mod.CustomParserPanel._segui_valore_fisso(finto, refs_entry)
+    assert "<KeyRelease>" in legati and "<FocusOut>" in legati, legati
+    legati["<KeyRelease>"](None)
+    assert riapplicati == ["gate", "avviso"]
+
+
+def test_segui_valore_fisso_non_esplode_su_widget_inerte(cpg):
+    """Un doppio senza trace né bind non deve impedire di disegnare la riga."""
+    mod = cpg
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": object()})
+    mod.CustomParserPanel._segui_valore_fisso(finto, {})          # nemmeno la chiave
+
+
+def test_il_gate_fallisce_APERTO_se_il_widget_solleva(cpg):
+    """Rilievo Sourcery (#223): il ramo difensivo di `_riga_ha_valore_fisso` non era coperto.
+
+    «Meglio nessun gate che un gate sbagliato»: un widget che solleva non deve disabilitare
+    tendine a sproposito né far esplodere il disegno della riga."""
+    mod = cpg
+    finto = object.__new__(mod.CustomParserPanel)
+
+    class _Menu:
+        def __init__(self): self.stato = "normal"
+        def configure(self, **k): self.stato = k.get("state", self.stato)
+
+    def _esplode():
+        raise RuntimeError("widget distrutto")
+
+    refs = {"fixed_value": types.SimpleNamespace(get=_esplode),
+            "transform_menu": _Menu(), "value_map_menu": _Menu()}
+
+    assert mod.CustomParserPanel._riga_ha_valore_fisso(refs) is False
+    assert mod.CustomParserPanel._gate_fixed_value(finto, refs) is False
+    assert refs["transform_menu"].stato == "normal", "tendina disabilitata a sproposito"
+    assert refs["value_map_menu"].stato == "normal"
+
+
+def test_i_gestori_del_doppio_click_fermano_la_propagazione(cpg):
+    """Rilievo Sourcery (#223): riga ED etichetta erano entrambe legate, quindi un doppio click
+    sull'etichetta scattava lì e poi risaliva al frame — `_open_saved` due volte."""
+    src = inspect.getsource(cpg.CustomParserPanel._render_saved_rows)
+    for evento in ('"<Button-1>"', '"<Double-Button-1>"'):
+        riga = next(r for r in src.splitlines() if evento in r and "bind" in r)
+        assert 'or "break"' in riga, f"il gestore di {evento} non ferma la propagazione: {riga.strip()}"

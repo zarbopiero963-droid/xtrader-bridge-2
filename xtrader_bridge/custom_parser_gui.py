@@ -1203,10 +1203,40 @@ class CustomParserPanel(ctk.CTkFrame):
         # invalidi i parser già salvati, `load_all_parsers` li salterebbe e una chat smetterebbe
         # di produrre segnali IN SILENZIO. L'avviso resta a video; i dati salvati non cambiano.
         self._gate_fixed_value(refs)
+        # Rilievo Fugu (#223): senza questo, il gate valeva SOLO alla creazione della riga —
+        # scrivendo il valore fisso DOPO, le tendine restavano attive e l'avviso stantio.
+        # `fixed_value` è un `StringVar` (menu Provider / combo) oppure un `CTkEntry`: si aggancia
+        # la forma disponibile, best-effort (i doppi dei test non hanno né trace né bind).
+        self._segui_valore_fisso(refs)
         refs["required"] = ctk.BooleanVar(value=bool(rule.required))
         ctk.CTkCheckBox(row, text="", variable=refs["required"], width=40).pack(side="left", padx=2)
         refs["frame"] = row
         self._rows.append(refs)
+
+    def _segui_valore_fisso(self, refs) -> None:
+        """Ri-applica il gate ⑥ quando il Valore fisso della riga cambia a runtime.
+
+        Senza, il gate valeva solo al disegno della riga: un valore fisso digitato dopo lasciava
+        le tendine avanzate abilitate e l'avviso disallineato (rilievo Fugu sulla PR #223)."""
+        def _riapplica(*_a, **_k):
+            self._gate_fixed_value(refs)
+            self._mostra_avviso_valore_fisso()
+
+        widget = refs.get("fixed_value")
+        traccia = getattr(widget, "trace_add", None)       # StringVar (menu Provider / combo)
+        if callable(traccia):
+            try:
+                traccia("write", _riapplica)
+                return
+            except Exception:        # noqa: BLE001 — variabile non tracciabile: nessun ri-aggancio
+                return
+        lega = getattr(widget, "bind", None)               # CTkEntry (testo libero)
+        if callable(lega):
+            for evento in ("<KeyRelease>", "<FocusOut>"):
+                try:
+                    lega(evento, _riapplica)
+                except Exception:    # noqa: BLE001 — widget non legabile: nessun ri-aggancio
+                    return
 
     @staticmethod
     def _riga_ha_valore_fisso(refs) -> bool:
@@ -1458,9 +1488,12 @@ class CustomParserPanel(ctk.CTkFrame):
                              font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
             self._saved_rows[nome] = riga
             for widget in (riga, etichetta):
-                # click = seleziona · doppio click = apri (con la conferma di «📂 Carica»)
-                widget.bind("<Button-1>", lambda _e, n=nome: self._select_saved(n))
-                widget.bind("<Double-Button-1>", lambda _e, n=nome: self._open_saved(n))
+                # click = seleziona · doppio click = apri (con la conferma del caricamento).
+                # I gestori ritornano "break" (rilievo Sourcery #223): senza, un doppio click
+                # sull'ETICHETTA scatta lì e poi risale al FRAME, eseguendo `_open_saved` DUE
+                # volte — cioè due caricamenti e potenzialmente due conferme di scarto.
+                widget.bind("<Button-1>", lambda _e, n=nome: self._select_saved(n) or "break")
+                widget.bind("<Double-Button-1>", lambda _e, n=nome: self._open_saved(n) or "break")
         self._highlight_saved()
 
     def _select_saved(self, nome):
