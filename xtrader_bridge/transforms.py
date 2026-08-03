@@ -29,27 +29,73 @@ _MAX_GOALS_PER_SIDE = 30
 _MAX_GOALS_TOTAL = 30
 
 
-def _score_to_over(value: str) -> str:
-    """Punteggio → linea Over della somma gol: "6-0" → "Over 6,5", "2-3" → "Over 5,5".
+def _somma_gol(value: str) -> int | None:
+    """Somma gol di un punteggio **plausibile**, oppure ``None`` se non lo è.
 
-    Input non interpretabile come punteggio → "" (fail-closed). Anche un punteggio ben
-    formato ma **implausibile** → "" invece di una linea Over assurda (A5): sia un lato
-    oltre `_MAX_GOALS_PER_SIDE` (es. "999-999"), sia una **somma** oltre
-    `_MAX_GOALS_TOTAL` (es. "30-30" → totale 60)."""
+    FONTE UNICA della lettura del punteggio (regola 3): le trasformazioni Over — tempo
+    pieno e primo tempo — devono accettare **esattamente** gli stessi input. Duplicare
+    regex e cap significherebbe che, il giorno in cui uno dei due cambia, lo stesso
+    messaggio produce una linea con una trasformazione e nessuna con l'altra: un buco
+    invisibile finché non capita in produzione.
+
+    ``None`` (non zero: uno 0-0 è un punteggio valido con somma 0) quando l'input non è
+    un punteggio, quando un lato supera `_MAX_GOALS_PER_SIDE`, o quando la **somma**
+    supera `_MAX_GOALS_TOTAL` (A5 + Codex: "30-30" starebbe nel limite per-lato ma darebbe
+    un totale assurdo)."""
     m = _SCORE_RE.match(value or "")
     if not m:
-        return ""
+        return None
     home, away = int(m.group(1)), int(m.group(2))
     if home > _MAX_GOALS_PER_SIDE or away > _MAX_GOALS_PER_SIDE:
-        return ""
+        return None
     if home + away > _MAX_GOALS_TOTAL:
-        return ""
-    return f"Over {home + away},5"
+        return None
+    return home + away
+
+
+def _score_to_over(value: str) -> str:
+    """Punteggio → linea Over **tempo pieno**: "6-0" → "Over 6,5", "2-3" → "Over 5,5".
+
+    Input non interpretabile o implausibile → "" (fail-closed, vedi `_somma_gol`).
+
+    La forma prodotta ("Over N,5") è quella che le value-map del dizionario risolvono a
+    `OVER_UNDER_*`, cioè **tempo pieno**. Per il primo tempo serve `_score_to_over_ht`:
+    questa stringa non porta con sé l'informazione sul periodo, quindi nessuna value-map
+    a valle può dedurlo."""
+    tot = _somma_gol(value)
+    return "" if tot is None else f"Over {tot},5"
+
+
+def _score_to_over_ht(value: str) -> str:
+    """Punteggio → linea Over **primo tempo**: "0-1" → "over 1,5 ht".
+
+    Stessa disciplina fail-closed della variante tempo pieno (fonte unica `_somma_gol`):
+    stessi input accettati, stessi cap, stesso "" in caso di dubbio.
+
+    Emette la **forma-alias del dizionario** ("over N,5 ht") invece della forma-nome
+    ("Over N,5"): è quella che le mappe `markettype`/`marketname`/`selectionname` già
+    esistenti risolvono a `FIRST_HALF_GOALS_*`. Così il primo tempo si ottiene senza
+    toccare né il dizionario né il motore.
+
+    ⚠️ Il `SelectionName` risolto è **identico** fra i due tempi ("Over 0,5 goal"): a
+    distinguere il mercato è solo il `MarketType`. Per questo la scelta fra le due
+    trasformazioni dev'essere **esplicita nella regola**, mai dedotta.
+
+    Copertura: il dizionario ha le righe primo tempo fino a **2,5** (contro 8,5 del tempo
+    pieno). Oltre, la value-map non trova nulla e il campo resta vuoto — fail-closed: il
+    segnale si perde, ma non se ne scrive uno sbagliato."""
+    tot = _somma_gol(value)
+    return "" if tot is None else f"over {tot},5 ht"
 
 
 # Registro delle trasformazioni disponibili (per il menu del costruttore, CP-06).
+# `score_to_over` NON viene rinominata in `..._ft` né rimossa dal menu: la tendina del
+# costruttore si popola da `available_transforms()`, quindi un parser già salvato con quel
+# nome si troverebbe un menu privo del proprio valore — e perderebbe la trasformazione in
+# silenzio al primo salvataggio. Il nome storico resta, e significa **tempo pieno**.
 _TRANSFORMS = {
     "score_to_over": _score_to_over,
+    "score_to_over_ht": _score_to_over_ht,
 }
 
 

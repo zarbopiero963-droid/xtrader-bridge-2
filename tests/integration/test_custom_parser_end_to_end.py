@@ -187,6 +187,56 @@ def test_punteggio_cifre_non_ascii_non_produce_riga_end_to_end(tmp_path):
     assert res.placeable is False       # SelectionName vuoto → "Non pronto" → nessuna riga
 
 
+def test_transform_score_to_over_ht_end_to_end(tmp_path):
+    """Variante PRIMO TEMPO lungo la catena reale (richiesta del proprietario, 2026-08-03).
+
+    Il valore della prova non è che la funzione produce la stringa giusta — quello lo copre
+    il test unitario — ma che il **mercato** che finisce nella riga CSV è quello del primo
+    tempo. Il `SelectionName` è identico fra i due tempi ("Over 1,5 goal"): se la catena
+    sbagliasse periodo, guardando la sola selezione non ce ne accorgeremmo. Perciò qui si
+    asserisce il `MarketType`, che è l'unico campo che distingue davvero."""
+    defn = cp.CustomParserDef(name="SommaHT", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+        cp.FieldRule(target="MarketType", start_after="Risultato:", end_before="\n",
+                     transform="score_to_over_ht", value_map="markettype", required=True),
+        cp.FieldRule(target="SelectionName", start_after="Risultato:", end_before="\n",
+                     transform="score_to_over_ht", value_map="selectionname", required=True),
+        cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    msg = "Match: Inter v Milan\nRisultato: 0-1\nQuota: 1,85\n"
+    res = signal_router.resolve_row(msg, _cfg("SommaHT"),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    assert res.placeable is True
+    assert res.row["MarketType"] == "FIRST_HALF_GOALS_15"     # PRIMO TEMPO, non OVER_UNDER_15
+    assert res.row["SelectionName"] == "Over 1,5 goal"
+
+
+def test_ht_oltre_copertura_dizionario_non_produce_riga_end_to_end(tmp_path):
+    """Il dizionario ha le righe primo tempo fino a 2,5. Un punteggio che porta oltre
+    (2-1 → over 3,5 ht) non deve produrre una riga con mercato vuoto o inventato: la
+    value-map non trova nulla, il campo obbligatorio resta vuoto e il router non piazza.
+    Fail-closed: il segnale si perde, ma non se ne scrive uno sbagliato."""
+    defn = cp.CustomParserDef(name="SommaHTFuori", rules=[
+        cp.FieldRule(target="Provider", fixed_value="TG"),
+        cp.FieldRule(target="EventName", start_after="Match:", end_before="\n", required=True),
+        cp.FieldRule(target="MarketType", start_after="Risultato:", end_before="\n",
+                     transform="score_to_over_ht", value_map="markettype", required=True),
+        cp.FieldRule(target="SelectionName", start_after="Risultato:", end_before="\n",
+                     transform="score_to_over_ht", value_map="selectionname", required=True),
+        cp.FieldRule(target="Price", start_after="Quota:", end_before="\n", required=True),
+        cp.FieldRule(target="BetType", fixed_value="PUNTA", required=True),
+    ])
+    cp.save_parser(defn, str(tmp_path))
+    msg = "Match: Inter v Milan\nRisultato: 2-1\nQuota: 1,85\n"
+    res = signal_router.resolve_row(msg, _cfg("SommaHTFuori"),
+                                    chat_id="42", parsers_dir=str(tmp_path))
+    assert res.placeable is False
+
+
+
 # ── caso reale: provider P.Bet con emoji 🆚 e quota assente ─────────────────
 
 def test_pbet_gol_secondo_tempo_yangon_end_to_end(tmp_path):

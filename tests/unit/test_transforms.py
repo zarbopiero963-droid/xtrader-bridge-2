@@ -112,3 +112,78 @@ def test_score_to_over_cap_al_limite():
     assert tr.apply("0-30", "score_to_over") == "Over 30,5"
     assert tr.apply("15-15", "score_to_over") == "Over 30,5"
     assert tr.apply("31-0", "score_to_over") == ""
+
+
+# ── Variante PRIMO TEMPO (richiesta del proprietario, 2026-08-03) ───────────────────────────────
+#
+# Perché serve: `score_to_over` produce "Over N,5", una stringa che NON porta con sé
+# l'informazione tempo-pieno/primo-tempo. Le value-map del dizionario la risolvono sempre a
+# `OVER_UNDER_*` (tempo pieno), e il primo tempo (`FIRST_HALF_GOALS_*`) resta irraggiungibile:
+# nessuna riga di dizionario può disambiguare, perché lo STESSO input dovrebbe dare due mercati
+# diversi — e in quel caso `value_maps` scarta l'alias ambiguo, giustamente.
+#
+# La variante HT emette invece la forma-alias del dizionario ("over N,5 ht"), che le tre mappe
+# già esistenti risolvono al primo tempo senza toccare né dizionario né motore.
+#
+# ⚠️ Il SelectionName è IDENTICO fra i due tempi ("Over 0,5 goal"): solo il MarketType distingue.
+# Per questo la scelta dev'essere esplicita nella regola, non dedotta.
+
+@pytest.mark.parametrize("score, atteso", [
+    ("0-0", "over 0,5 ht"),
+    ("0-1", "over 1,5 ht"),
+    ("1-1", "over 2,5 ht"),
+    ("1:0", "over 1,5 ht"),
+    (" 1 - 0 ", "over 1,5 ht"),
+    ("1x0", "over 1,5 ht"),
+])
+def test_score_to_over_ht(score, atteso):
+    assert tr.apply(score, "score_to_over_ht") == atteso
+
+
+@pytest.mark.parametrize("bad", ["", "abc", "6", "6-", "-0", "6-0-0", "x-y", "٦-٠", "６-０"])
+def test_score_to_over_ht_input_non_valido_vuoto(bad):
+    # Stessa disciplina fail-closed della variante tempo pieno, cifre ASCII incluse
+    # (#318 L2-1): un input non interpretabile non deve MAI produrre una linea inventata.
+    assert tr.apply(bad, "score_to_over_ht") == ""
+
+
+@pytest.mark.parametrize("score", ["999-999", "31-0", "0-31", "30-30", "16-15"])
+def test_score_to_over_ht_implausibile_vuoto(score):
+    assert tr.apply(score, "score_to_over_ht") == ""
+
+
+def test_score_to_over_ht_e_nel_menu_e_riconosciuta():
+    assert "score_to_over_ht" in tr.available_transforms()
+    assert tr.has_transform("score_to_over_ht")
+
+
+def test_score_to_over_resta_invariata_non_regressione():
+    # Il nome storico NON cambia significato né sparisce dal menu: i parser già salvati
+    # continuano a validare e la tendina continua a contenere il loro valore (se sparisse,
+    # un parser caricato perderebbe la trasformazione in silenzio al primo salvataggio).
+    assert tr.apply("6-0", "score_to_over") == "Over 6,5"
+    assert "score_to_over" in tr.available_transforms()
+
+
+def test_le_due_trasformazioni_condividono_ESATTAMENTE_i_cap():
+    """Regola 3, verificata invece che dichiarata: `_somma_gol` è la fonte unica dei cap, quindi
+    tempo pieno e primo tempo devono accettare e rifiutare gli STESSI punteggi — al limite
+    compreso. Se un domani qualcuno duplicasse la logica e spostasse un cap di uno, lo stesso
+    messaggio produrrebbe una linea con una trasformazione e nessuna con l'altra: un buco
+    invisibile finché non capita in produzione.
+
+    I limiti sono INCLUSIVI: somma 30 passa, 31 no (rilievo CodeRabbit su #213 — le docs
+    dicevano il contrario)."""
+    for score in ["0-0", "15-15", "30-0", "0-30",          # ammessi (somma ≤ 30, lato ≤ 30)
+                  "16-15", "31-0", "0-31", "20-20", "abc", ""]:   # rifiutati
+        ft = tr.apply(score, "score_to_over")
+        ht = tr.apply(score, "score_to_over_ht")
+        assert bool(ft) == bool(ht), (
+            f"{score!r} accettato da una trasformazione e rifiutato dall'altra: "
+            f"ft={ft!r} ht={ht!r} — i cap sono divergenti")
+
+    # Il limite esatto, esplicito su entrambe: 30 passa, 31 no.
+    assert tr.apply("15-15", "score_to_over") == "Over 30,5"
+    assert tr.apply("15-15", "score_to_over_ht") == "over 30,5 ht"
+    assert tr.apply("16-15", "score_to_over") == ""
+    assert tr.apply("16-15", "score_to_over_ht") == ""

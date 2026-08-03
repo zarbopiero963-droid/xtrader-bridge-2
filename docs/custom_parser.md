@@ -79,9 +79,32 @@ cercati nel messaggio con **tolleranza agli spazi**:
 Derivano un valore calcolato da quello estratto. Built-in:
 
 - `score_to_over`: punteggio `"6-0"`/`"6:0"`/`"6 x 0"` → `"Over 6,5"` (somma gol +
-  linea `,5`). Input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
-  **ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
-  produce alcuna linea Over (#318 L2-1 · #166 P3-cp1).
+  linea `,5`), risolto dalle value-map a **tempo pieno** (`OVER_UNDER_*`);
+- `score_to_over_ht`: stesso punteggio → `"over 6,5 ht"`, risolto a **primo tempo**
+  (`FIRST_HALF_GOALS_*`).
+
+Entrambe: input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
+**ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
+produce alcuna linea Over (#318 L2-1 · #166 P3-cp1). Stessi cap di plausibilità (fonte
+unica `_somma_gol`): **oltre** 30 gol per lato o **oltre** 30 di somma → vuoto. I due limiti
+sono inclusivi, quindi `15-15` (somma 30) e `30-0` sono ancora ammessi.
+
+⚠️ **Il periodo va scelto, non dedotto.** Il `SelectionName` risolto è **identico** fra i
+due tempi (`"Over 1,5 goal"`): a distinguere il mercato è solo il `MarketType`. Un parser
+che usa la trasformazione sbagliata produce una riga che *sembra* giusta e punta al mercato
+di un altro tempo. Se le regole `MarketType` e `SelectionName` leggono lo stesso punteggio,
+devono usare la **stessa** trasformazione.
+
+⚠️ **Copertura diversa fra i due tempi.** Il dizionario ha le righe Over di tempo pieno fino
+a **8,5** e quelle di primo tempo fino a **2,5**. Oltre, la value-map non trova nulla, il
+campo obbligatorio resta vuoto e **non viene scritta alcuna riga** (fail-closed): il segnale
+si perde, ma non se ne scrive uno sbagliato. Per estendere la copertura si aggiungono righe
+al dizionario, non si modifica la trasformazione.
+
+> Nota sui nomi: `score_to_over` **non** ha il suffisso `_ft` per ragioni di compatibilità —
+> la tendina del costruttore si popola da `available_transforms()`, quindi rinominarla
+> lascerebbe i parser già salvati con un valore assente dal menu, che andrebbe perso in
+> silenzio al primo salvataggio. Il nome storico resta e significa **tempo pieno**.
 
 L'ordine è sempre **estrazione → trasformazione → value-map**.
 
