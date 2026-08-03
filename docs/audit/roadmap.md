@@ -25,7 +25,7 @@
 > già nascosta prima. Codice, etichette (tradotte EN/ES), factory, provider, DB e resolver restano
 > tutti: riattivare è una modifica locale, descritta in un commento su ciascun punto e presidiata
 > da `tests/integration/test_hide_orphan_tools_182.py`, che fallisce sia se una scheda riappare
-> sia se il codice sottostante viene cancellato. **Il debito si chiude quando tornera una sorgente
+> sia se il codice sottostante viene cancellato. **Il debito si chiude quando tornerà una sorgente
 > dati** (nuovo import, sync sostitutiva o popolamento manuale esposto in GUI).
 
 ## Regole di processo (valgono per OGNI PR)

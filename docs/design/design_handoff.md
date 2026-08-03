@@ -202,7 +202,7 @@ HUB "🧰 STRUMENTI"  (tab PIATTE ma RAGGRUPPATE per flusso ①..④, #293 slice
 > `TOOL_TITLES`/`build_tool_panels`. Le funzioni e le callback dei pannelli sono **invariate**.
 
 > **#343 slice 4x (localizzazione hub).** Il **titolo finestra** («🧰 Strumenti») e i titoli-scheda
-> (**8 mostrati** + «📖 Dizionario» nascosta ma ritenuta, vedi nota sotto: 9 etichette localizzate in
+> (**7 mostrati** + «📖 Dizionario» e «🧹 Nomi squadra» nascoste ma ritenute, vedi note: 9 etichette localizzate in
 > totale) — l'etichetta base dopo il prefisso ①..④ — sono ora **localizzati** in EN/ES, resi a build-time via
 > `i18n.tr` (in IT identità → label storiche invariate). Il **prefisso di gruppo ①..④ resta invariato**
 > in ogni lingua. **«Provider» e «Parser» restano termini prodotto** (EN invariati; ES traduce solo
@@ -915,7 +915,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 
 L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
 ①..④** (vedi §5). I pannelli (§7.1–7.10; **7.6 «Betfair Sync» rimossa**, **7.7 «📖 Dizionario»
-attualmente nascosta ma ritenuta** → 8 schede mostrate):
+attualmente nascosta ma ritenuta**, come «🧹 Nomi squadra» dalla #182 PR N → 7 schede mostrate):
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
@@ -1122,7 +1122,7 @@ ignoto, ma avviso ambra *«⚠️ Profilo rinominato … ma la verifica dei pars
 **IT** — esclusione di **dominio/value-as-key**: le **sentinelle** delle tendine («(tutti gli
 sport)»/«(qualsiasi tipo)»/«(tutte le lingue)»/«(nessun profilo)», usate in confronti), i **valori**
 Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **tab del container**
-(«⚽ Calcio»/«🎯 Mercati»/«🌳 Mapping guidato» = chiavi di matching) e il pannello **🌳 Mapping
+(«⚽ Calcio»/«🎯 Mercati» = chiavi di matching; «🌳 Mapping guidato» è NASCOSTA, #182 PR N) e il pannello **🌳 Mapping
 guidato** (`guided_mapping_gui.py`, modulo separato — slice futura). La **logica** (persistenza,
 gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia solo il testo mostrato.
 
@@ -1136,7 +1136,8 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
   impostata, le righe della lingua ESATTA hanno priorità sulle agnostiche e quelle di un'altra lingua
   sono saltate (le agnostiche restano sempre valide → i dizionari esistenti continuano a funzionare).
   Come per **Sport**/**Tipo**, «(tutte le lingue)» mappa alla chiave dati vuota. Pulsanti azione:
-  **«➕ Aggiungi riga»**, **«📥 Precompila da Betfair»** (blu `#1565c0`), **«💾 Salva profilo»**.
+  **«➕ Aggiungi riga»**, **«💾 Salva profilo»** — «📥 Precompila da Betfair» (blu `#1565c0`) è
+  **NASCOSTO** dalla #182 PR N; la descrizione sotto vale **alla riattivazione**.
   - **«📥 Precompila da Betfair» (#282 PR 11):** riempie la tabella coi nomi squadra
     **permanenti** presenti nel **dizionario locale** — una riga per nome, **Betfair già scritto**
     nel campo (resta un `CTkEntry` editabile, **niente tendina**), **Sport** impostato, **Tipo**
@@ -1155,7 +1156,8 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
   priorità sulle agnostiche e quelle di un'altra lingua sono saltate (le agnostiche restano sempre
   valide → i dizionari mercati esistenti continuano a funzionare). Come per la colonna analoga dei
   nomi, «(tutte le lingue)» mappa alla chiave dati vuota.
-- **🌳 Mapping guidato (`guided_mapping_gui.py`):** albero a cascata per costruire il dizionario
+- **🌳 Mapping guidato (`guided_mapping_gui.py`) — ⚠️ sotto-scheda NASCOSTA (#182 PR N), descritta
+  qui per la riattivazione:** albero a cascata per costruire il dizionario
   nomi **senza digitare i nomi Betfair a mano**. Controlli, dall'alto:
   riga **Profilo** (destinazione, con **«🆕 Nuovo»**) → riga **Sport** (tendina Calcio/Tennis/
   Basket/Rugby/Football Americano) + **Competizione** (tendina popolata dal dizionario locale) → casella
@@ -1246,7 +1248,11 @@ stessa logica pura della CLI `journal_view`.
 - **Invariante di sicurezza:** la vista mostra i valori **esattamente come sono sul file** —
   mai token/chat in chiaro, mai scrittura sul diario.
 
-### 7.9 🧹 Nomi squadra (`known_teams_gui.py`)
+### 7.9 🧹 Nomi squadra (`known_teams_gui.py`) — ⚠️ scheda NASCOSTA (#182 PR N)
+
+> Non compare più fra le schede dell'hub: legge il DB Betfair locale, vuoto e non popolabile
+> dall'app. Pannello, etichetta, factory e `delete_known_team` sono **ritenuti**; quanto segue
+> descrive il comportamento **alla riattivazione**.
 Titolo **"🧹  Nomi squadra noti (permanenti) — ripulitura"**. Gestione dei nomi squadra
 **permanenti** del dizionario locale (`betfair_known_teams`, #282): l'unica vista che li
 **elimina** (il mark-and-sweep non li tocca, quindi vanno ripuliti a mano quando obsoleti/errati

@@ -19,6 +19,7 @@ La ritenzione è **verificata** (file su disco, sorgente ispezionata, metodo ris
 asserita a parole: un test che dicesse solo «è ritenuto» non si accorgerebbe di nulla.
 """
 
+import ast
 import importlib
 import inspect
 import os
@@ -42,24 +43,63 @@ class _FakeCtkModule(types.ModuleType):
         return cls
 
 
-@pytest.fixture()
-def name_mapping_mod(monkeypatch):
+def _importa_gui(monkeypatch, nome):
+    """Importa un modulo GUI sotto un finto `customtkinter`, e lo TOGLIE da `sys.modules` a fine
+    test.
+
+    Il `try/except` conta: dove `customtkinter` è installato davvero (Windows CI) il finto **non
+    viene mai messo**, quindi il modulo che resta in cache è quello vero. Il finto esiste solo
+    dove tkinter manca — cioè la CI Linux, dove nessun test può comunque usare widget veri.
+
+    La rimozione a teardown è la risposta al rilievo Fable (#222): `monkeypatch` ripristina la
+    voce `customtkinter`, ma il modulo GUI **importato** resterebbe in cache costruito sulle
+    classi finte. Qui lo si toglie, così l'ordine di esecuzione non conta."""
     try:
         import customtkinter  # noqa: F401
     except ModuleNotFoundError:
         monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
-    monkeypatch.delitem(sys.modules, "xtrader_bridge.name_mapping_gui", raising=False)
-    return importlib.import_module("xtrader_bridge.name_mapping_gui")
+    monkeypatch.delitem(sys.modules, nome, raising=False)
+    mod = importlib.import_module(nome)
+    yield mod
+    sys.modules.pop(nome, None)
+
+
+@pytest.fixture()
+def name_mapping_mod(monkeypatch):
+    yield from _importa_gui(monkeypatch, "xtrader_bridge.name_mapping_gui")
 
 
 @pytest.fixture()
 def tools_mod(monkeypatch):
-    try:
-        import customtkinter  # noqa: F401
-    except ModuleNotFoundError:
-        monkeypatch.setitem(sys.modules, "customtkinter", _FakeCtkModule("customtkinter"))
-    monkeypatch.delitem(sys.modules, "xtrader_bridge.tools_gui", raising=False)
-    return importlib.import_module("xtrader_bridge.tools_gui")
+    yield from _importa_gui(monkeypatch, "xtrader_bridge.tools_gui")
+
+
+def _bottoni_costruiti(func) -> list:
+    """Etichette dei `CTkButton` davvero COSTRUITI in `func`, via AST.
+
+    Non è una ricerca testuale: legge l'albero sintattico e prende l'argomento `text=` di ogni
+    chiamata a `CTkButton`. Un pulsante commentato non è una chiamata, quindi non compare —
+    e un refactor che cambia indentazione o spezza la riga non altera il risultato (rilievo
+    CodeRabbit/Sourcery/GPT-5.5 sulla fragilità del match su stringhe).
+
+    `i18n.tr("…")` è srotolato al suo argomento: nel sorgente le etichette sono avvolte lì."""
+    import textwrap
+    albero = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    etichette = []
+    for n in ast.walk(albero):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "CTkButton"):
+            continue
+        for kw in n.keywords:
+            if kw.arg != "text":
+                continue
+            v = kw.value
+            if (isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute)
+                    and v.func.attr == "tr" and v.args):
+                v = v.args[0]
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                etichette.append(v.value)
+    return etichette
 
 
 def _pkg_path(*parti):
@@ -86,19 +126,37 @@ def test_known_teams_fuori_dalle_schede_ma_RITENUTA(tools_mod):
 
 # ── 🌳 Mapping guidato ───────────────────────────────────────────────────────────────
 
-def test_mapping_ha_esattamente_due_sottoschede(name_mapping_mod):
+def test_mapping_ha_esattamente_due_sottoschede(name_mapping_mod, monkeypatch):
     """Le sotto-schede del Mapping sono ⚽ Calcio e 🎯 Mercati, e nient'altro.
 
-    Fail-first: prima della patch ce n'erano tre. Guardia sul **sorgente** perché costruire il
-    `CTkTabview` richiede widget veri."""
-    src = inspect.getsource(name_mapping_mod.MappingPanel.__init__)
-    aggiunte = [riga for riga in src.splitlines()
-                if "_tabs.add(" in riga and not riga.strip().startswith("#")]
-    assert len(aggiunte) == 2, f"sotto-schede attive attese 2, trovate {len(aggiunte)}: {aggiunte}"
-    assert any("⚽ Calcio" in r for r in aggiunte)
-    assert any("🎯 Mercati" in r for r in aggiunte)
-    assert not any("Mapping guidato" in r for r in aggiunte), (
-        "la sotto-scheda «🌳 Mapping guidato» è tornata attiva: legge il DB Betfair vuoto")
+    **Esegue il vero `MappingPanel.__init__`** con una spia su `CTkTabview.add` e registra i
+    titoli davvero aggiunti (rilievo CodeRabbit #222: il primo giro leggeva il *testo* del
+    sorgente, quindi si rompeva su un refactor innocuo e non provava il comportamento).
+    Stesso pattern delle spie già usate in `test_running_edit_wiring_176.py`.
+
+    Fail-first: prima della patch i titoli aggiunti erano tre."""
+    mod = name_mapping_mod
+    aggiunte = []
+
+    def _spia_pannello(nome):
+        def _fake(parent, *a, **k):
+            return types.SimpleNamespace(pack=lambda **kk: None, _quale=nome)
+        return _fake
+
+    monkeypatch.setattr(mod, "NameMappingPanel", _spia_pannello("calcio"))
+    monkeypatch.setattr(mod, "MarketMappingPanel", _spia_pannello("mercati"))
+    tabs = types.SimpleNamespace(add=lambda titolo: aggiunte.append(titolo) or None,
+                                 pack=lambda **k: None)
+    monkeypatch.setattr(mod.ctk, "CTkTabview", lambda master: tabs, raising=False)
+    monkeypatch.setattr(mod.ctk.CTkFrame, "__init__", lambda self, *a, **k: None, raising=False)
+
+    finto = object.__new__(mod.MappingPanel)
+    mod.MappingPanel.__init__(finto, None)
+
+    assert aggiunte == ["⚽ Calcio", "🎯 Mercati"], (
+        f"sotto-schede davvero costruite: {aggiunte}")
+    assert finto._guidato is None, (
+        "«🌳 Mapping guidato» è tornata attiva: legge il DB Betfair vuoto")
 
 
 def test_guided_mapping_RITENUTO():
@@ -144,11 +202,14 @@ def test_pulsante_precompila_nascosto_ma_metodo_RITENUTO(name_mapping_mod):
     ⚠️ Il primo giro di questo test ispezionava `__init__`, dove il pulsante **non è mai stato**:
     passava sul codice pre-patch, cioè non provava niente. La funzione giusta è `_build_ui`, ed
     è per questo che il fail-first va **eseguito** e non dato per scontato."""
-    src = inspect.getsource(name_mapping_mod.NameMappingPanel._build_ui)
-    attive = [riga for riga in src.splitlines() if not riga.strip().startswith("#")]
-    assert not any("Precompila da Betfair" in r for r in attive), (
+    bottoni = _bottoni_costruiti(name_mapping_mod.NameMappingPanel._build_ui)
+    assert bottoni, "nessun CTkButton trovato: la scansione AST non funziona più"
+    assert "📥 Precompila da Betfair" not in bottoni, (
         "il pulsante «📥 Precompila da Betfair» è tornato attivo: precompila dal DB Betfair, "
-        "che è vuoto e non popolabile dall'app")
+        f"che è vuoto e non popolabile dall'app. Pulsanti costruiti: {bottoni}")
+    # controprova: gli altri due pulsanti della stessa barra ci sono ancora, quindi il test
+    # non passa perché la scansione ha smesso di vedere qualunque cosa.
+    assert "➕ Aggiungi riga" in bottoni and "💾 Salva profilo" in bottoni, bottoni
 
     # RITENUTO: il metodo è ancora risolvibile e chiamabile — non un commento, un attributo vero.
     assert callable(getattr(name_mapping_mod.NameMappingPanel, "_prefill_betfair_names", None)), (
@@ -160,7 +221,13 @@ def test_le_etichette_i18n_delle_parti_nascoste_restano():
     toglierle renderebbe la scheda riattivata monolingue."""
     from xtrader_bridge import i18n
 
-    i18n.set_language("EN")
-    assert i18n.tr("🧹 Nomi squadra") != "🧹 Nomi squadra"          # tradotta, non identità
-    assert i18n.tr("📥 Precompila da Betfair") != "📥 Precompila da Betfair"
-    i18n.set_language("IT")
+    # Salva e RIPRISTINA la lingua vera invece di forzare "IT" a fine test (rilievo Sourcery
+    # #222): rimettere una costante avrebbe lasciato la suite in uno stato diverso da quello in
+    # cui l'ha trovata, creando dipendenza dall'ordine — il difetto che questo test non deve avere.
+    lingua_prima = i18n.get_language()
+    try:
+        i18n.set_language("EN")
+        assert i18n.tr("🧹 Nomi squadra") != "🧹 Nomi squadra"      # tradotta, non identità
+        assert i18n.tr("📥 Precompila da Betfair") != "📥 Precompila da Betfair"
+    finally:
+        i18n.set_language(lingua_prima)

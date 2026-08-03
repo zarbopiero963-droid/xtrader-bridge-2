@@ -1093,14 +1093,18 @@ class MappingPanel(ctk.CTkFrame):
         self._guidato = None
 
     def refresh(self, cfg=None):
-        """Ricarica tutte le aree (nomi, mercati, mapping guidato) — anti-stale: un profilo
+        """Ricarica tutte le aree VISIBILI (nomi, mercati) — anti-stale: un profilo
         applicato altrove non deve restare stantio qui. `cfg` fornita = config VIVA inoltrata
         a tutte le aree (P3-7 #76: dopo un profilo applicato ma NON persistito il disco è
         ancora pre-profilo); `None` = ricarica dal disco (comportamento storico).
 
         Deepcopy PER AREA (review Fable/GPT #92): stesso invariante del chiamante in
-        `app.py` — le tre sotto-aree non devono condividere dict annidati tra loro (oggi
-        sono read-only, ma una futura mutazione locale non deve propagarsi alle sorelle)."""
+        `app.py` — le sotto-aree non devono condividere dict annidati tra loro (oggi sono
+        read-only, ma una futura mutazione locale non deve propagarsi alle sorelle).
+
+        La terza area, «🌳 Mapping guidato», è NASCOSTA (#182 PR N): `self._guidato` è `None` e
+        la guardia sotto la salta. **Non togliere la guardia senza rimettere la sotto-scheda**,
+        o si torna all'`AttributeError` a ogni refresh (rilievo Fable sulla PR #222)."""
         self._calcio.refresh(copy.deepcopy(cfg) if cfg is not None else None)
         self._mercati.refresh(copy.deepcopy(cfg) if cfg is not None else None)
         # Guardia di ritenzione (#182 PR N): con la sotto-scheda «🌳 Mapping guidato» nascosta
