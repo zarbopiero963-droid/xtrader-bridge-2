@@ -33,7 +33,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (48, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; "
+    "app.py": (49, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
                    "gate revoca (#159): la traccia diagnostica del ramo fail-open è essa stessa "
                    "protetta — `_dbg` può sollevare (GUI non costruita, istanza parziale) e "
                    "l'eccezione USCIREBBE dal gate, che `_license_is_valid` non assorbe: una riga "
@@ -127,7 +127,7 @@ _ALLOWLIST = {
     "dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
                          "non validato (False) → default recognition_mode resta NAME_ONLY, mai BOTH su "
                          "dati inaffidabili"),
-    "custom_parser_gui.py": (12, "GUI Tk del costruttore parser: render/azioni best-effort (P3-28 #76: _builder_snapshot fail-safe — stato non fotografabile = modificato, meglio una conferma in più che una perdita silenziosa); "
+    "custom_parser_gui.py": (21, "GUI Tk del costruttore parser: render/azioni best-effort (#182 PR A, 4 nuovi: `_parser_usage` config illeggibile = nessun marcatore ma elenco usabile — l'except copre SOLO la lettura del file, le tre letture di routing di `parser_manager` stanno FUORI così un nome di API sbagliato esplode invece di svuotare il badge in silenzio (rilievo Fugu #223); `_autoload_active_parser` parser attivo corrotto = editor vuoto, non un pannello che non si apre; `_open_provider_registry` hub irraggiungibile = fallback all'aggiunta rapida; `_highlight_saved` widget distrutto durante un refresh; #182 PR A ⑥, 2 nuovi: `_riga_ha_valore_fisso` widget assente = nessun avviso, `_mostra_avviso_valore_fisso` widget distrutto durante un refresh; review Fugu/GPT-5.5 #223: `bind_accetta_add` firma non ispezionabile = si assume il Tk vero e si sceglie la forma NON distruttiva `add="+"`, più `_segui_valore_fisso`, 2 — variabile non tracciabile, widget non legabile: nessun ri-aggancio su quell'evento ma si prova comunque il successivo e la riga si disegna) (P3-28 #76: _builder_snapshot fail-safe — stato non fotografabile = modificato, meglio una conferma in più che una perdita silenziosa); "
                              "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "

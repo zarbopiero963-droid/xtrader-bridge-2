@@ -374,6 +374,17 @@ primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (
 > `known_market_names(sport)` / `known_selection_names(sport, market=None)`.
 
 **Tendine nel Parser (PR 13).** Nella tabella regole del Parser Personalizzato, le righe
+> ⚠️ **Valore fisso + Trasformazione/Value-map (#182 PR A ⑥).** Il comportamento reale è
+> l'**opposto** dell'intuizione: la trasformazione si applica **anche** al valore fisso. Con una
+> trasformazione fail-closed (es. `score_to_over`) il campo si **svuota** e la riga diventa
+> `⛔ Non pronto` senza spiegare perché. Nella GUI compare un **avviso a video non bloccante**
+> che conta le righe interessate e dice cosa fare: **svuotare Trasformazione/Value-map** su
+> quelle righe. Le due tendine avanzate **restano attive** — disabilitarle (come faceva il primo
+> giro della PR #223) *non* disattivava la trasformazione, che veniva salvata e applicata lo
+> stesso: toglieva solo l'unico comando con cui ripararla, lasciando la riga `⛔ Non pronto`
+> senza via d'uscita. Il valore già salvato non viene modificato e la validazione non cambia: un
+> parser esistente si comporta esattamente come prima.
+
 **MarketType / MarketName / SelectionName** hanno in colonna **«Valore fisso»** una **tendina
 editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del
 parser** (la tendina Sport in alto). A differenza della riga **Provider** (tendina a scelta

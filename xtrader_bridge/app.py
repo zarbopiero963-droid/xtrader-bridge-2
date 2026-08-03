@@ -4616,7 +4616,12 @@ class App(ctk.CTk):
                                      global_mode=_parser_global_mode, on_saved=_parser_saved,
                                      id_resolver_factory=self._preview_id_resolver_factory,
                                      market_terms_provider=self._known_market_terms,
-                                     is_running=lambda: self._running)
+                                     is_running=lambda: self._running,
+                                     # #182 PR A ④: «📇 Provider» del riquadro anagrafiche porta
+                                     # sulla scheda Provider dell'hub. `_select_tool_tab` risolve
+                                     # `self._tools_win` al CLICK, non alla costruzione: qui la
+                                     # finestra non esiste ancora (i pannelli nascono prima).
+                                     on_open_tool=self._select_tool_tab)
 
         def _make_sources(parent):
             """Crea il pannello Chat sorgenti e ne tiene il riferimento per il refresh."""
@@ -4690,6 +4695,20 @@ class App(ctk.CTk):
         })
         self._tools_win = ToolsWindow(self, panels=panels, initial=initial)
         self._tools_win.focus()
+
+    def _select_tool_tab(self, title) -> None:
+        """Porta l'hub Strumenti sulla scheda `title` (#182 PR A ④).
+
+        Best-effort per costruzione: `ToolsWindow.select_tab` ignora un titolo che non risolve,
+        e qui si esce in silenzio se l'hub non è (più) aperto. Non solleva mai: è navigazione,
+        non un'operazione che l'utente deve poter vedere fallire."""
+        win = getattr(self, "_tools_win", None)
+        if win is None:
+            return
+        try:
+            win.select_tab(title)
+        except Exception:                # noqa: BLE001 — hub chiuso/distrutto: nessuna UI da spostare
+            pass
 
     def _config_summary_snapshot(self):
         """Snapshot READ-ONLY per la tab «📋 Riepilogo» (#293 slice 3): config viva + stato

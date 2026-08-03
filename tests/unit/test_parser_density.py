@@ -77,6 +77,12 @@ def _fake_panel(gui_mod, *, show_advanced):
         _rows=[], _rows_frame=_Noop(), _providers=[],
         _transforms=["", "upper"], _value_maps=["", "map1"],
         _show_advanced=show_advanced)
+    # #182 PR A ⑥: `_add_row` chiama ora il gate «valore fisso»: si lega il metodo VERO
+    # (non uno stub), così il test continua a esercitare il codice di produzione.
+    fake._gate_fixed_value = types.MethodType(gui_mod.CustomParserPanel._gate_fixed_value, fake)
+    fake._riga_ha_valore_fisso = gui_mod.CustomParserPanel._riga_ha_valore_fisso
+    fake._segui_valore_fisso = types.MethodType(gui_mod.CustomParserPanel._segui_valore_fisso, fake)
+    fake._mostra_avviso_valore_fisso = lambda: None
     fake._add_row = types.MethodType(gui_mod.CustomParserPanel._add_row, fake)
     return fake
 
@@ -130,5 +136,9 @@ def test_add_row_default_senza_show_advanced_non_crasha(gui_mod):
     fake = types.SimpleNamespace(_rows=[], _rows_frame=_Noop(), _providers=[],
                                  _transforms=[], _value_maps=[])
     fake._add_row = types.MethodType(gui_mod.CustomParserPanel._add_row, fake)
+    fake._gate_fixed_value = types.MethodType(gui_mod.CustomParserPanel._gate_fixed_value, fake)
+    fake._riga_ha_valore_fisso = gui_mod.CustomParserPanel._riga_ha_valore_fisso
+    fake._segui_valore_fisso = types.MethodType(gui_mod.CustomParserPanel._segui_valore_fisso, fake)
+    fake._mostra_avviso_valore_fisso = lambda: None
     fake._add_row(FieldRule(target="EventName", transform="upper", value_map="map1"))
     assert fake._rows[-1]["transform"].get() == "upper"

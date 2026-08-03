@@ -92,9 +92,14 @@ def _fake_self(gui_mod, *, provider=None, sport="Calcio", terms=None):
         _SPORT_UNSPECIFIED=gui_mod.CustomParserPanel._SPORT_UNSPECIFIED,
     )
     Panel = gui_mod.CustomParserPanel
+    # `_gate_fixed_value` è nell'elenco perché `_add_row` lo chiama dalla #182 PR A ⑥: si lega
+    # il metodo VERO, non uno stub, così il test continua a esercitare il codice di produzione.
     for name in ("_add_row", "_fetch_market_terms", "_term_values",
-                 "_refresh_term_combos", "_label_to_sport"):
+                 "_refresh_term_combos", "_label_to_sport", "_gate_fixed_value",
+                 "_segui_valore_fisso"):
         setattr(fake, name, types.MethodType(getattr(Panel, name), fake))
+    fake._riga_ha_valore_fisso = Panel._riga_ha_valore_fisso      # staticmethod
+    fake._mostra_avviso_valore_fisso = lambda: None
     return fake
 
 
