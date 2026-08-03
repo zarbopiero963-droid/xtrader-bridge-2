@@ -437,7 +437,7 @@ il pannello più complesso: titolo finestra, etichette campo (Nome parser/Modali
 Parser salvati/Catalogo XTrader/Nomi squadra · separatore/Mercati/Messaggio di prova),
 header di sezione (🔗 Traduzioni attive · ⚙️ Avanzate · Output multi-riga · Anteprima ·
 Diagnostica), bottoni (➕ Provider/🆕 Nuovo/📂 Carica/📑 Duplica/🗑 Elimina/➕ Inserisci
-regole fisse/🗺️ Dizionario nomi/🎯 Dizionario mercati/💾 Salva/🧪 Prova messaggio/🧪🧪
+regole fisse/🗺️ Dizionario nomi/🎯 Dizionario mercati/💾 Salva parser/🧪 Prova messaggio/🧪🧪
 Prova più messaggi/📋 Copia diagnostica/➕ Aggiungi mercato/➕ Aggiungi selezione/🗑 Rimuovi/
 checkbox Attiva), l'indicatore Traduzioni «— nessuna»/«✓ N attive» (helper puro, ora via
 template+`.format`) e — completata la localizzazione della chrome — anche i **messaggi di
@@ -964,6 +964,21 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
     **anche** i nomi. Se col solo separatore le squadre non si dividono, «Prova messaggio» e
     il log mostrano un **avviso** «⚠ separatore non trovato tra le squadre: nome lasciato
     invariato» accanto al verdetto (la riga resta valida, EventName invariato).
+    **L'avviso è AZIONABILE** (#182 PR A ⑨): quando il nome sembra usare un separatore diverso,
+    il testo lo **nomina** — «…; il messaggio sembra usare «v» — correggi «Separatore squadre»
+    nel parser». Prima diceva solo *cosa* era successo, mai *cosa fare*. Il prefisso storico
+    resta invariato (è cercabile nel log). Il caso reale che l'ha motivato è
+    `Al-Kholood Club v Al-Hilal` con il campo impostato a `-`. Nessun suggerimento inventato:
+    si propone solo un separatore che, scritto nel campo, **dividerebbe davvero**.
+  - **Suggerimento a campo VUOTO** (#182 PR A ⑨): col separatore vuoto prima non veniva detto
+    **nulla**, nemmeno su un nome palesemente divisibile. Ora il verdetto di «🧪 Prova messaggio»
+    porta in coda un **suggerimento non bloccante** con marcatore **💡** (non ⚠: il campo vuoto è
+    legittimo, non è un errore) — «💡 il messaggio sembra usare «v» fra le squadre: impostando
+    «Separatore squadre» l'EventName diventa «Casa - Trasferta»».
+    ⚠️ **Solo nell'anteprima, mai nel log live** (decisione del proprietario 2026-08-03): gli
+    avvisi del runtime vengono loggati a **ogni segnale**, quindi lì una riga identica ripetuta
+    seppellirebbe gli avvisi veri su parser che funzionano benissimo. Nessun cambio di
+    comportamento: non altera il verdetto di piazzabilità né una riga scritta.
   - **Mercati:** **"🎯 Dizionario mercati"** + indicatore (`✓ N attive` / `— nessuna`) +
     checkbox-profili.
   L'indicatore si aggiorna a ogni spunta/despunta e al caricamento di un parser, e conta **solo i
@@ -1035,7 +1050,25 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
     rientro nell'hub Strumenti. Se un altro strumento tiene il lock del DB non si blocca: mostra
     solo nessun suggerimento (testo libero comunque digitabile). Distinzione visiva: Provider =
     tendina chiusa; i tre termini = tendina con campo di testo (freccia + digitabile).
-- **Azioni:** **"💾 Salva"**, **"🧪 Prova messaggio"**, **"🧪🧪 Prova più messaggi
+    **BetType** (#182 PR A ⑧) è una **tendina CHIUSA** con `""` · `PUNTA` · `BANCA` — prima era
+    testo libero, e il risultato osservato era `⛔ INVALID_BETTYPE` con **tutte** le altre colonne
+    a `OK`, senza che nulla dicesse cosa scrivere. Il lato è obbligatorio **sempre** e la casella
+    «Obblig.» non lo governa. In tendina non compaiono `BACK`/`LAY` (accettati in ingresso ma
+    **convertiti**: sceglierli mostrerebbe una cosa e ne scriverebbe un'altra) né `FAVOR`/`CONTRA`
+    (non supportati: darebbero **sempre** errore). Un valore già salvato fuori elenco — es. `BACK`
+    in un parser esistente — **viene preservato** in tendina, altrimenti aprire il pannello
+    cancellerebbe il lato di un parser che funziona. I valori **non si traducono**: sono
+    value-as-key scritti verbatim nel CSV, e tradurli imporrebbe una ri-traduzione inversa col
+    rischio di **invertire il lato della scommessa**.
+  - Sotto la griglia, **nota grigia fissa**: «ℹ️ BetType: PUNTA o BANCA sono gli unici valori che
+    il CSV può contenere. BACK/LAY sono accettati in ingresso e convertiti automaticamente;
+    FAVOR/CONTRA non sono supportati.»
+- **Azioni:** **"💾 Salva parser"** (#182 PR A ⑦ — era "💾 Salva": la label non diceva *cosa*
+  salva, ed è il primo di quattro pulsanti in fila con **tre comandi di prova**, quindi si
+  leggeva come parte di quel gruppo; nell'app esistono già "💾 Salva Config", "💾 Salva profilo"
+  e "💾 Salva chiave". Conseguenza osservata: un parser completo configurato e collaudato è
+  rimasto **non persistito**, con "Parser salvati" su "(nessuno)"), **"🧪 Prova messaggio"**,
+  **"🧪🧪 Prova più messaggi
   (separati da ---)"** (#311 §3.2), **"📋 Copia diagnostica"**.
   Il tester multiplo valuta ogni messaggio del box (separatore: riga con solo `---`) e
   riusa l'area «Anteprima righe generate»: per ogni messaggio una **riga-intestazione in

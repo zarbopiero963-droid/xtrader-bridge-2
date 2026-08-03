@@ -38,6 +38,14 @@ Esempi reali (dal team XTrader):
 
 ## Valori in italiano
 
+> Nella GUI (🧰 Strumenti → 🧩 Parser) la colonna `BetType` si sceglie da una **tendina chiusa**
+> con `PUNTA`/`BANCA`, non a testo libero: sono gli unici valori che questo file può contenere.
+> `BACK`/`LAY` restano accettati **in ingresso** e convertiti. Non sono offerti per una **nuova**
+> selezione — mostrerebbero una cosa e ne scriverebbero un'altra — ma un valore **già salvato** in
+> un parser esistente resta **visibile e selezionato** in tendina: toglierlo lo cancellerebbe in
+> silenzio, e il lato è l'unica colonna obbligatoria che non si indovina mai. Vedi
+> `docs/custom_parser.md` §«Come si sceglie il BetType».
+
 - **`BetType`**: il bridge scrive sempre il valore **canonico italiano** `PUNTA` (equivalente di
   back) o `BANCA` (equivalente di lay), come negli esempi reali. In **ingresso** sono validi
   indifferentemente `PUNTA`/`BANCA`/`BACK`/`LAY` (accettati su tutte le versioni BT/XT — conferma

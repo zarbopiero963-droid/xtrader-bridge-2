@@ -44,6 +44,27 @@ _DEFAULT_TEAM_SEPARATOR = "v"
 # formato non può creare una scommessa errata) e si emette questo avviso in preview/log.
 WARN_TEAM_SEPARATOR_NOT_FOUND = "separatore non trovato tra le squadre: nome lasciato invariato"
 
+
+def warn_team_separator_not_found(event_name: str) -> str:
+    """Avviso «separatore non trovato», reso AZIONABILE quando si riesce (#182 PR A ⑨).
+
+    Il testo storico diceva **cosa** era successo, non **cosa fare**. Se il nome sembra usare
+    un separatore diverso da quello configurato, lo si nomina: «…; il messaggio sembra usare
+    « v »». È la differenza fra un avviso che si subisce e uno che si può correggere — il caso
+    reale che l'ha motivato è `Al-Kholood Club v Al-Hilal` col campo impostato a `-`.
+
+    `WARN_TEAM_SEPARATOR_NOT_FOUND` resta il **prefisso** invariato: è confrontato in molti
+    test e compare nel log dell'operatore, quindi il testo storico continua a essere
+    riconoscibile e cercabile: si aggiunge in coda, non si riscrive.
+
+    Nessun cambio di comportamento: la riga resta scritta col nome verbatim, esattamente come
+    prima. Cambia solo il testo dell'avviso. Pura, nessun effetto."""
+    suggerito = name_mapping_store.detect_separator(event_name)
+    if not suggerito:
+        return WARN_TEAM_SEPARATOR_NOT_FOUND
+    return (f"{WARN_TEAM_SEPARATOR_NOT_FOUND}; il messaggio sembra usare «{suggerito}» — "
+            f"correggi «Separatore squadre» nel parser")
+
 # Registro value-map di default del pipeline: include il dizionario (le mappe
 # markettype/marketname/selectionname usate dallo skeleton e dai parser reali).
 # Costruito una volta (legge il CSV una sola volta), poi riusato.
@@ -445,8 +466,10 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                 row = dict(row)
                 row["EventName"] = recomposed
         elif original_event:
-            # separatore impostato ma non trovato tra le squadre → verbatim + avviso
-            warnings.append(WARN_TEAM_SEPARATOR_NOT_FOUND)
+            # separatore impostato ma non trovato tra le squadre → verbatim + avviso.
+            # L'avviso nomina il separatore che il messaggio sembra usare, quando c'è (#182 ⑨):
+            # il comportamento non cambia (riga scritta, nome verbatim), cambia solo il testo.
+            warnings.append(warn_team_separator_not_found(original_event))
 
     # Mappatura mercati a frase (market_mapping_store, FASE 2). Solo se il parser seleziona
     # dei profili mercati. Regola di precedenza D1 (design §4): il DIZIONARIO VINCE sulle

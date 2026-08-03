@@ -88,6 +88,12 @@ _CANONICAL_BETTYPES = ("PUNTA", "BANCA")
 # (arriveranno nei prossimi aggiornamenti del supporto): non sono in mappa → INVALID (fail-closed).
 _BETTYPE_CANON = {"PUNTA": "PUNTA", "BANCA": "BANCA", "BACK": "PUNTA", "LAY": "BANCA"}
 
+# Alias PUBBLICO di `_CANONICAL_BETTYPES` per i consumatori fuori da questo modulo (#182 PR A ⑧:
+# la tendina BetType del pannello Parser offre esattamente questi valori). Alias e non copia:
+# FONTE UNICA — se un domani il contratto ammettesse un terzo lato, la tendina lo eredita senza
+# che nessuno debba ricordarsi di allinearla. Il nome privato resta per i chiamanti interni.
+CANONICAL_BETTYPES = _CANONICAL_BETTYPES
+
 
 def canonical_bettype(value) -> str:
     """Canonicalizza un BetType al lato ITALIANO del contratto CSV: `BACK`→`PUNTA`, `LAY`→`BANCA`,

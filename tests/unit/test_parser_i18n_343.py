@@ -53,11 +53,11 @@ def test_parser_ha_stringhe_wrappate():
     """Sanity: il sorgente wrappa davvero il suo chrome (non è rimasto tutto IT)."""
     assert len(_PARSER_TR) >= 30
     # nessuna label/titolo/bottone chrome con literal italiano FUORI da i18n.tr
-    for probe in ('text="Nome parser:"', 'text="💾 Salva"', 'text="🗑 Rimuovi"',
+    for probe in ('text="Nome parser:"', 'text="💾 Salva parser"', 'text="🗑 Rimuovi"',
                   'text="🔗 Traduzioni attive per questo parser"',
                   'self.title("Parser Personalizzato")'):
         assert probe not in _PARSER_SRC, f"stringa chrome non wrappata: {probe}"
-    for probe in ('i18n.tr("Nome parser:")', 'i18n.tr("💾 Salva")',
+    for probe in ('i18n.tr("Nome parser:")', 'i18n.tr("💾 Salva parser")',
                   'i18n.tr("🗑 Rimuovi")', 'i18n.tr("Messaggio di prova:")',
                   'self.title(i18n.tr("Parser Personalizzato"))'):
         assert probe in _PARSER_SRC, f"wrap atteso mancante: {probe}"
@@ -124,9 +124,15 @@ def test_format_round_trip_en_ed_es():
     assert i18n.tr("✓ {count} attive").format(count=3) == "✓ 3 active"
     msg = i18n.tr("Nuovo nome per la copia di {src!r}:").format(src="Bet365")
     assert msg == "New name for the copy of 'Bet365':" and "{" not in msg
+    # #182 PR A ⑦ — valore EN ESATTO, non solo «diverso dall'italiano» (rilievo CodeRabbit sulla
+    # PR #225): una traduzione sbagliata sarebbe comunque != dalla chiave, quindi il controllo di
+    # sola non-identità la lascerebbe passare. Qui e sotto in ES si fissa il testo vero.
+    assert i18n.tr("💾 Salva parser") == "💾 Save parser"
     i18n.set_language("ES")
     assert i18n.tr("✓ {count} attive").format(count=2) == "✓ 2 activas"
-    assert i18n.tr("💾 Salva") == "💾 Guardar"
+    # #182 PR A ⑦: la label dice ORA cosa salva. Nell'app esistono quattro «Salva» con oggetti
+    # diversi (Config, profilo, chiave, parser) e questo era l'unico muto.
+    assert i18n.tr("💾 Salva parser") == "💾 Guardar parser"
     # fallback IT: template invariato, interpolazione comunque corretta
     i18n.set_language("IT")
     assert i18n.tr("✓ {count} attive").format(count=7) == "✓ 7 attive"

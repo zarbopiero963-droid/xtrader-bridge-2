@@ -290,7 +290,8 @@ _CATALOG = {
         "Mercati:": "Markets:",
         "🎯 Dizionario mercati": "🎯 Markets dictionary",
         "⚙️ Avanzate (Trasformazione · Value-map)": "⚙️ Advanced (Transform · Value-map)",
-        "💾 Salva": "💾 Save",
+        "💾 Salva parser": "💾 Save parser",
+        "ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può contenere. BACK/LAY sono accettati in ingresso e convertiti automaticamente; FAVOR/CONTRA non sono supportati.": "ℹ️ BetType: PUNTA or BANCA are the only values the CSV can contain. BACK/LAY are accepted as input and converted automatically; FAVOR/CONTRA are not supported.",
         "🧪 Prova messaggio": "🧪 Test message",
         "🧪🧪 Prova più messaggi (separati da ---)":
             "🧪🧪 Test multiple messages (separated by ---)",
@@ -1040,7 +1041,8 @@ _CATALOG = {
         "Mercati:": "Mercados:",
         "🎯 Dizionario mercati": "🎯 Diccionario de mercados",
         "⚙️ Avanzate (Trasformazione · Value-map)": "⚙️ Avanzadas (Transformación · Value-map)",
-        "💾 Salva": "💾 Guardar",
+        "💾 Salva parser": "💾 Guardar parser",
+        "ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può contenere. BACK/LAY sono accettati in ingresso e convertiti automaticamente; FAVOR/CONTRA non sono supportati.": "ℹ️ BetType: PUNTA o BANCA son los únicos valores que el CSV puede contener. BACK/LAY se aceptan como entrada y se convierten automáticamente; FAVOR/CONTRA no están soportados.",
         "🧪 Prova messaggio": "🧪 Probar mensaje",
         "🧪🧪 Prova più messaggi (separati da ---)":
             "🧪🧪 Probar varios mensajes (separados por ---)",
