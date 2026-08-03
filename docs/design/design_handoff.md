@@ -941,11 +941,17 @@ senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
   (#182 PR A ⑤: prima le due tendine a cascata avevano **una sola** etichetta, davanti alla
   prima) + **"➕ Inserisci regole fisse"**.
 - **Avviso valore fisso (#182 PR A ⑥):** riga ambra (`STATUS_WARN`), **non bloccante**, che
-  compare quando una o più regole hanno un **Valore fisso** insieme a Trasformazione/Value-map;
-  su quelle righe le due tendine avanzate sono **disabilitate**. Il valore salvato **non** viene
-  modificato e `validate_parser_def` **non** viene toccata (opzione B scartata: irrigidirla
-  renderebbe invalidi i parser già salvati e una chat smetterebbe di produrre segnali in
-  silenzio). Vuoto = invisibile.
+  compare quando una o più regole hanno un **Valore fisso** insieme a Trasformazione/Value-map.
+  Testo verbatim: *«⚠️ {n} regola/e ha un VALORE FISSO con Trasformazione/Value-map: la
+  trasformazione viene applicata ANCHE al valore fisso e può svuotarlo (riga «⛔ Non pronto»).
+  Svuota Trasformazione/Value-map su quelle righe.»* Le due tendine avanzate su quelle righe
+  **restano ATTIVE** (decisione del proprietario 2026-08-03, che corregge il primo giro della PR
+  #223): disabilitarle **non** disattivava la trasformazione — `_sync_to_builder` la salva e
+  applica comunque — e toglieva all'utente **l'unico comando per ripararla**, lasciando la riga
+  `⛔ Non pronto` senza via d'uscita. L'avviso *spiega*, non blocca né disabilita. Il valore
+  salvato **non** viene modificato e `validate_parser_def` **non** viene toccata (opzione B
+  scartata: irrigidirla renderebbe invalidi i parser già salvati e una chat smetterebbe di
+  produrre segnali in silenzio). Vuoto = invisibile.
 - **🔗 Traduzioni attive per questo parser (#293):** riquadro etichettato che raggruppa le due
   mappature (prima erano righe sciolte), con un **indicatore di stato ✓/—** per tipo:
   - **Separatore squadre:** campo (label «Separatore squadre:», placeholder `v`), **"🗺️

@@ -55,6 +55,23 @@ def _bottoni_costruiti(func) -> list:
     return fuori
 
 
+def _corpo_senza_docstring(func) -> str:
+    """Sorgente di `func` privato del docstring, via AST.
+
+    Serve alle guardie che vietano una CHIAMATA (`validate_parser_def`, `.set(`): il docstring
+    può legittimamente nominarla per spiegare che NON la si usa, e una ricerca testuale sul
+    sorgente intero non distingue le due cose."""
+    import textwrap
+    albero = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    definizione = albero.body[0]
+    corpo = definizione.body
+    if (corpo and isinstance(corpo[0], ast.Expr)
+            and isinstance(corpo[0].value, ast.Constant)
+            and isinstance(corpo[0].value.value, str)):
+        corpo = corpo[1:]
+    return "\n".join(ast.unparse(n) for n in corpo)
+
+
 # ── ① elenco sempre visibile ─────────────────────────────────────────────────────────
 
 def test_la_tendina_dei_parser_salvati_non_esiste_piu(cpg):
@@ -295,20 +312,71 @@ def _riga(fisso, transform="", value_map="", con_menu=True):
     return refs
 
 
-def test_valore_fisso_disabilita_trasformazione_e_valuemap(cpg):
-    """Opzione A del proprietario: le due tendine si disattivano sulle righe con valore fisso."""
+def test_valore_fisso_NON_disabilita_le_tendine_avanzate(cpg):
+    """Decisione del proprietario 2026-08-03, che corregge il primo giro dopo il rilievo
+    CodeRabbit sulla PR #223.
+
+    Il primo giro DISABILITAVA Trasformazione/Value-map sulle righe con valore fisso. Misurando
+    è emerso che disabilitare **non disattiva la trasformazione** (vedi
+    `test_la_trasformazione_si_applica_ANCHE_col_valore_fisso`): toglieva solo l'unico comando
+    con cui l'utente poteva ripararla, lasciando la riga «⛔ Non pronto» senza via d'uscita.
+    Restano attive; a spiegare il rischio è l'avviso.
+
+    Fail-first: sul commit f0baf1d le due tendine risultavano `disabled`."""
     mod = cpg
     finto = object.__new__(mod.CustomParserPanel)
 
     con_fisso = _riga("Sì", transform="score_to_over")
     assert mod.CustomParserPanel._gate_fixed_value(finto, con_fisso) is True
-    assert con_fisso["transform_menu"].stato == "disabled"
-    assert con_fisso["value_map_menu"].stato == "disabled"
+    assert con_fisso["transform_menu"].stato == "normal", (
+        "la tendina Trasformazione è di nuovo disabilitata: la trasformazione si applica lo "
+        "stesso e l'utente non può più svuotarla")
+    assert con_fisso["value_map_menu"].stato == "normal"
 
     senza = _riga("", transform="score_to_over")
     assert mod.CustomParserPanel._gate_fixed_value(finto, senza) is False
     assert senza["transform_menu"].stato == "normal"
     assert senza["value_map_menu"].stato == "normal"
+
+
+def test_la_trasformazione_si_applica_ANCHE_col_valore_fisso(cpg):
+    """**Il consumatore, non il sito** (regola 2-bis): la prova che disabilitare era cosmetico.
+
+    Esegue il vero `_sync_to_builder` su una riga con Valore fisso E Trasformazione, con le
+    tendine messe a `disabled`: la regola che finisce nel builder porta comunque la
+    trasformazione. È la ragione tecnica per cui le tendine restano attive — e se un domani
+    qualcuno le ri-disabilitasse credendo di disattivare la trasformazione, questo test
+    resterebbe verde e lo smentirebbe.
+
+    È anche la giustificazione dell'AVVISO: la combinazione è davvero pericolosa."""
+    mod = cpg
+    finto = object.__new__(mod.CustomParserPanel)
+    finto.builder = mod.ParserBuilder()
+    finto._name_var = types.SimpleNamespace(get=lambda: "P1")
+    finto._mode_var = types.SimpleNamespace(get=lambda: mod.CustomParserPanel._MODE_INHERIT)
+    finto._sport_var = types.SimpleNamespace(get=lambda: mod.CustomParserPanel._SPORT_UNSPECIFIED)
+    finto._separator_var = types.SimpleNamespace(get=lambda: "")
+    finto._selected_profiles = lambda: []
+    finto._selected_market_profiles = lambda: []
+    finto._sync_multi_to_builder = lambda: None
+    finto._sync_conditions_to_builder = lambda: None
+
+    riga = _riga("OVER_UNDER_25", transform="score_to_over")
+    riga["transform_menu"].configure(state="disabled")      # come faceva il primo giro
+    riga["value_map_menu"].configure(state="disabled")
+    riga["target"] = "MarketName"
+    riga["start_after"] = types.SimpleNamespace(get=lambda: "")
+    riga["end_before"] = types.SimpleNamespace(get=lambda: "")
+    riga["required"] = types.SimpleNamespace(get=lambda: False)
+    finto._rows = [riga]
+
+    mod.CustomParserPanel._sync_to_builder(finto)
+
+    regola = finto.builder.rules[0]
+    assert regola.fixed_value == "OVER_UNDER_25"
+    assert regola.transform == "score_to_over", (
+        "con la tendina DISABILITATA la trasformazione finisce comunque nel parser salvato: "
+        "disabilitare non disattiva nulla, nasconde solo il comando per toglierla")
 
 
 def test_gate_non_esplode_senza_le_tendine_avanzate(cpg):
@@ -345,9 +413,13 @@ def test_il_gate_NON_tocca_validate_parser_def(cpg):
 
     Irrigidire `validate_parser_def` renderebbe INVALIDI i parser già salvati:
     `parser_manager._load_by_name` li scarterebbe via `is_valid()` e una chat smetterebbe di
-    produrre segnali **in silenzio**. Il gate deve restare a video."""
-    src = inspect.getsource(cpg.CustomParserPanel._gate_fixed_value)
-    src += inspect.getsource(cpg.CustomParserPanel._avviso_valore_fisso)
+    produrre segnali **in silenzio**. Il gate deve restare a video.
+
+    Il sorgente è ispezionato SENZA docstring (via AST): il docstring di `_gate_fixed_value`
+    *nomina* `validate_parser_def` per dire che non la tocca, e una guardia testuale ingenua
+    l'avrebbe scambiato per una chiamata — un test che fallisce su una spiegazione corretta."""
+    src = _corpo_senza_docstring(cpg.CustomParserPanel._gate_fixed_value)
+    src += _corpo_senza_docstring(cpg.CustomParserPanel._avviso_valore_fisso)
     assert "validate_parser_def" not in src, (
         "il gate ⑥ non deve passare dal validatore: renderebbe invalidi i parser salvati")
     # …e non deve nemmeno riscrivere i valori salvati del builder
@@ -401,8 +473,8 @@ def test_segui_valore_fisso_non_esplode_su_widget_inerte(cpg):
 def test_il_gate_fallisce_APERTO_se_il_widget_solleva(cpg):
     """Rilievo Sourcery (#223): il ramo difensivo di `_riga_ha_valore_fisso` non era coperto.
 
-    «Meglio nessun gate che un gate sbagliato»: un widget che solleva non deve disabilitare
-    tendine a sproposito né far esplodere il disegno della riga."""
+    «Meglio nessun avviso che un avviso sbagliato»: un widget che solleva non deve far esplodere
+    il disegno della riga né far comparire l'avviso su una riga senza valore fisso."""
     mod = cpg
     finto = object.__new__(mod.CustomParserPanel)
 
@@ -418,7 +490,7 @@ def test_il_gate_fallisce_APERTO_se_il_widget_solleva(cpg):
 
     assert mod.CustomParserPanel._riga_ha_valore_fisso(refs) is False
     assert mod.CustomParserPanel._gate_fixed_value(finto, refs) is False
-    assert refs["transform_menu"].stato == "normal", "tendina disabilitata a sproposito"
+    assert refs["transform_menu"].stato == "normal", "tendina toccata a sproposito"
     assert refs["value_map_menu"].stato == "normal"
 
 
@@ -465,6 +537,58 @@ def test_il_badge_conta_ANCHE_parser_list_by_chat(cpg):
     assert conteggio == {"P1": 2, "P2": 2}, conteggio
 
 
+def test_il_badge_conta_CHAT_DISTINTE_non_binding(cpg):
+    """Rilievo Fable/GPT-5.5 (#223): la stessa chat può comparire in ENTRAMBE le chiavi.
+
+    `parser_by_chat` (singolo, retro-compat) e `parser_list_by_chat` (router multi-parser) sono
+    separate: sommarle gonfiava il badge, che diceva «📡 2» su una sola chat.
+
+    Fail-first: sul commit f0baf1d il conteggio di P1 era 2."""
+    mod = cpg
+    finto = object.__new__(mod.CustomParserPanel)
+    cfg = {
+        "active_parser": "P1",
+        "parser_by_chat": {"-100": "P1"},
+        "parser_list_by_chat": {"-100": ["P1", "P2"]},      # STESSA chat, anche in lista
+    }
+    orig = mod.config_store.load_config
+    try:
+        mod.config_store.load_config = lambda *_a, **_k: cfg
+        _attivo, conteggio = mod.CustomParserPanel._parser_usage(finto)
+    finally:
+        mod.config_store.load_config = orig
+    assert conteggio == {"P1": 1, "P2": 1}, (
+        f"badge gonfiato: la chat -100 è UNA sola, contata due volte → {conteggio}")
+
+
+def test_una_API_di_routing_mancante_NON_viene_mascherata(cpg):
+    """Rilievo Fugu (#223): l'`except Exception` copriva anche le chiamate a `parser_manager`.
+
+    Un nome di API sbagliato (`parser_list_by_chat` rinominata, un refactor incompleto) sarebbe
+    finito nell'`AttributeError` → `return "", {}` → badge silenziosamente vuoto: esattamente la
+    regressione che questa PR dichiara di correggere, rimascherata. Ora l'`except` copre **solo**
+    la lettura del file di config; le tre letture di routing stanno fuori e un nome sbagliato
+    esplode qui, dove un test lo vede.
+
+    Fail-first: sul commit f0baf1d questa chiamata ritornava `("", {})` senza sollevare."""
+    mod = cpg
+    finto = object.__new__(mod.CustomParserPanel)
+
+    def _api_sparita(_cfg):
+        raise AttributeError("module 'parser_manager' has no attribute 'parser_list_by_chat'")
+
+    orig_cfg = mod.config_store.load_config
+    orig_api = mod.parser_manager.parser_list_by_chat
+    try:
+        mod.config_store.load_config = lambda *_a, **_k: {"active_parser": "P1"}
+        mod.parser_manager.parser_list_by_chat = _api_sparita
+        with pytest.raises(AttributeError):
+            mod.CustomParserPanel._parser_usage(finto)
+    finally:
+        mod.config_store.load_config = orig_cfg
+        mod.parser_manager.parser_list_by_chat = orig_api
+
+
 def test_il_riaggancio_lega_entrambi_gli_eventi_anche_se_il_primo_fallisce(cpg):
     """Rilievo Fugu (#223): il `return` sul primo evento lasciava «<FocusOut>» non agganciato."""
     mod = cpg
@@ -497,3 +621,69 @@ def test_il_riaggancio_usa_add_per_non_sostituire_gli_handler_esistenti(cpg):
 
     mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": _Entry()})
     assert visti == [("<KeyRelease>", "+"), ("<FocusOut>", "+")], visti
+
+
+def test_un_TypeError_interno_non_fa_ri_legare_SENZA_add(cpg):
+    """Rilievo Fugu/GPT-5.5 (#223): il fallback `except TypeError` era troppo largo.
+
+    Serviva a coprire i widget il cui `bind` non accetta `add`, ma un `TypeError` può nascere
+    anche DENTRO il bind vero (o da un callback con firma sbagliata): in quel caso il fallback
+    ri-legava **senza** `add="+"`, sostituendo gli handler che CTkEntry ha già su quegli eventi.
+    Invisibile ai doppi finti, che non hanno handler da perdere. Ora il supporto di `add` si
+    decide ispezionando la FIRMA, una volta sola, e un `TypeError` interno resta un errore.
+
+    Fail-first: sul commit f0baf1d le chiamate registrate erano
+    `["+", None, "+", None]` — cioè due ri-bind distruttivi."""
+    mod = cpg
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+    chiamate = []
+
+    class _EntryConAddMaEsplosiva:
+        def bind(self, evento, cb, add=None):
+            chiamate.append(add)
+            raise TypeError("errore interno del bind, non la firma")
+
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": _EntryConAddMaEsplosiva()})
+    assert chiamate == ["+", "+"], (
+        f"il fallback ha ri-legato senza add='+', sovrascrivendo gli handler di CTkEntry: {chiamate}")
+
+
+def test_widget_senza_add_viene_legato_lo_stesso(cpg):
+    """Controprova: il caso che il fallback serviva a coprire (widget il cui `bind` NON accetta
+    `add`) deve restare agganciato — la firma lo dice, e si usa la forma a due argomenti."""
+    mod = cpg
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+    legati = []
+
+    class _EntryVecchia:
+        def bind(self, evento, cb):          # nessun parametro `add`
+            legati.append(evento)
+
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": _EntryVecchia()})
+    assert legati == ["<KeyRelease>", "<FocusOut>"], legati
+
+
+def test_bind_non_ispezionabile_usa_comunque_add(cpg, monkeypatch):
+    """In dubbio si sceglie la forma NON distruttiva: se la firma non è ispezionabile
+    (`inspect.signature` solleva su certi builtin/oggetti C) si prova `add="+"`, che è il caso
+    reale di Tk. Il ramo è simulato facendo sollevare `signature`, perché in CPython 3.11 i
+    builtin comuni una firma ce l'hanno — e un test che non lo forzasse non coprirebbe nulla."""
+    mod = cpg
+    visti = []
+
+    def _niente_firma(_f):
+        raise ValueError("no signature found for builtin")
+
+    monkeypatch.setattr(mod.inspect, "signature", _niente_firma)
+
+    finto = types.SimpleNamespace(_gate_fixed_value=lambda r: None,
+                                  _mostra_avviso_valore_fisso=lambda: None)
+
+    def _bind(evento, cb, add=None):
+        visti.append(add)
+
+    assert mod.bind_accetta_add(_bind) is True
+    mod.CustomParserPanel._segui_valore_fisso(finto, {"fixed_value": types.SimpleNamespace(bind=_bind)})
+    assert visti == ["+", "+"], visti

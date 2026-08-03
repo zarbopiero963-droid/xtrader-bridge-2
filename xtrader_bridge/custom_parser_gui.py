@@ -20,6 +20,7 @@ coperta da `tests/unit/test_parser_builder.py`. Verifica manuale su Windows.
 """
 
 import dataclasses
+import inspect
 
 import customtkinter as ctk
 
@@ -86,6 +87,31 @@ def _visible_rule_columns(show_advanced: bool):
     Puro/testabile headless: la densità di default (#293) non dipende dalla GUI."""
     return [(label, w) for label, w, advanced in _RULE_COLUMNS
             if show_advanced or not advanced]
+
+
+def bind_accetta_add(lega) -> bool:
+    """True se il `bind` di questo widget accetta il kwarg ``add``.
+
+    Deciso ISPEZIONANDO la firma, non provando e riprovando: il primo giro chiamava
+    ``bind(..., add="+")`` dentro un ``try/except TypeError`` e, al fallimento, ri-legava
+    SENZA ``add`` — ma un ``TypeError`` può nascere anche dentro il `bind` vero (o da un
+    callback con firma sbagliata), e in quel caso il fallback avrebbe **sostituito** gli
+    handler che CTkEntry ha già su quegli eventi. Regressione invisibile ai doppi finti dei
+    test, che non hanno handler da perdere (rilievo Fugu/GPT-5.5 sulla PR #223).
+
+    Funzione di MODULO e non metodo: i test costruiscono pannelli finti con
+    `types.SimpleNamespace`, e un metodo in più li romperebbe a ogni giro senza provare nulla.
+    Puro/testabile headless.
+
+    Firma non ispezionabile (builtin, oggetto C) → True: è il caso reale di Tk, e in dubbio si
+    sceglie la forma NON distruttiva."""
+    try:
+        inspect.signature(lega).bind("<KeyRelease>", lambda *_a: None, add="+")
+    except TypeError:
+        return False
+    except Exception:            # noqa: BLE001 — firma non ispezionabile: si assume il Tk vero
+        return True
+    return True
 
 
 class CustomParserPanel(ctk.CTkFrame):
@@ -1195,16 +1221,18 @@ class CustomParserPanel(ctk.CTkFrame):
             refs["value_map_menu"] = ctk.CTkOptionMenu(
                 row, variable=refs["value_map"], values=self._value_maps, width=150)
             refs["value_map_menu"].pack(side="left", padx=2)
-        # #182 PR A ⑥ — opzione A del proprietario: sulle righe con VALORE FISSO le due tendine
-        # avanzate si DISABILITANO e un avviso lo spiega. Il comportamento reale è l'opposto
-        # dell'intuizione: la trasformazione si applica ANCHE al valore fisso, e una fail-closed
-        # come `score_to_over` lo svuota → riga «⛔ Non pronto» senza dire perché.
+        # #182 PR A ⑥: sulle righe con VALORE FISSO un avviso spiega che Trasformazione/Value-map
+        # si applicano ANCHE al valore fisso — il comportamento reale è l'opposto dell'intuizione,
+        # e una trasformazione fail-closed come `score_to_over` lo svuota → riga «⛔ Non pronto»
+        # senza dire perché. Le tendine restano ATTIVE (decisione del proprietario 2026-08-03,
+        # dopo il rilievo CodeRabbit): disabilitarle non disattivava la trasformazione, toglieva
+        # solo il modo di ripararla — vedi `_gate_fixed_value`.
         # NON si tocca `validate_parser_def` (opzione B, SCARTATA): irrigidirla renderebbe
         # invalidi i parser già salvati, `load_all_parsers` li salterebbe e una chat smetterebbe
         # di produrre segnali IN SILENZIO. L'avviso resta a video; i dati salvati non cambiano.
         self._gate_fixed_value(refs)
         # Rilievo Fugu (#223): senza questo, il gate valeva SOLO alla creazione della riga —
-        # scrivendo il valore fisso DOPO, le tendine restavano attive e l'avviso stantio.
+        # scrivendo il valore fisso DOPO, l'avviso restava stantio.
         # `fixed_value` è un `StringVar` (menu Provider / combo) oppure un `CTkEntry`: si aggancia
         # la forma disponibile, best-effort (i doppi dei test non hanno né trace né bind).
         self._segui_valore_fisso(refs)
@@ -1217,7 +1245,7 @@ class CustomParserPanel(ctk.CTkFrame):
         """Ri-applica il gate ⑥ quando il Valore fisso della riga cambia a runtime.
 
         Senza, il gate valeva solo al disegno della riga: un valore fisso digitato dopo lasciava
-        le tendine avanzate abilitate e l'avviso disallineato (rilievo Fugu sulla PR #223)."""
+        l'avviso disallineato (rilievo Fugu sulla PR #223)."""
         def _riapplica(*_a, **_k):
             self._gate_fixed_value(refs)
             self._mostra_avviso_valore_fisso()
@@ -1232,18 +1260,17 @@ class CustomParserPanel(ctk.CTkFrame):
                 return
         lega = getattr(widget, "bind", None)               # CTkEntry (testo libero)
         if callable(lega):
+            # `add="+"` (rilievo GPT-5.5 #223): senza, il bind SOSTITUISCE gli handler che
+            # CTkEntry ha già su quegli eventi. Il supporto si decide UNA volta dalla firma.
+            usa_add = bind_accetta_add(lega)
             for evento in ("<KeyRelease>", "<FocusOut>"):
                 try:
-                    # `add="+"` (rilievo GPT-5.5 #223): senza, il bind SOSTITUISCE gli handler
-                    # che CTkEntry ha già su quegli eventi — regressione invisibile ai test coi
-                    # doppi finti. `continue` e non `return` (rilievo Fugu): un errore sul primo
-                    # evento non deve lasciare il secondo non agganciato.
-                    lega(evento, _riapplica, add="+")
-                except TypeError:
-                    try:
-                        lega(evento, _riapplica)      # doppi/widget che non accettano `add`
-                    except Exception:    # noqa: BLE001 — non legabile: si prova il prossimo
-                        continue
+                    # `continue` e non `return` (rilievo Fugu): un errore sul primo evento non
+                    # deve lasciare il secondo non agganciato.
+                    if usa_add:
+                        lega(evento, _riapplica, add="+")
+                    else:
+                        lega(evento, _riapplica)
                 except Exception:        # noqa: BLE001 — non legabile: si prova il prossimo
                     continue
 
@@ -1261,21 +1288,20 @@ class CustomParserPanel(ctk.CTkFrame):
             return False
 
     def _gate_fixed_value(self, refs) -> bool:
-        """Disabilita Trasformazione/Value-map sulla riga se ha un valore fisso (#182 PR A ⑥).
+        """Segnala (NON disabilita) Trasformazione/Value-map sulla riga con valore fisso.
 
-        Ritorna True se il gate è scattato su questa riga (serve al conteggio dell'avviso).
-        Sola PRESENTAZIONE: non modifica `rule.transform`/`rule.value_map`, che restano
-        salvati e riletti — un parser esistente non cambia comportamento per averlo aperto."""
-        fisso = self._riga_ha_valore_fisso(refs)
-        for chiave in ("transform_menu", "value_map_menu"):
-            menu = refs.get(chiave)
-            if menu is None:
-                continue
-            try:
-                menu.configure(state="disabled" if fisso else "normal")
-            except Exception:        # noqa: BLE001 — widget distrutto durante un refresh
-                pass
-        return fisso
+        Ritorna True se la riga ha un valore fisso: serve al conteggio dell'avviso.
+
+        **Perché le tendine restano ATTIVE** — decisione del proprietario 2026-08-03, che
+        corregge l'opzione A dopo il rilievo CodeRabbit sulla PR #223. Il primo giro le
+        disabilitava, ma misurando è emerso che disabilitarle **non disattiva niente**:
+        `_sync_to_builder` legge comunque `refs["transform"].get()` / `refs["value_map"].get()`,
+        quindi la trasformazione **salvata continua ad applicarsi** anche al valore fisso.
+        Disabilitare nascondeva solo il comando — e con esso l'**unico modo di ripararla**:
+        la riga restava «⛔ Non pronto» per sempre, senza via d'uscita dal pannello.
+
+        Sola PRESENTAZIONE: nessuna scrittura, `validate_parser_def` non è toccata."""
+        return self._riga_ha_valore_fisso(refs)
 
     def _avviso_valore_fisso(self) -> str:
         """Testo dell'avviso non bloccante, o "" se nessuna riga è interessata."""
@@ -1285,9 +1311,9 @@ class CustomParserPanel(ctk.CTkFrame):
         if not quante:
             return ""
         return i18n.tr(
-            "⚠️ {n} regola/e ha un VALORE FISSO: Trasformazione e Value-map sono disattivate "
-            "lì, perché verrebbero applicate al valore fisso e potrebbero svuotarlo "
-            "(riga «⛔ Non pronto»). Il valore salvato non è stato modificato."
+            "⚠️ {n} regola/e ha un VALORE FISSO con Trasformazione/Value-map: la "
+            "trasformazione viene applicata ANCHE al valore fisso e può svuotarlo "
+            "(riga «⛔ Non pronto»). Svuota Trasformazione/Value-map su quelle righe."
         ).format(n=quante)
 
     def _reload_rows_from_builder(self):
@@ -1451,34 +1477,46 @@ class CustomParserPanel(ctk.CTkFrame):
 
     # ── gestione parser salvati (lista / nuovo / carica / duplica / elimina) ─
     def _parser_usage(self):
-        """(nome_attivo, {nome_parser: n_chat}) per i marcatori della lista (#182 PR A ①).
+        """(nome_attivo, {nome_parser: n_chat_DISTINTE}) per i marcatori della lista (#182 PR A ①).
 
         Sola LETTURA e best-effort: usa le API pubbliche `parser_manager.active_parser_name` /
-        `parser_by_chat`. Se la config non è leggibile i marcatori spariscono ma l'elenco resta
-        — un badge mancante non deve impedire di aprire un parser."""
+        `parser_by_chat` / `parser_list_by_chat`. Se la config non è leggibile i marcatori
+        spariscono ma l'elenco resta — un badge mancante non deve impedire di aprire un parser.
+
+        Il badge conta **chat distinte**, non binding: la stessa chat può comparire sia in
+        `parser_by_chat` (singolo, retro-compat) sia in `parser_list_by_chat` (router
+        multi-parser), e sommare i due avrebbe gonfiato il numero — «📡 2» su una sola chat
+        (rilievo Fable/GPT-5.5 sulla PR #223).
+
+        L'`except` copre **solo** la lettura del file di config. Le tre funzioni di
+        `parser_manager` restano FUORI: sono letture pure e già fail-safe su config manomessa,
+        e un `AttributeError` da un nome sbagliato deve esplodere nei test invece di essere
+        mascherato in un badge vuoto (rilievo Fugu sulla PR #223). Anche a runtime il costo è
+        contenuto: `ToolsWindow` isola la costruzione di ogni scheda, quindi un guasto qui
+        mostra l'errore NELLA scheda Parser invece di impedire l'apertura dell'hub."""
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
-            attivo = parser_manager.active_parser_name(cfg)
-            per_chat = parser_manager.parser_by_chat(cfg) or {}
-            # Rilievo CodeRabbit (#223): `parser_list_by_chat` è una chiave di config SEPARATA
-            # (router multi-parser). Una chat instradata solo da lì non comparirebbe nel badge,
-            # che direbbe «nessuna chat» su un parser in realtà usato.
-            liste_per_chat = parser_manager.parser_list_by_chat(cfg) or {}
         except Exception:            # noqa: BLE001 — config illeggibile: nessun marcatore, mai un crash
             return "", {}
-        conteggio = {}
+        attivo = parser_manager.active_parser_name(cfg)
+        per_chat = parser_manager.parser_by_chat(cfg) or {}
+        # `parser_list_by_chat` è una chiave di config SEPARATA (router multi-parser). Una chat
+        # instradata solo da lì non comparirebbe nel badge, che direbbe «nessuna chat» su un
+        # parser in realtà usato (rilievo CodeRabbit #223).
+        liste_per_chat = parser_manager.parser_list_by_chat(cfg) or {}
+        chat_per_parser = {}
 
-        def _conta(nome):
+        def _segna(chat, nome):
             chiave = str(nome or "").strip()
             if chiave:
-                conteggio[chiave] = conteggio.get(chiave, 0) + 1
+                chat_per_parser.setdefault(chiave, set()).add(str(chat))
 
-        for nome in per_chat.values():
-            _conta(nome)
-        for nomi in liste_per_chat.values():
+        for chat, nome in per_chat.items():
+            _segna(chat, nome)
+        for chat, nomi in liste_per_chat.items():
             for nome in (nomi or []):
-                _conta(nome)
-        return attivo, conteggio
+                _segna(chat, nome)
+        return attivo, {nome: len(chat) for nome, chat in chat_per_parser.items()}
 
     def _refresh_saved(self):
         """Ricostruisce l'elenco SEMPRE VISIBILE dei parser salvati (#182 PR A ①).
