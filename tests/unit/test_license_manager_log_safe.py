@@ -151,40 +151,52 @@ def test_nessun_modulo_del_package_usa_un_logger_NUDO():
     tutti e quattro i moduli prima di questa PR — nascerebbe **fuori** dalla barriera, e nessuno
     se ne accorgerebbe finché un token non compare in un log.
 
-    Trasformare la convenzione in un test è esattamente ciò che questa PR fa per il resto: senza,
-    la rete stessa sarebbe protetta solo da un'abitudine. `log_safe.py` è l'unica eccezione
-    ammessa: è il posto dove il logger nudo viene creato **una volta** e subito filtrato."""
+    L'analisi è **sull'AST, non sul testo** (secondo giro GPT-5.5): una ricerca di stringa
+    sbaglierebbe in entrambe le direzioni, e la direzione che conta è la seconda —
+    `from logging import getLogger` seguito da `getLogger(__name__)` non contiene mai la stringa
+    `logging.getLogger`, quindi passerebbe **inosservato** riaprendo esattamente il buco. (Nella
+    direzione innocua, un `logging.getLogger` citato in un commento o in un docstring darebbe un
+    falso allarme: qui non ne dà, perché l'AST i commenti non li vede.)
+
+    Ricorsivo (`rglob`): il package oggi è piatto, ma la garanzia dichiarata dal docstring non
+    deve essere più larga della copertura reale, o il primo sottopackage nascerebbe scoperto.
+
+    `log_safe.py` è l'unica eccezione ammessa: è il posto dove il logger nudo viene creato **una
+    volta** e subito filtrato."""
+    import ast
     import pathlib
 
     pacchetto = pathlib.Path(__file__).resolve().parents[2] / "license_manager"
     assert pacchetto.is_dir(), f"package non trovato in {pacchetto}"
 
+    def _chiamate_nude(albero):
+        """Nomi delle chiamate che creano un logger fuori da `log_safe`, viste dall'AST."""
+        alias_di_getlogger = set()
+        for nodo in ast.walk(albero):
+            if isinstance(nodo, ast.ImportFrom) and nodo.module == "logging":
+                for a in nodo.names:
+                    if a.name == "getLogger":
+                        alias_di_getlogger.add(a.asname or a.name)
+        trovate = []
+        for nodo in ast.walk(albero):
+            if not isinstance(nodo, ast.Call):
+                continue
+            f = nodo.func
+            if isinstance(f, ast.Attribute) and f.attr == "getLogger" \
+                    and isinstance(f.value, ast.Name) and f.value.id == "logging":
+                trovate.append("logging.getLogger(...)")
+            elif isinstance(f, ast.Name) and f.id in alias_di_getlogger:
+                trovate.append(f"{f.id}(...) importato da logging")
+        return trovate
+
     colpevoli = []
-    for modulo in sorted(pacchetto.glob("*.py")):
+    for modulo in sorted(pacchetto.rglob("*.py")):
         if modulo.name == "log_safe.py":
             continue                       # l'unica sede legittima, per costruzione
-        testo = modulo.read_text(encoding="utf-8")
-        if "logging.getLogger" in testo:
-            colpevoli.append(modulo.name)
+        albero = ast.parse(modulo.read_text(encoding="utf-8"), filename=str(modulo))
+        for chiamata in _chiamate_nude(albero):
+            colpevoli.append(f"{modulo.relative_to(pacchetto)}: {chiamata}")
 
     assert not colpevoli, (
-        f"logger NUDO (fuori dalla redazione) in: {', '.join(colpevoli)} — "
-        "usare `log_safe.get_logger(__name__)`")
-
-
-def test_il_test_cross_barriera_non_dipende_dalla_working_directory():
-    """Rilievo GPT-5.5 #216: `from tools import secret_policy` regge solo se la radice del repo è
-    importabile. `tools/` non ha `__init__.py` (è un namespace package), quindi se un domani i
-    test girassero da una cwd diversa quell'import fallirebbe — e con lui la guardia che tiene
-    allineate le due barriere, in modo silenzioso e proprio su Windows, dove la CI è diversa.
-
-    Qui si pretende che l'import sia risolvibile dalla radice del repository, indipendentemente
-    da dove pytest è stato lanciato."""
-    import importlib.util
-    import pathlib
-
-    radice = pathlib.Path(__file__).resolve().parents[2]
-    assert (radice / "tools" / "secret_policy.py").is_file(), \
-        f"tools/secret_policy.py non trovato sotto {radice}"
-    assert importlib.util.find_spec("tools.secret_policy") is not None, \
-        "tools.secret_policy non importabile: il test cross-barriera non girerebbe"
+        "logger NUDO (fuori dalla redazione) — usare `log_safe.get_logger(__name__)`:\n  "
+        + "\n  ".join(colpevoli))

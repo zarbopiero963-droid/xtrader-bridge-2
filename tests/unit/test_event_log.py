@@ -471,8 +471,22 @@ def test_le_due_barriere_conoscono_gli_STESSI_token():
     l'asimmetria che ha lasciato scoperti i log fino ad ora.
 
     Se un domani qualcuno aggiungesse una shape nuova a `secret_policy` e non a `event_log`,
-    il buco si riaprirebbe in silenzio. Questo test cade."""
-    from tools import secret_policy
+    il buco si riaprirebbe in silenzio. Questo test cade.
+
+    Lo scanner si carica **per percorso** e non con `from tools import secret_policy` (rilievo
+    GPT-5.5 #216): `tools/` non ha `__init__.py`, quindi quell'import regge solo se la radice del
+    repository è su `sys.path` — vero oggi con pytest lanciato dalla radice, non garantito da una
+    cwd diversa o da un runner impacchettato. Un `ImportError` sarebbe rumoroso, non silenzioso,
+    ma questa guardia non deve dipendere da **dove** è stata lanciata: caricarla dal file la
+    rende indipendente da cwd e `sys.path`."""
+    import importlib.util
+    import pathlib
+
+    percorso = pathlib.Path(__file__).resolve().parents[2] / "tools" / "secret_policy.py"
+    assert percorso.is_file(), f"scanner dei commit non trovato in {percorso}"
+    spec = importlib.util.spec_from_file_location("_secret_policy_per_il_test", percorso)
+    secret_policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(secret_policy)
 
     campioni = [
         "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
