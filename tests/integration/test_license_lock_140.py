@@ -357,3 +357,28 @@ def test_lock_per_licenza_semplicemente_invalida_resta_generico(app_mod, App):
     testo = " ".join(app.logs)
     assert "attiva una licenza valida" in testo
     assert "revocata" not in testo.lower()
+
+
+def test_la_diagnosi_revoca_e_pigra_nessuna_rilettura_sui_tick_muti(app_mod, App):
+    """Nota di Fable 5 e GPT-5.5 (indipendenti) su #212: la diagnosi del PERCHÉ rilegge la licenza
+    da disco. Nel ramo bloccato si passa a OGNI tick (il lock si ri-applica sempre, fail-closed),
+    ma il messaggio esce solo su transizione o STOP: diagnosticare per un messaggio che non verrà
+    mai loggato è I/O inutile sul thread Tk. Qui si pretende che su un tick MUTO — già bloccata,
+    nessuna sessione viva — la diagnosi NON venga chiamata."""
+    app = _fake_app_revocata(app_mod)
+    chiamate = []
+    app._license_bloccata_da_revoca = lambda: chiamate.append(1) or True
+    app._license_locked = True          # già bloccata: il tick ri-applica ma non logga
+    App._apply_license_lock(app)
+    assert chiamate == [], (
+        "la diagnosi revoca è stata eseguita su un tick muto: I/O disco senza messaggio")
+
+
+def test_la_diagnosi_revoca_si_calcola_UNA_volta_su_stop_piu_transizione(app_mod, App):
+    """Sessione viva + transizione a bloccata: escono DUE messaggi (STOP + lock) ma la diagnosi
+    va calcolata una volta sola — due letture disco per lo stesso stato sono una in più."""
+    app = _fake_app_revocata(app_mod, running=True)
+    chiamate = []
+    app._license_bloccata_da_revoca = lambda: chiamate.append(1) or True
+    App._apply_license_lock(app)
+    assert len(chiamate) == 1, f"diagnosi calcolata {len(chiamate)} volte invece di 1"

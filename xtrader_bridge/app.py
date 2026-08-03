@@ -1391,11 +1391,17 @@ class App(ctk.CTk):
         self._set_operational_lock(locked=locked)
         btn_start = getattr(self, "_btn_start", None)
         if locked:
-            revocata = self._license_bloccata_da_revoca()
+            # Diagnosi PIGRA (nota di Fable 5 e GPT-5.5, indipendenti, su #212): qui si passa a
+            # OGNI tick (il lock si ri-applica sempre, fail-closed), ma il messaggio esce solo su
+            # transizione o STOP — e la diagnosi rilegge la licenza da DISCO. Valutarla su un tick
+            # muto è I/O inutile sul thread Tk. `None` = non ancora valutata; si calcola al primo
+            # messaggio e si riusa per il secondo (STOP + transizione = stesso stato, una lettura).
+            revocata = None
             if getattr(self, "_running", False):
                 # Licenza invalida ma sessione viva → STOP fail-closed (non lasciare il listener che
                 # scrive CSV senza licenza). Una sola volta: `_stop` azzera `_running`. PRIMA di
                 # disabilitare START, perché `_stop` rimette START a "normal".
+                revocata = self._license_bloccata_da_revoca()
                 self._log(i18n.tr("🚫 Licenza REVOCATA dal fornitore: listener fermato (fail-closed).")
                           if revocata else
                           i18n.tr("🔒 Licenza non più valida: listener fermato (fail-closed)."))
@@ -1409,6 +1415,8 @@ class App(ctk.CTk):
                 # Log solo sulla transizione (incluso il primo avvio bloccato, `was is None`): non a
                 # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149). Se la causa
                 # è la REVOCA, lo si dice: il rimedio è il fornitore, non la scheda Licenza.
+                if revocata is None:
+                    revocata = self._license_bloccata_da_revoca()
                 self._log(i18n.tr("🚫 Licenza REVOCATA dal fornitore: il bridge resta bloccato. "
                                   "Per tornare operativo serve una nuova licenza dal fornitore.")
                           if revocata else
