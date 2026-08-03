@@ -59,10 +59,12 @@ def disegna_elenco_profili(ctk, i18n, ui_theme, contenitore, names, *,
     «🧩 0» sarebbe rumore, un profilo non ancora collegato è normale) e «· N righe».
 
     In **coda**, i profili **⚠ «solo riferiti»**: nomi che un parser richiede ma che nel
-    dizionario non esistono più. A runtime i messaggi intercettati da quel parser producono
-    `MAPPING_MISSING` e il segnale viene scartato — una chat può avere più parser, quindi il
-    danno è circoscritto a quello. Si mostrano ma **non sono cliccabili**: non esistono, non c'è
-    nulla da aprire.
+    dizionario non esistono più. A runtime i messaggi intercettati da quel parser vengono
+    **scartati** — con `MAPPING_MISSING` se manca un profilo **nomi**, `MARKET_MAPPING_MISSING`
+    se manca un profilo **mercati**: questa funzione serve entrambi i pannelli, quindi la
+    costante dipende da chi la chiama (rilievo Fable sulla PR #228). Una chat può avere più
+    parser, quindi il danno è circoscritto a quello che chiede il profilo mancante. Si mostrano
+    ma **non sono cliccabili**: non esistono, non c'è nulla da aprire.
 
     `ctk`/`i18n`/`ui_theme` sono iniettati invece che importati: questo modulo resta senza
     dipendenze GUI proprie e i test possono passare widget-spia senza toccare `sys.modules`.
