@@ -538,8 +538,9 @@ _GUIDE_HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$")
 
 # Recinto di un blocco di codice: ``` oppure ~~~, con o senza linguaggio, eventualmente indentato.
 # Entrambe le forme sono Markdown valido: coprire solo i backtick lasciava passare un titolo finto
-# dentro un blocco `~~~` (rilievo Fable #217, verificato eseguendo).
-_GUIDE_FENCE_RE = re.compile(r"^\s{0,3}(?:`{3,}|~{3,})")
+# dentro un blocco `~~~` (rilievo Fable #217, verificato eseguendo). Si cattura il carattere e la
+# lunghezza perché la chiusura deve **combaciare** — vedi `guide_sections`.
+_GUIDE_FENCE_RE = re.compile(r"^\s{0,3}((`{3,})|(~{3,}))")
 
 
 def _guides_base_dir(base_dir=None) -> str:
@@ -573,14 +574,23 @@ def guide_sections(text: str) -> list:
     # a mano — spegneva il riconoscimento fino in fondo e faceva sparire dall'indice **tutte** le
     # sezioni successive. Misurato: 2 sezioni vere perse su 3. Nascondere titoli veri è peggio che
     # mostrarne uno falso: nel dubbio si sbaglia nella direzione che lascia la guida raggiungibile.
-    aperto, recinti = None, []
+    # La chiusura deve COMBACIARE con l'apertura per carattere e lunghezza, come vuole CommonMark
+    # (rilievo GPT-5.5 + Fable #217). Accoppiare qualunque recinto con qualunque altro fa danno
+    # nella direzione peggiore: un ``` dentro un blocco `~~~` — cioè un esempio Markdown annidato,
+    # esattamente ciò che queste guide contengono — chiuderebbe il blocco in anticipo, e il vero
+    # delimitatore finale ne aprirebbe uno **fantasma** che nasconde le sezioni successive. Di
+    # nuovo la classe «titoli veri che spariscono», che è il difetto peggiore qui.
+    aperto, marcatore, recinti = None, "", []
     for i, riga in enumerate(righe):
-        if _GUIDE_FENCE_RE.match(riga):        # ``` e ~~~ (con o senza linguaggio, indentati)
-            if aperto is None:
-                aperto = i
-            else:
-                recinti.append((aperto, i))
-                aperto = None
+        m = _GUIDE_FENCE_RE.match(riga)
+        if not m:
+            continue
+        segno = m.group(1)
+        if aperto is None:
+            aperto, marcatore = i, segno
+        elif segno[0] == marcatore[0] and len(segno) >= len(marcatore):
+            recinti.append((aperto, i))
+            aperto, marcatore = None, ""
 
     def _nel_codice(i):
         return any(a <= i <= b for a, b in recinti)
@@ -635,7 +645,7 @@ def _trova_sezione(sezioni, richiesta):
 
 
 def render_index(sezioni, budget: int) -> tuple:
-    """Indice testuale delle `sezioni` entro `budget` caratteri → `(testo, complete)`.
+    """Indice testuale delle `sezioni` entro `budget` caratteri → `(testo, complete, mostrate)`.
 
     FONTE UNICA (regola 3) del rendering dell'indice. Esisteva in due punti — la guida troppo
     grande e la sezione non trovata — e la seconda copia tagliava l'elenco col clamp finale
@@ -644,7 +654,12 @@ def render_index(sezioni, budget: int) -> tuple:
     domani riceve la stessa garanzia senza doversela ricordare.
 
     `complete` dice se l'elenco è integro: chi lo stampa **deve** usarlo per scegliere fra
-    «COMPLETO» e «PARZIALE», invece di annunciare una completezza che non ha verificato."""
+    «COMPLETO» e «PARZIALE», invece di annunciare una completezza che non ha verificato.
+
+    `mostrate` è il conteggio **vero** delle voci rese. Lo restituisce la funzione perché i
+    chiamanti lo ricavavano da `elenco.count("\\n") + 1`, che su un elenco **vuoto** dà 1: con un
+    budget esaurito annunciavano «mostrate 1 su 400» mostrandone zero (rilievo GPT-5.5 + Fable
+    #217). Un conteggio è un fatto: non va ricalcolato da chi lo stampa."""
     voci = [f"{'  ' * (liv - 2)}- {tit}" for liv, tit, _i, _f in sezioni]
     tenute, usati = [], 0
     for voce in voci:
@@ -652,7 +667,7 @@ def render_index(sezioni, budget: int) -> tuple:
             break
         tenute.append(voce)
         usati += len(voce) + 1
-    return "\n".join(tenute), len(tenute) == len(voci)
+    return "\n".join(tenute), len(tenute) == len(voci), len(tenute)
 
 
 def build_guide_tools(*, base_dir=None) -> list:
@@ -694,10 +709,10 @@ def build_guide_tools(*, base_dir=None) -> list:
             if trovata is None:
                 testa = f"Sezione «{section}» non trovata nella guida «{name}». Sezioni "
                 coda = "\n\nRichiama 'read_guide' con uno di questi titoli in `section`."
-                elenco, completo = render_index(sezioni, MAX_GUIDE_CHARS - len(testa) - len(coda) - 60)
+                elenco, completo, mostrate = render_index(
+                    sezioni, MAX_GUIDE_CHARS - len(testa) - len(coda) - 60)
                 etichetta = ("disponibili:\n" if completo else
-                             f"disponibili (mostrate {elenco.count(chr(10)) + 1} su "
-                             f"{len(sezioni)}):\n")
+                             f"disponibili (mostrate {mostrate} su {len(sezioni)}):\n")
                 return (testa + etichetta + elenco + coda)[:MAX_GUIDE_CHARS]
             livello, titolo, inizio, fine = trovata
             corpo = "".join(righe[inizio:fine])
@@ -718,9 +733,8 @@ def build_guide_tools(*, base_dir=None) -> list:
                     # sforava il tetto, misurato 64.954 caratteri contro 12.000 (bloccante
                     # Fable/Fugu #217). L'avviso di troncamento non si perde mai: si accorcia
                     # l'elenco, dicendo quante voci restano fuori.
-                    elenco, completo = render_index(interne, MAX_GUIDE_SUBINDEX_CHARS)
+                    elenco, completo, mostrate = render_index(interne, MAX_GUIDE_SUBINDEX_CHARS)
                     if not completo:
-                        mostrate = elenco.count("\n") + 1 if elenco else 0
                         elenco += f"\n  … e altre {len(interne) - mostrate}"
                     coda = f"{avviso} Sotto-sezioni che puoi chiedere in `section`:\n{elenco}]"
                 else:
@@ -765,7 +779,7 @@ def build_guide_tools(*, base_dir=None) -> list:
         # Quindi: o l'indice ci sta tutto e si dichiara completo, o si dice quante voci mancano.
         coda_parziale = "\n… l'indice non ci sta tutto: chiedi all'utente di quale argomento ha " \
                         "bisogno, oppure leggi una delle sezioni elencate."
-        elenco, completo = render_index(
+        elenco, completo, mostrate = render_index(
             sezioni, MAX_GUIDE_CHARS - len(avvio) - len(coda_parziale) - 120)  # 120 ≈ riga conteggio
 
         if completo:
@@ -774,7 +788,6 @@ def build_guide_tools(*, base_dir=None) -> list:
                 blocco += f"\n\nApertura della guida:\n{preambolo}"
         else:
             # Niente preambolo qui: lo spazio serve ai titoli, che sono l'informazione utile.
-            mostrate = elenco.count("\n") + 1 if elenco else 0
             blocco = (avvio + f"INDICE PARZIALE: mostrate {mostrate} sezioni su "
                       f"{len(sezioni)} — le altre esistono ma non entrano nella risposta.\n"
                       + elenco + coda_parziale)

@@ -1333,9 +1333,61 @@ def test_render_index_e_la_fonte_unica_dell_indice():
     """Regola 3. `render_index` dice sempre se l'elenco è integro: è quel booleano a impedire che
     un chiamante futuro annunci «completo» ciò che ha tagliato."""
     sezioni = [(2, f"Sezione {i:03d}", i, i + 1) for i in range(50)]
-    testo, completo = ca.render_index(sezioni, 10_000)
-    assert completo is True and testo.count("\n") == 49
-    testo, completo = ca.render_index(sezioni, 100)
-    assert completo is False and 0 < testo.count("\n") < 49
-    testo, completo = ca.render_index(sezioni, 0)
-    assert completo is False and testo == ""
+    testo, completo, mostrate = ca.render_index(sezioni, 10_000)
+    assert completo is True and mostrate == 50 and testo.count("\n") == 49
+    testo, completo, mostrate = ca.render_index(sezioni, 100)
+    assert completo is False and 0 < mostrate < 50
+
+    # Il conteggio su elenco VUOTO deve dire ZERO (rilievo GPT-5.5 + Fable #217): i chiamanti lo
+    # ricavavano da `count("\n") + 1`, che su stringa vuota dà 1 — e annunciavano «mostrate 1 su
+    # 400» mostrandone zero. Un conteggio è un fatto: lo restituisce chi lo conosce.
+    testo, completo, mostrate = ca.render_index(sezioni, 0)
+    assert completo is False and testo == "" and mostrate == 0
+
+
+def test_elenco_vuoto_non_annuncia_MAI_di_averne_mostrata_una(tmp_path):
+    """Rilievo GPT-5.5 + Fable #217, e per la sesta volta è la stessa classe: un messaggio che
+    afferma una cosa falsa su ciò che ha mostrato.
+
+    Con il budget esaurito l'elenco è vuoto, ma i chiamanti calcolavano le voci rese da
+    `elenco.count("\\n") + 1` — che su stringa vuota dà **1**. Annunciavano «mostrate 1 su 400»
+    mostrandone zero. Ora il conteggio arriva da `render_index`, che è l'unico a conoscerlo."""
+    testo = "Preambolo.\n\n" + "".join(
+        f"## {i:04d} " + "titolo molto lungo " * 30 + "\n" + "x" * 30 + "\n\n" for i in range(400))
+    reg = _scrivi_guida_grande(tmp_path, testo)
+    for richiesta in ({}, {"section": "una che non esiste"}):
+        out = reg.dispatch("read_guide", dict({"name": "parser_personalizzato"}, **richiesta)).content
+        elencate = out.count("\n- ")
+        if "mostrate" in out:
+            import re as _re
+            dichiarate = int(_re.search(r"mostrate (\d+)", out).group(1))
+            assert dichiarate == elencate, (
+                f"dichiara {dichiarate} voci ma ne mostra {elencate}")
+
+
+def test_fence_MISTI_non_creano_un_blocco_fantasma():
+    """Rilievo Fable #217, ed è la classe peggiore: sezioni vere che spariscono.
+
+    Accoppiando qualunque recinto con qualunque altro, un ``` dentro un blocco `~~~` — cioè un
+    esempio Markdown annidato, esattamente ciò che queste guide contengono — chiudeva il blocco in
+    anticipo, e il vero delimitatore finale ne apriva uno **fantasma** che nascondeva tutte le
+    sezioni successive. Ora la chiusura deve combaciare per carattere e lunghezza (CommonMark)."""
+    bt, tl = chr(96) * 3, "~" * 3
+    testo = (f"## 1. Vera\nt\n\n"
+             f"{tl}\nesempio annidato:\n{bt}\n## FINTA\n{bt}\n{tl}\n\n"
+             f"## 2. Vera dopo il blocco\nt\n\n"
+             f"## 3. Vera anche questa\nt\n")
+    titoli = [t for _l, t, _i, _f in ca.guide_sections(testo)]
+    assert titoli == ["1. Vera", "2. Vera dopo il blocco", "3. Vera anche questa"], titoli
+
+    # Un ``` NON chiude un ~~~: il blocco resta aperto fino a fine file e quindi — per la regola
+    # sui recinti non chiusi — non conta come blocco. Il compromesso è DELIBERATO e va scritto:
+    # si preferisce ammettere un titolo fasullo piuttosto che nascondere sezioni vere, perché una
+    # sezione in più nell'indice costa al modello una lettura a vuoto, mentre una in meno gli
+    # nasconde documentazione senza che nessuno se ne accorga.
+    testo2 = f"## 1. Vera\nt\n\n{tl}\n## FASULLA\n{bt}\n\n## 2. Vera\nt\n"
+    titoli2 = [t for _l, t, _i, _f in ca.guide_sections(testo2)]
+    assert "2. Vera" in titoli2, "un recinto non chiuso ha nascosto una sezione vera"
+    assert "FASULLA" in titoli2, (
+        "comportamento cambiato: se un giorno si preferisse nascondere il titolo fasullo, "
+        "va deciso sapendo che si rischia di nascondere anche sezioni vere")
