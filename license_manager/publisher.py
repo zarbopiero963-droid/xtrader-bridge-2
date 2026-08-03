@@ -156,6 +156,30 @@ def probe_path(path: str) -> str:
 _SHA_PROBE = "0" * 40
 
 
+def _rimuovi_file_di_prova(repo: str, path: str, branch: str, sha: str, *, caller, token,
+                          timeout: int) -> bool:
+    """Cancella il file di prova creato da una `PUT` accettata (ramo ANOMALIA). `True` se rimosso.
+
+    Bloccante Fugu #215: dire «cancellalo a mano» scarica sull'utente la pulizia di un artefatto
+    creato dallo strumento, per giunta in un repository **pubblico** accanto alla lista firmata.
+
+    Guardia di sicurezza esplicita: si cancella **solo** il percorso di prova. Un errore qui
+    cancellerebbe la lista delle revoche, cioè il danno peggiore possibile — quindi la condizione
+    è verificata prima della chiamata, non affidata al fatto che il chiamante passi la cosa
+    giusta. Best-effort: un fallimento non solleva, viene detto nel messaggio."""
+    bersaglio = probe_path(path)
+    if bersaglio == str(path or "").strip().lstrip("/") or not str(sha or "").strip():
+        return False
+    try:
+        status, _ = caller("DELETE", contents_url(repo, bersaglio), token=token,
+                           body={"message": "rimuove il file di verifica accesso",
+                                 "sha": str(sha), "branch": str(branch or "").strip()},
+                           timeout=timeout)
+    except Exception:       # noqa: BLE001 — pulizia best-effort: mai un crash, si dice e basta
+        return False
+    return status is not None and 200 <= status < 300
+
+
 def _is_rate_limited(payload) -> bool:
     """`True` se il corpo della risposta dice che è un **rate-limit** (rilievo Fable #215).
 
@@ -324,23 +348,38 @@ def check_access(repo: str, path: str, branch: str, *, token: str, http=None,
         esito["message"] = _error_message(status_w, "verifica", repo, payload_w)
         return esito
     if status_w is not None and 200 <= status_w < 300:
+        rimosso = _rimuovi_file_di_prova(
+            repo, path, branch, ((payload_w or {}).get("content") or {}).get("sha"),
+            caller=caller, token=token, timeout=timeout)
         # Non avrebbe dovuto passare. Il danno è però circoscritto per costruzione: il file creato
         # NON è la lista revoche. Fail-closed lo stesso, dicendo la cosa che conta davvero.
         esito["can_write"] = True
         esito["ok"] = False
+        coda = ("Il file temporaneo è stato rimosso automaticamente."
+                if rimosso else
+                f"Il file temporaneo «{probe_path(path)}» NON è stato rimosso: cancellalo a mano "
+                "dal repository.")
         esito["message"] = (
             f"⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP {status_w}) "
             f"nonostante fosse costruita per fallire. La lista revoche «{path}» è **intatta** — la "
-            f"prova scrive solo su «{probe_path(path)}» — ma quel file temporaneo va cancellato a "
-            "mano dal repository, e l'accaduto segnalato.")
+            f"prova scrive solo su «{probe_path(path)}». {coda} Segnala l'accaduto.")
+        return esito
+
+    if status_w not in (409, 422):
+        # ESITO INCERTO — rete KO (`None`), 429, 5xx, o qualunque codice inatteso. Prima si finiva
+        # nel ramo positivo con «✅ Accesso OK … non confermato»: fail-OPEN nel punto che deve
+        # essere il più prudente di tutti (bloccante Fugu #215). Incerto non è OK: il permesso di
+        # scrittura è l'unica cosa che questa sonda esiste per accertare, e se non l'ha accertata
+        # deve dirlo senza spunta verde.
+        esito["message"] = (
+            f"⚠️ Verifica NON completata: il token risulta abilitato su «{repo}» e il branch "
+            f"«{branch}» esiste, ma la prova del permesso di SCRITTURA non è andata a buon fine "
+            + (f"(HTTP {status_w}). " if status_w is not None else "(rete non disponibile). ")
+            + "Non è detto che ci sia un problema di permessi: riprova fra poco.")
         return esito
 
     esito["ok"] = True
-    if status_w in (409, 422):
-        conferma = "Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche)."
-    else:
-        conferma = ("Il permesso di scrittura risulta concesso ma NON è stato confermato con una "
-                    "prova.")
+    conferma = "Permesso di scrittura CONFERMATO da GitHub (prova senza modifiche)."
     if status == 200:
         dettaglio = f"Il file «{path}» esiste già e verrà aggiornato. {conferma}"
     elif status == 404:

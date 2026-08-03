@@ -576,3 +576,63 @@ def test_anomalia_sul_percorso_usa_e_getta_dice_che_le_revoche_sono_INTATTE():
     assert res["ok"] is False
     testo = res["message"].lower()
     assert "revoche" in testo and ("intatt" in testo or "non è stat" in testo), res["message"]
+
+
+# ── Fail-OPEN sul probe: rete/429/5xx dicevano «Accesso OK» (bloccante Fugu #215) ────────────────
+
+@pytest.mark.parametrize("coda, etichetta", [
+    ((429, {"message": "rate limit"}), "429"),
+    ((500, None), "500"),
+    ((503, None), "503"),
+    ((404, None), "404 inatteso"),
+])
+def test_probe_esito_incerto_NON_e_accesso_ok(coda, etichetta):
+    """Riprodotto prima di correggere: con rete KO, 429 o 5xx sulla PUT di prova si finiva nel
+    ramo positivo e usciva «✅ Accesso OK … non confermato». È fail-OPEN nel punto che deve
+    essere il più prudente di tutti: la verifica dei permessi di scrittura sulle revoche.
+
+    Solo 409/422 confermano il permesso. Qualunque altro esito è **incerto**, e incerto non è OK:
+    l'utente deve sapere che non si è potuto verificare, non leggere una spunta verde."""
+    http = _http_fino_al_probe(coda)
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False, f"{etichetta} riportato come accesso riuscito: {res['message']!r}"
+    assert "✅" not in res["message"]
+
+
+def test_probe_rete_ko_NON_e_accesso_ok():
+    def http(method, url, *, token, body=None, timeout=None):
+        if method == "PUT":
+            raise OSError("rete giù a metà verifica")
+        if "/branches/" in url:
+            return 200, {"name": "main"}
+        if "/contents/" in url:
+            return 200, {"sha": "a" * 40}
+        return 200, {"permissions": {"push": True}}
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False and "✅" not in res["message"]
+    assert "riprova" in res["message"].lower() or "rete" in res["message"].lower()
+
+
+# ── L'anomalia deve RIPULIRE, non solo avvisare (bloccante Fugu #215) ────────────────────────────
+
+def test_anomalia_cancella_il_file_temporaneo_che_ha_creato():
+    """Se la PUT di prova viene accettata, nasce un file nel repository **pubblico**, accanto alla
+    lista firmata. Dire «cancellalo a mano» scarica sull'utente la pulizia di un artefatto creato
+    dallo strumento: la sonda lo rimuove da sé, best-effort."""
+    http = _http_fino_al_probe((201, {"content": {"sha": "b" * 40}}), (200, {}))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False                      # resta un'anomalia, ripulita o meno
+    delete = [c for c in http.calls if c["method"] == "DELETE"]
+    assert len(delete) == 1, f"nessuna pulizia: {[c['method'] for c in http.calls]}"
+    assert delete[0]["url"] == publisher.contents_url(_REPO, publisher.probe_path(_PATH))
+    assert delete[0]["url"] != publisher.contents_url(_REPO, _PATH), "cancellerebbe le REVOCHE"
+    assert "rimosso" in res["message"].lower() or "ripulit" in res["message"].lower()
+
+
+def test_anomalia_con_pulizia_FALLITA_lo_dice(monkeypatch):
+    """Se anche la cancellazione fallisce, l'utente deve saperlo: è l'unico caso in cui gli tocca
+    intervenire a mano, e tacerlo lascerebbe un file ignoto nel repository."""
+    http = _http_fino_al_probe((201, {"content": {"sha": "b" * 40}}), (500, None))
+    res = publisher.check_access(_REPO, _PATH, _BRANCH, token=_TOKEN, http=http)
+    assert res["ok"] is False
+    assert "a mano" in res["message"].lower() or "manualmente" in res["message"].lower()

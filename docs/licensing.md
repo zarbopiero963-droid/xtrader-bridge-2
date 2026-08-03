@@ -701,7 +701,13 @@ non riceve una lista aggiornata (quelle già arrivate restano applicate). Questa
   diagnostico non cambia (il permesso «Contents» vale per l'intero repository), il danno peggiore
   sì: un file inerte invece della lista che i bridge scaricano. Un **2xx dal probe resta trattato
   come ANOMALIA fail-closed** (bloccante GPT-5.5 #215), col messaggio che dice esplicitamente che
-  le revoche sono intatte e che il file temporaneo va cancellato a mano. Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
+  le revoche sono intatte; il file temporaneo viene **rimosso automaticamente** (`DELETE`
+  best-effort, con guardia esplicita sul percorso: mai il file delle revoche) e solo se la pulizia
+  fallisce si chiede all'utente di cancellarlo a mano.
+  **Solo `409`/`422` confermano il permesso**: rete KO, `429`, `5xx` o qualunque codice inatteso
+  danno «Verifica NON completata … riprova fra poco», **senza spunta verde** — prima finivano nel
+  ramo positivo, cioè fail-**open** nel punto che deve essere il più prudente (bloccante Fugu
+  #215). Incerto non è OK. Legge `permissions.push` da `GET /repos/{owner}/{repo}`,
   cioè la capacità di **scrivere**: il repository delle revoche è **pubblico**, quindi una `GET` sul
   file riesce con qualunque token valido e una verifica di sola lettura direbbe «tutto ok» per poi
   far fallire la pubblicazione con 403 — esattamente il guasto da prevenire. Un **404 sul file** non
