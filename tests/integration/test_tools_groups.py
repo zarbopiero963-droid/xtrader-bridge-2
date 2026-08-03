@@ -43,25 +43,28 @@ def _factories():
 def test_ordine_e_prefissi_delle_schede(tools_mod):
     panels = tools_mod.build_tool_panels(_factories())
     titles = [t for t, _f in panels]
-    # «📖 Dizionario» è NASCOSTA (non in TOOL_GROUPS): non compare tra le schede renderizzate.
+    # «📖 Dizionario» e «🧹 Nomi squadra» sono NASCOSTE (non in TOOL_GROUPS): non compaiono
+    # fra le schede renderizzate. Vedi `test_le_schede_nascoste_sono_RITENUTE_e_riattivabili`.
     assert titles == [
         "① 📡 Chat sorgenti", "① 📇 Provider",
         "② 🧩 Parser", "② 🗺️ Mapping",
-        "③ 📒 Diario", "③ 🧹 Nomi squadra",
+        "③ 📒 Diario",
         "④ 📁 Profili", "④ 📋 Riepilogo",
     ]
 
 
 def test_tutte_le_factory_sono_instradate(tools_mod):
-    # Nessuno strumento perso o duplicato dal riordino: 8 schede mostrate (la 9ª, "dictionary",
-    # è nascosta), ogni factory instradata alla sua scheda. Una factory extra non elencata in
-    # TOOL_GROUPS (qui "dictionary") viene IGNORATA da build_tool_panels, non renderizzata.
+    # Nessuno strumento perso o duplicato dal riordino: 7 schede mostrate (le altre due,
+    # "dictionary" e "known_teams", sono nascoste), ogni factory instradata alla sua scheda. Una
+    # factory fornita ma non elencata in TOOL_GROUPS viene IGNORATA, non renderizzata.
     panels = tools_mod.build_tool_panels(_factories())
-    assert len(panels) == 8
+    assert len(panels) == 7
     routed = [f(None) for _t, f in panels]
     assert routed == ["sources", "provider", "parser", "mapping",
-                      "journal", "known_teams", "profiles", "summary"]
-    assert "dictionary" not in routed          # scheda nascosta: mai renderizzata
+                      "journal", "profiles", "summary"]
+    # Entrambe le nascoste restano fuori anche se la factory è cablata (mirror di app.py).
+    assert "dictionary" not in routed
+    assert "known_teams" not in routed
 
 
 def test_ogni_prefisso_e_coerente_col_gruppo(tools_mod):
@@ -82,11 +85,12 @@ def test_gruppi_e_titoli_coerenti(tools_mod):
     assert len(grouped) == len(set(grouped))                    # nessuno strumento in due gruppi
     # Ogni scheda MOSTRATA ha un'etichetta in TOOL_TITLES (nessun orfano tra le renderizzate).
     assert set(grouped) <= set(tools_mod.TOOL_TITLES)
-    # Invariante «hidden ma ritenuta»: l'unica etichetta in TOOL_TITLES non mostrata è "dictionary"
-    # (viewer Betfair nascosto finché non torna il Sync). Se un giorno la si riattiva, questo test
-    # va aggiornato di proposito — così la scheda non riappare/sparisce per sbaglio.
+    # Invariante «hidden ma ritenuta»: le etichette in TOOL_TITLES non mostrate sono ESATTAMENTE
+    # le due che leggono il DB Betfair vuoto — "dictionary" (viewer) e "known_teams" (#182 PR N).
+    # Se un giorno se ne riattiva una, questo test va aggiornato DI PROPOSITO: così nessuna scheda
+    # riappare o sparisce per sbaglio.
     hidden = set(tools_mod.TOOL_TITLES) - set(grouped)
-    assert hidden == {"dictionary"}
+    assert hidden == {"dictionary", "known_teams"}
 
 
 def test_dictionary_nascosta_ma_ritenuta_e_riattivabile(tools_mod):
@@ -164,7 +168,7 @@ def test_build_tool_panels_localizza_in_en(tools_mod):
     assert titles == [
         "① 📡 Source chats", "① 📇 Provider",
         "② 🧩 Parser", "② 🗺️ Mapping",
-        "③ 📒 Journal", "③ 🧹 Team names",
+        "③ 📒 Journal",
         "④ 📁 Profiles", "④ 📋 Summary",
     ]
 
@@ -175,7 +179,7 @@ def test_build_tool_panels_localizza_in_es(tools_mod):
     assert titles == [
         "① 📡 Chats de origen", "① 📇 Proveedor",
         "② 🧩 Parser", "② 🗺️ Mapeo",
-        "③ 📒 Diario", "③ 🧹 Nombres de equipo",
+        "③ 📒 Diario",
         "④ 📁 Perfiles", "④ 📋 Resumen",
     ]
 

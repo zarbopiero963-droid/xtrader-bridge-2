@@ -185,7 +185,7 @@ PNG/ICO monocromatici caricati via `CTkImage` — è ◐ adattato, opzionale.
 | Tab config — 4 tab (⚙️ Generale / 🎯 Riconoscimento / 🛡️ Sicurezza / ✅ Conferme XTrader) | `app.py` | `CTkTabview` :1220 · `add()` :1226-1229 |
 | Tab monitor — 6 tab (📡 Chat ascoltate / 🚦 Salute / 📡 Stato / 📊 Dashboard / 📋 Log / 🤖 Assistente) | `app.py` | `CTkTabview` `mon` :1377 · `add()` :1379-1384 |
 | **Parser Personalizzato** (priorità §7.1) | `custom_parser_gui.py` | intera finestra |
-| **🧰 Strumenti** (hub a schede: Sorgenti/Provider/Parser/Mapping/Diario/Nomi squadra/Profili/Riepilogo) | `tools_gui.py` | `ToolsWindow` + `build_tool_panels` (**8 schede mostrate**, gruppi ①-④) |
+| **🧰 Strumenti** (hub a schede: Sorgenti/Provider/Parser/Mapping/Diario/Profili/Riepilogo) | `tools_gui.py` | `ToolsWindow` + `build_tool_panels` (**7 schede mostrate**, gruppi ①-④; «📖 Dizionario» e «🧹 Nomi squadra» nascoste ma ritenute) |
 | Scheda «📖 Dizionario» — **NASCOSTA** (codice ritenuto) | `betfair/dictionary_viewer_gui.py` | pannello viewer, non elencato in `TOOL_GROUPS` |
 
 > **Nota storica:** la tab «Betfair Sync» (`betfair/sync_tab_gui.py`) è stata **rimossa** e non è più

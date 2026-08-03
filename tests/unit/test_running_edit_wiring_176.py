@@ -127,10 +127,13 @@ def test_ogni_pannello_ACCETTA_la_sonda(monkeypatch, modulo, classe):
     assert "is_running" in firma.parameters, f"{classe}: {list(firma.parameters)}"
 
 
-def test_il_contenitore_INOLTRA_la_sonda_a_tutte_e_tre_le_schede(monkeypatch):
-    """`MappingPanel` incapsula tre schede (Calcio, Mercati, Mapping guidato). Se la sonda
-    arrivasse solo ad alcune, l'avviso comparirebbe in una scheda e non nelle sorelle —
-    incoerenza peggiore sia di averlo ovunque sia di non averlo affatto."""
+def test_il_contenitore_INOLTRA_la_sonda_a_tutte_le_schede_VISIBILI(monkeypatch):
+    """`MappingPanel` incapsula le schede Calcio e Mercati. Se la sonda arrivasse solo ad
+    alcune, l'avviso comparirebbe in una scheda e non nelle sorelle — incoerenza peggiore sia
+    di averlo ovunque sia di non averlo affatto.
+
+    Erano tre: «🌳 Mapping guidato» è NASCOSTA da #182 PR N. L'invariante non è cambiata, è
+    cambiato il numero di aree visibili a cui si applica."""
     mod = _importa(monkeypatch, "name_mapping_gui")
     visti = {}
 
@@ -142,15 +145,11 @@ def test_il_contenitore_INOLTRA_la_sonda_a_tutte_e_tre_le_schede(monkeypatch):
 
     monkeypatch.setattr(mod, "NameMappingPanel", _spia("calcio"))
     monkeypatch.setattr(mod, "MarketMappingPanel", _spia("mercati"))
-    # `MappingPanel.__init__` importa GuidedMappingPanel LOCALMENTE (`from .guided_mapping_gui
-    # import ...`), quindi l'import risolve via `sys.modules` al momento della chiamata:
-    # patchare l'attributo su un riferimento-modulo preso prima non e' deterministico in suite
-    # completa, dove un altro test puo' aver gia' importato/ripristinato quel modulo. Si
-    # sostituisce direttamente la voce in `sys.modules` (monkeypatch la ripristina a fine test).
-    finto_gmg = types.ModuleType("xtrader_bridge.guided_mapping_gui")
-    finto_gmg.GuidedMappingPanel = _spia("guidato")
-    monkeypatch.setitem(sys.modules, "xtrader_bridge.guided_mapping_gui", finto_gmg)
-
+    # #182 PR N: la terza sotto-area («🌳 Mapping guidato») e' NASCOSTA, quindi qui non c'e' piu'
+    # nulla da spiare — `MappingPanel` non importa piu' `GuidedMappingPanel`. L'INVARIANTE #176
+    # resta identica e vale ancora: la sonda «bridge ATTIVO» deve scendere a TUTTE le sotto-aree
+    # VISIBILI, altrimenti l'avviso comparirebbe in una scheda e non nella sorella — incoerenza
+    # peggiore sia di averlo ovunque sia di non averlo affatto. Cambia il numero, non la regola.
     sonda = object()
     tabs = types.SimpleNamespace(add=lambda nome: None, pack=lambda **k: None)
     monkeypatch.setattr(mod.ctk, "CTkTabview", lambda master: tabs, raising=False)
@@ -161,7 +160,7 @@ def test_il_contenitore_INOLTRA_la_sonda_a_tutte_e_tre_le_schede(monkeypatch):
 
     mod.MappingPanel.__init__(finto, None, is_running=sonda)
 
-    assert set(visti) == {"calcio", "mercati", "guidato"}, visti
+    assert set(visti) == {"calcio", "mercati"}, visti
     for nome, ricevuta in visti.items():
         assert ricevuta is sonda, f"la scheda «{nome}» non ha ricevuto la sonda: {ricevuta!r}"
 
