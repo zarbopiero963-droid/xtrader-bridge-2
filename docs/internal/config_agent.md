@@ -374,6 +374,23 @@ fare (avviare il listener live, passare a modalità reale, impostare token/chat/
     si sbaglia nella direzione che lascia la guida raggiungibile. Riconosciuti anche `~~~`, i
     fence con linguaggio e quelli indentati.
 
+  **Gate: nessuna guida può avere un recinto aperto.** Il ripiego qui sopra sceglie *come*
+  sbagliare davanti a un blocco di codice mai chiuso — ammettere un titolo fasullo invece di
+  nascondere sezioni vere. Ma un documento in quello stato è **Markdown rotto**: si rende male
+  anche su GitHub, e nessuna delle due strade lo ripara. `test_nessuna_guida_del_repo_ha_un_
+  recinto_APERTO` toglie la scelta: la PR che introduce il documento rotto diventa rossa, e
+  l'ambiguità non arriva mai in produzione. Il messaggio dice **file e riga** dell'apertura
+  orfana — cercarla a mano in 144.000 caratteri è il genere di compito che fa ignorare un test
+  rosso.
+
+  Il gate legge il fatto da **`fence_ranges`**, la stessa funzione che usa il parser, e non
+  riconta i recinti per conto proprio. Un controllo indipendente («numero pari di recinti»)
+  userebbe una regola *diversa* da quella del parser — niente accoppiamento per carattere e
+  lunghezza — e le due col tempo divergerebbero: è esattamente il difetto della #216 (lo scanner
+  dei commit conosceva i token GitHub, il redattore dei log no) e di nuovo della #217 fra i vari
+  rendering dell'indice. Prevenzione e ripiego restano **entrambi**: il gate impedisce che il
+  caso si presenti, il ripiego copre `guide_sections` quando le si passa un testo qualsiasi.
+
   **`render_index` è la fonte unica** (regola 3) di ogni elenco di titoli — guida troppo grande,
   sezione non trovata, sotto-sezioni di una sezione troncata. Restituisce anche un booleano
   `complete`: è quel valore a impedire che un chiamante annunci «completo» ciò che ha tagliato.

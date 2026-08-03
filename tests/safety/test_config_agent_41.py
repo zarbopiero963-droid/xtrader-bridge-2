@@ -1391,3 +1391,66 @@ def test_fence_MISTI_non_creano_un_blocco_fantasma():
     assert "FASULLA" in titoli2, (
         "comportamento cambiato: se un giorno si preferisse nascondere il titolo fasullo, "
         "va deciso sapendo che si rischia di nascondere anche sezioni vere")
+
+
+# ── Gate: le guide del repository non devono avere recinti sbilanciati ───────────────────────
+
+def test_nessuna_guida_del_repo_ha_un_recinto_APERTO():
+    """Gate (#214 seguito). Un blocco di codice aperto e mai chiuso è Markdown **rotto**: si
+    rende male anche su GitHub, e per il parser dell'assistente costringe a scegliere fra due
+    modi di sbagliare — nascondere le sezioni che seguono, oppure ammettere un titolo fasullo
+    preso da dentro l'esempio.
+
+    Il parser sceglie la seconda (vedi `test_fence_MISTI_non_creano_un_blocco_fantasma`), perché
+    una voce di troppo costa una lettura a vuoto mentre una voce in meno nasconde documentazione
+    senza che nessuno se ne accorga. Ma è pur sempre un ripiego: **questo** test toglie la scelta,
+    facendo fallire la PR che introduce il documento rotto, così l'ambiguità non arriva mai in
+    produzione.
+
+    Legge il fatto da `fence_ranges`, la stessa funzione che usa il parser: contare i recinti qui
+    per conto proprio («numero pari») significherebbe due barriere con regole diverse che col
+    tempo divergono — il difetto della #216 fra scanner dei commit e redattore dei log, e di nuovo
+    della #217 fra i vari rendering dell'indice."""
+    import pathlib
+
+    radice = pathlib.Path(ca.__file__).resolve().parents[1]
+    rotte = []
+    for nome, (rel_path, _desc) in sorted(ca.GUIDES.items()):
+        percorso = radice / rel_path
+        assert percorso.is_file(), f"guida «{nome}» assente: {percorso}"
+        righe = percorso.read_text(encoding="utf-8").splitlines(keepends=True)
+        _recinti, orfano = ca.fence_ranges(righe)
+        if orfano is not None:
+            rotte.append(f"{rel_path}:{orfano + 1} — apertura mai chiusa: "
+                         f"{righe[orfano].strip()[:40]!r}")
+
+    assert not rotte, (
+        "blocco di codice APERTO e mai chiuso in una guida dell'assistente — chiudilo, "
+        "altrimenti l'indice della guida diventa ambiguo:\n  " + "\n  ".join(rotte))
+
+
+def test_il_gate_sui_recinti_vede_davvero_un_documento_rotto(tmp_path):
+    """Contropartita del gate: senza questa prova, un `fence_ranges` che restituisse sempre `None`
+    lo renderebbe verde per sempre e nessuno se ne accorgerebbe — un gate che non può fallire non
+    è un gate, è una decorazione."""
+    bt = chr(96) * 3
+    righe = f"## 1. Prima\nt\n\n{bt}\nmai chiuso\n\n## 2. Dopo\nt\n".splitlines(keepends=True)
+    _recinti, orfano = ca.fence_ranges(righe)
+    assert orfano == 3, f"apertura orfana non rilevata (atteso riga 3, ottenuto {orfano})"
+
+    righe_ok = f"## 1\nt\n\n{bt}\nesempio\n{bt}\n\n## 2\nt\n".splitlines(keepends=True)
+    recinti, orfano = ca.fence_ranges(righe_ok)
+    assert orfano is None and recinti == [(3, 5)]
+
+
+def test_fence_ranges_e_la_fonte_unica_usata_ANCHE_dal_parser():
+    """Regola 3: il gate e il parser devono vedere gli stessi recinti. Se `guide_sections`
+    riaccoppiasse i fence per conto suo, il gate potrebbe essere verde su un documento che il
+    parser legge male — o viceversa, ed è la divergenza che questo disegno esiste per impedire."""
+    bt, tl = chr(96) * 3, "~" * 3
+    testo = f"## 1. Vera\nt\n\n{tl}\nannidato:\n{bt}\n## FINTA\n{bt}\n{tl}\n\n## 2. Vera\nt\n"
+    _recinti, orfano = ca.fence_ranges(testo.splitlines(keepends=True))
+    assert orfano is None, "il documento è bilanciato ma il gate lo direbbe rotto"
+    titoli = [t for _l, t, _i, _f in ca.guide_sections(testo)]
+    assert "FINTA" not in " ".join(titoli), "il parser vede recinti diversi dal gate"
+    assert titoli == ["1. Vera", "2. Vera"]
