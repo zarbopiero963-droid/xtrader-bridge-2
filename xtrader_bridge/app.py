@@ -1478,6 +1478,11 @@ class App(ctk.CTk):
         if not getattr(self, "_ui_ready", False):
             return locked   # UI non pronta: valuta lo stato ma non tocca widget inesistenti
         was = getattr(self, "_license_locked", None)
+        # Consumato SEMPRE (anche sbloccati): un marcatore stantio farebbe ricalcolare la causa
+        # una volta di troppo al prossimo blocco. La diagnosi resta PIGRA — si paga solo quando
+        # qualcosa che PUÒ aver cambiato la causa è realmente accaduto, mai a ogni tick: leggerla
+        # significa `load_license()` da disco sul thread Tk.
+        causa_da_rinfrescare = bool(self.__dict__.pop("_license_cause_dirty", False))
         if not locked and was == locked:
             return locked   # valida e GIÀ sbloccata → non ri-toccare i widget (no override periodico)
 
@@ -1511,17 +1516,22 @@ class App(ctk.CTk):
             # bloccato (fail-closed: non ci si fida che resti chiusa).
             self._chiudi_finestre_operative_per_lock()
             self._mostra_license_banner(True)
-            if was != locked:
-                # Log solo sulla transizione (incluso il primo avvio bloccato, `was is None`): non a
-                # ogni tick. L'utente capisce perché è tutto grigio (review Fable #149). Se la causa
-                # è la REVOCA, lo si dice: il rimedio è il fornitore, non la scheda Licenza.
+            if was != locked or causa_da_rinfrescare:
+                # La CAUSA si rilegge sulla transizione **oppure** quando un evento che può averla
+                # cambiata è accaduto (attivazione di una chiave, lista di revoca aggiornata).
                 if revocata is None:
                     revocata = self._license_bloccata_da_revoca()
+                # Il BANNER è uno stato CORRENTE: va aggiornato ogni volta che la causa può essere
+                # cambiata, anche senza transizione del lock (rilievo Fable sulla PR #235).
+                self._set_license_banner(revocata=revocata)
+            if was != locked:
+                # Il LOG invece è una CRONOLOGIA: si scrive solo sulla transizione (incluso il primo
+                # avvio bloccato, `was is None`), non a ogni cambio di causa — una riga per evento,
+                # non una raffica. L'utente capisce perché è tutto grigio (review Fable #149).
                 self._log(i18n.tr("🚫 Licenza REVOCATA dal fornitore: il bridge resta bloccato. "
                                   "Per tornare operativo serve una nuova licenza dal fornitore.")
                           if revocata else
                           i18n.tr("🔒 GUI bloccata: attiva una licenza valida nella scheda «🔑 Licenza»."))
-                self._set_license_banner(revocata=revocata)
         else:
             if btn_start is not None and not getattr(self, "_running", False):
                 try:
@@ -1537,7 +1547,14 @@ class App(ctk.CTk):
 
     def _on_license_status(self, status=None) -> None:
         """Callback dal pannello licenza a ogni `refresh_options` (costruzione/attivazione): rivaluta
-        il lock. Un'attivazione valida sblocca live; una licenza scaduta/invalida ri-blocca."""
+        il lock. Un'attivazione valida sblocca live; una licenza scaduta/invalida ri-blocca.
+
+        Marca la CAUSA del blocco come da rinfrescare (rilievo Fable sulla PR #235): incollare una
+        chiave **firmata valida ma REVOCATA** mentre si è già bloccati non cambia il lock (resta
+        `True`), quindi non c'è transizione — ma la causa passa da «non valida» a «revocata», e con
+        essa il rimedio. Senza questo marcatore il banner resterebbe a dire «attiva una licenza»
+        a un revocato: esattamente il difetto che questa PR esiste per eliminare."""
+        self._license_cause_dirty = True
         self._apply_license_lock()
 
     def _schedule_license_tick(self) -> None:
@@ -1697,6 +1714,10 @@ class App(ctk.CTk):
                 # Ri-valuta il lock sul thread GUI (una lista appena scaricata sblocca/blocca subito,
                 # senza attendere il tick licenza). `_safe_after` è TclError/RuntimeError-safe su root
                 # distrutta (stesso pattern delle notifiche del bot-thread, P3-ap1 #114).
+                # La causa del blocco può essere cambiata insieme alla lista (es. la revoca
+                # entra in vigore su una licenza fin qui solo «non valida»): il banner va
+                # rinfrescato, non solo il lock.
+                self._license_cause_dirty = True
                 self._safe_after(0, self._apply_license_lock)
             except Exception:   # noqa: BLE001 — il supervisore non deve morire per un errore imprevisto
                 delay = revocation_client.REFRESH_INTERVAL_S
