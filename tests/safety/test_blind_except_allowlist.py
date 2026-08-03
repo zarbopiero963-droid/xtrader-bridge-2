@@ -158,6 +158,11 @@ _ALLOWLIST = {
                             "illeggibile = nessun badge 🧩 ma i profili si aprono comunque) e "
                             "`_highlight_profiles` (widget distrutto durante un refresh)"),
     "provider_gui.py": (3, "GUI Tk provider: render/azioni best-effort"),
+    "ui_widgets.py": (1, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
+                      "`configure(takefocus=1)` è best-effort perché su un widget-spia dei "
+                      "test o su un widget distrutto durante un refresh può sollevare, e non "
+                      "poter rendere focusabile una riga non deve impedire di DISEGNARLA "
+                      "(resta comunque cliccabile col mouse)"),
     "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
     "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
     "config_agent.py": (12, "assistente di configurazione (#41 PR-1): dispatch di un tool "

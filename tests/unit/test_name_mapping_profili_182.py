@@ -256,6 +256,78 @@ def test_il_gestore_accetta_la_firma_che_TK_usa_davvero(nmg):
     assert gestore() == "break"                      # e regge anche senza argomenti
 
 
+# ── attivazione da tastiera (rilievo CodeRabbit sulla PR #226) ──────────────────────
+
+def test_le_righe_si_attivano_anche_da_tastiera():
+    """Fail-first: prima si legava solo `<Button-1>`.
+
+    `CTkFrame`/`CTkLabel` non prendono il focus e non reagiscono a Invio/Spazio: un elenco
+    disegnato a mano è **irraggiungibile senza mouse**. È una regressione facile da introdurre
+    proprio passando da un `CTkOptionMenu` — che il focus lo prende — a righe cliccabili."""
+    from xtrader_bridge import ui_widgets
+
+    class _Widget:
+        def __init__(self):
+            self.legati = {}
+            self.opzioni = {}
+        def bind(self, evento, cb):
+            self.legati[evento] = cb
+        def configure(self, **k):
+            self.opzioni.update(k)
+
+    attivazioni = []
+    w = _Widget()
+    ui_widgets.rendi_attivabile(w, lambda _e=None: attivazioni.append(1) or "break")
+
+    assert set(w.legati) == {"<Button-1>", "<Return>", "<space>"}, w.legati
+    assert w.opzioni.get("takefocus") == 1, "la riga non entra nel giro del Tab"
+    for evento in ("<Button-1>", "<Return>", "<space>"):
+        assert w.legati[evento](None) == "break", evento
+    assert len(attivazioni) == 3
+
+
+def test_takefocus_e_best_effort_e_non_impedisce_il_disegno():
+    """Un widget che rifiuta `configure` resta comunque cliccabile: non poter mettere una riga
+    nel giro del Tab non deve far saltare il rendering dell'intero elenco."""
+    from xtrader_bridge import ui_widgets
+
+    class _Ostile:
+        def __init__(self):
+            self.legati = {}
+        def bind(self, evento, cb):
+            self.legati[evento] = cb
+        def configure(self, **k):
+            raise RuntimeError("widget distrutto")
+
+    w = _Ostile()
+    ui_widgets.rendi_attivabile(w, lambda _e=None: "break")   # non deve sollevare
+    assert "<Button-1>" in w.legati
+
+
+def test_anche_le_righe_del_pannello_PARSER_si_attivano_da_tastiera():
+    """**Cercata la classe, non il sito.** Le righe-elenco cliccabili sono DUE: qui e nel
+    pannello 🧩 Parser della PR A (già mergiata, #223). Correggere solo la mia avrebbe lasciato
+    l'altra irraggiungibile da tastiera — è esattamente il modo in cui, sulla #16, tre siblings
+    non allineati hanno prodotto i bug B6, B10 e B17.
+
+    Invio/Spazio là **selezionano** (equivalente del click singolo) e non aprono: da tastiera
+    non esiste il «doppio click», e aprire salterebbe la conferma di scarto che il doppio click
+    esiste per rendere deliberata."""
+    import ast
+    import pathlib
+    sorgente = pathlib.Path("xtrader_bridge/custom_parser_gui.py").read_text(encoding="utf-8")
+    albero = ast.parse(sorgente)
+    chiamate = [n for n in ast.walk(albero)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "rendi_attivabile"]
+    assert chiamate, "il pannello Parser non usa la fonte unica dell'attivazione da tastiera"
+    # …e l'azione legata è la SELEZIONE, non l'apertura.
+    argomenti = ast.dump(chiamate[0])
+    assert "_select_saved" in argomenti, argomenti
+    assert "_open_saved" not in argomenti, (
+        "Invio/Spazio non devono APRIRE: salterebbero la conferma di scarto")
+
+
 # ── i badge ─────────────────────────────────────────────────────────────────────────
 
 def _spia_render(nmg, monkeypatch, names, cfg, uso):

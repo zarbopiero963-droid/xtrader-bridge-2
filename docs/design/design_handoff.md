@@ -1193,16 +1193,24 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
     rumore — un profilo non ancora collegato a un parser è normale);
   - **«· N righe»** = quante righe di mappatura contiene.
 
-  **Click singolo = apri** (non doppio, come nel pannello Parser: cambiare profilo **auto-salva**
-  quello che stai lasciando, quindi non serve un gesto di conferma in più). Sotto l'elenco:
+  L'elenco è **scorrevole**. **Click singolo = apri** (non doppio, come nel pannello Parser:
+  cambiare profilo **auto-salva** quello che stai lasciando, quindi non serve un gesto di conferma
+  in più); da **tastiera** la riga si raggiunge col Tab e si apre con **Invio o Spazio**. Nel
+  pannello **🧩 Parser** le righe salvate hanno la stessa attivazione da tastiera, dove però
+  Invio/Spazio **selezionano** (equivalente del click singolo) e mai aprono: da tastiera non
+  esiste il «doppio», e aprire salterebbe la conferma di scarto che il doppio click rende
+  deliberata. Sotto l'elenco:
   **«🆕 Nuovo»**, **«✏️ Rinomina»**, **«🗑 Elimina»** e il suggerimento *«(clicca un profilo per
   aprirlo)»*.
 
   In **coda** all'elenco, i profili **⚠ «solo riferiti»**: nomi che un parser salvato richiede ma
-  che nel dizionario **non esistono più** (rinominati o eliminati altrove). Sono la causa di
-  `MAPPING_MISSING` a runtime — ogni segnale di quella chat viene **scartato** — e prima nulla nel
-  pannello lo diceva. Si vedono ma **non sono cliccabili**: non esistono, aprirli non avrebbe senso;
-  servono a sapere che vanno ricreati o tolti dalla spunta nel parser.
+  che nel dizionario **non esistono più** (rinominati o eliminati altrove). A runtime i messaggi
+  intercettati **da quel parser** producono `MAPPING_MISSING` e il relativo segnale viene
+  **scartato**; una chat può avere **più parser** (`parser_list_by_chat`), quindi gli altri
+  continuano a funzionare — il danno è circoscritto al parser che chiede il profilo mancante, non
+  all'intera chat. Prima nulla nel pannello lo diceva. Si vedono ma **non sono cliccabili**: non
+  esistono, aprirli non avrebbe senso; servono a sapere che vanno ricreati o tolti dalla spunta
+  nel parser.
 
   ⚠️ **Invariante di sicurezza preservata:** quando un cambio profilo viene **annullato** (config
   illeggibile o auto-save fallito), l'evidenziazione dell'elenco **torna indietro** insieme allo

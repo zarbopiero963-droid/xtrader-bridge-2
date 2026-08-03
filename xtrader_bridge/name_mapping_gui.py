@@ -32,6 +32,7 @@ from . import (
     recognition,
     sports,
     ui_theme,
+    ui_widgets,
 )
 
 # Etichetta della tendina Sport per la riga agnostica ("" = vale per tutti gli sport).
@@ -256,7 +257,9 @@ class NameMappingPanel(ctk.CTkFrame):
                 # (`_on_profile_change`), quindi non serve il doppio click del pannello Parser.
                 # Il gestore ritorna "break" per non far risalire il click dall'etichetta al
                 # frame ed eseguire l'apertura due volte (stessa trappola della PR A ①).
-                widget.bind("<Button-1>", self._gestore_click(nome))
+                # …e da TASTIERA (Invio/Spazio): un elenco disegnato a mano non prende il focus
+                # come faceva il `CTkOptionMenu` che sostituisce (rilievo CodeRabbit #226).
+                ui_widgets.rendi_attivabile(widget, self._gestore_click(nome))
         if not names:
             ctk.CTkLabel(self._profile_list, text=i18n.tr("Nessun profilo. Crea un profilo con «Nuovo»."),
                          text_color="gray", anchor="w").pack(anchor="w", padx=6, pady=4)

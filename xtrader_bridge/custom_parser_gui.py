@@ -36,6 +36,7 @@ from . import (
     recognition,
     sports,
     ui_theme,
+    ui_widgets,
     validator,
 )
 from .custom_parser import Condition, MultiRowRule
@@ -1603,7 +1604,12 @@ class CustomParserPanel(ctk.CTkFrame):
                 # I gestori ritornano "break" (rilievo Sourcery #223): senza, un doppio click
                 # sull'ETICHETTA scatta lì e poi risale al FRAME, eseguendo `_open_saved` DUE
                 # volte — cioè due caricamenti e potenzialmente due conferme di scarto.
-                widget.bind("<Button-1>", self._gestore_click(nome, self._select_saved))
+                # Invio/Spazio = SELEZIONA (come il click singolo), mai apri: da tastiera non
+                # esiste il "doppio", e far APRIRE con Invio salterebbe la conferma di scarto
+                # che il doppio click esiste per rendere deliberata. Stessa correzione della
+                # riga-profilo in `name_mapping_gui` — la classe e' la stessa, la fonte e' una
+                # (rilievo CodeRabbit #226; senza, l'elenco e' irraggiungibile senza mouse).
+                ui_widgets.rendi_attivabile(widget, self._gestore_click(nome, self._select_saved))
                 widget.bind("<Double-Button-1>", self._gestore_click(nome, self._open_saved))
         self._highlight_saved()
 
