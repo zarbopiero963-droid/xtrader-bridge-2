@@ -50,9 +50,12 @@ def test_il_parser_d_esempio_non_si_chiama_come_un_parser_RIMOSSO():
     nome = parser_io.example_parser().name
     assert "P.Bet" not in nome and "PBet" not in nome, (
         f"il parser d'esempio si chiama {nome!r}: cita un parser che non esiste più")
-    # e deve dire cosa fa davvero, cioè nominare i campi che legge
-    assert any(campo in nome for campo in ("Match", "Esito", "Quota")), (
-        f"il nome {nome!r} non dice cosa fa il parser")
+    # e deve dire cosa fa davvero, cioè nominare TUTTI i campi che legge (rilievo CodeRabbit
+    # #220): con `any` un nome come «Esempio: Quota» sarebbe passato pur descrivendo un quarto
+    # del parser — l'asserzione prometteva «dice cosa fa» e verificava «dice qualcosa».
+    mancanti = [c for c in ("Match", "Esito", "Quota", "Lato") if c not in nome]
+    assert not mancanti, (
+        f"il nome {nome!r} non nomina i campi che il parser legge: mancano {mancanti}")
 
 
 def test_nessuna_doc_DICHIARA_che_il_parser_hardcoded_esiste_ancora():
