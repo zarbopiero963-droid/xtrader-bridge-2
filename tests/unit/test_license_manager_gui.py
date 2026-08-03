@@ -2369,3 +2369,23 @@ def test_verifica_accesso_ramo_ANOMALIA_propaga_ok_False_non_can_write(gui, tmp_
     out = fake._evaluate_check_access()
     assert out["ok"] is False, "il fail-closed dell'anomalia non è arrivato alla GUI"
     assert "anomalia" in out["message"].lower()
+
+
+def test_verifica_accesso_non_raddoppia_il_simbolo_di_avviso(gui, tmp_path):
+    """Rilievo Fable #215, riprodotto: «⚠️ ⚠️ ANOMALIA». Il messaggio di anomalia nasce già con il
+    simbolo — deve saltare all'occhio anche fuori da questa riga — e `_check_access_finish` lo
+    anteponeva comunque.
+
+    Vale come promemoria di metodo: GPT-5.5 aveva sollevato il rischio del doppio prefisso quando
+    ancora NESSUN messaggio iniziava così, e la misura di allora diceva «non può accadere». Era
+    vera in quel momento; poi il caso l'ho introdotto io, senza rimisurare. Questo test toglie la
+    verifica dalle mie mani."""
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": False, "message": "⚠️ ANOMALIA: …"})
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": False, "message": "Token rifiutato (401)"})
+    gui.LicenseManagerApp._check_access_finish(fake, {"ok": True, "message": "✅ Accesso OK"})
+    anomalia, generico, positivo = fake._msgs[-3:]
+    assert not anomalia.startswith("⚠️ ⚠️"), f"simbolo raddoppiato: {anomalia!r}"
+    assert anomalia.startswith("⚠️ ANOMALIA")
+    assert generico.startswith("⚠️ Token"), "il messaggio senza simbolo deve riceverlo"
+    assert positivo.startswith("✅"), "un esito positivo non deve prendere il simbolo di avviso"

@@ -815,7 +815,14 @@ class LicenseManagerApp(ctk.CTk):
         A differenza di `_publish_finish` **non** ridipinge l'etichetta dell'ultima pubblicazione:
         una verifica non pubblica nulla, e toccare quell'etichetta suggerirebbe il contrario."""
         self._set_publish_inflight(False)
-        self._set_msg(("" if (result or {}).get("ok") else "⚠️ ") + str((result or {}).get("message", "")))
+        testo = str((result or {}).get("message", ""))
+        # Il prefisso si aggiunge solo se non c'è già (rilievo Fable #215): il messaggio di ANOMALIA
+        # nasce con «⚠️ » proprio perché deve saltare all'occhio anche fuori da questa riga, e
+        # anteporlo di nuovo dava «⚠️ ⚠️ ANOMALIA». GPT-5.5 l'aveva previsto quando ancora nessun
+        # messaggio iniziava così; il caso l'ho introdotto io dopo, senza rimisurare.
+        if not (result or {}).get("ok") and not testo.lstrip().startswith("⚠️"):
+            testo = "⚠️ " + testo
+        self._set_msg(testo)
 
     def _publish_finish(self, result) -> None:
         """Applica l'esito sul thread GUI e libera il lucchetto."""
