@@ -424,3 +424,28 @@ def test_la_GUI_riporta_il_rifiuto_invece_di_esplodere(registro, monkeypatch):
     assert esito["accepted"] is False
     assert "cambiato" in esito["message"]
     assert _serials(registro) == ["LIC-AAA", "LIC-BBB", "LIC-CCC"]
+
+
+def test_registro_ASSENTE_e_registro_LOCKATO_non_si_confondono(registro, monkeypatch, tmp_path):
+    """Rilievo GPT-5.5: qualsiasi `OSError` in apertura veniva letto come «registro assente».
+
+    Sono due situazioni opposte. File mai creato → `0` è corretto (installazione nuova, non c'è
+    nulla da togliere). File **lockato** → rispondere `0` direbbe «non c'era niente da eliminare»,
+    che è rassicurante e falso su un guasto non diagnosticato: l'utente riproverebbe e vedrebbe
+    lo stesso nulla. Deve propagare, e la GUI lo riporta come «registro invariato».
+    """
+    # 1) assente → 0, nessuna eccezione
+    assert registry.remove_record("LIC-AAA", directory=str(tmp_path / "mai-creata")) == 0
+
+    # 2) illeggibile → propaga
+    vero_open = open
+
+    def open_lockato(percorso, *a, **k):
+        if str(percorso).endswith("licenses.jsonl"):
+            raise PermissionError("registro lockato da un'altra istanza")
+        return vero_open(percorso, *a, **k)
+
+    monkeypatch.setattr("builtins.open", open_lockato)
+
+    with pytest.raises(PermissionError):
+        registry.remove_record("LIC-AAA", directory=registro)

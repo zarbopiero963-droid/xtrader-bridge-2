@@ -230,8 +230,14 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
             with open(path, "rb") as f:
                 contenuto = f.read()
             stato_letto = os.stat(path)
+        except FileNotFoundError:
+            return 0        # registro mai creato (installazione nuova): non c'è nulla da togliere
         except OSError:
-            return 0
+            # Lockato / permessi / disco: il file c'è ma non si legge. Rispondere `0` direbbe
+            # «non c'era niente da eliminare» — rassicurante e FALSO su un guasto non
+            # diagnosticato, cioè il difetto che questa PR esiste per togliere (rilievo GPT-5.5).
+            # Propaga: la GUI lo riporta come «Eliminazione non riuscita: registro invariato».
+            raise
         tenute, rimossi = [], 0
         for grezza in contenuto.split(b"\n"):
             if not grezza.strip():
@@ -265,6 +271,12 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
             # controllo di versione. Se il file è cambiato fra la lettura e adesso, si RIFIUTA
             # invece di sovrascrivere. Perdere una licenza appena emessa in silenzio è il
             # danno peggiore; rifiutare e far ripetere l'operazione è rumoroso e reversibile.
+            # Perché `(st_mtime_ns, st_size)` basta per la minaccia REALE (rilievo GPT-5.5 sulla
+            # granularità dei timestamp): l'unica scrittura concorrente possibile su questo file è
+            # un **append** — `append_record`/`append_revocation` e il ripristino di backup — e un
+            # append cambia SEMPRE la dimensione, qualunque sia la risoluzione dell'orologio del
+            # filesystem. Sfuggirebbe solo una riscrittura di pari dimensione, che in questo
+            # modulo non esiste. Un hash del contenuto sarebbe più forte in astratto e inutile qui.
             stato_ora = os.stat(path)
             if (stato_ora.st_mtime_ns, stato_ora.st_size) != (stato_letto.st_mtime_ns,
                                                               stato_letto.st_size):
