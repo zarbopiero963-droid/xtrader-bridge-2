@@ -714,6 +714,18 @@ Tutti questi gate devono passare perché una riga venga scritta:
    (es. una nota) non basta: non deve far passare un messaggio non-segnale che la attiva
    per caso (A10). Per usare un campo non di riconoscimento come "trigger" di contenuto,
    marcalo **obbligatorio**.
+
+   **Un placeholder non è contenuto (B11-bis… anzi B16, #194 PR-I).** Un valore estratto che
+   contiene ancora un placeholder — `{HOME_TEAM}`, o una sua forma rotta come `{HOME_TEAM`,
+   `HOME_TEAM}`, `{home_team}` — **non conta** come contenuto di segnale, esattamente come
+   un'estrazione vuota. Il caso reale è un bot che pubblica il proprio **template non
+   riempito**: `Match: {HOME_TEAM} v {AWAY_TEAM}`. L'estrazione riesce e il valore è non
+   vuoto, quindi prima passava il gate; combinato con `MarketId`/`SelectionId` **fissi** —
+   una configurazione supportata — il bet fisso partiva su un messaggio che **non porta alcun
+   dato reale**. Basta una graffa sola perché il valore sia respinto: i nomi di squadre,
+   mercati e selezioni non ne contengono mai. Vale anche per un placeholder **parziale**
+   dentro un valore altrimenti buono (`Inter v {AWAY_TEAM}`): fail-closed, meglio non scattare
+   che scommettere su un nome a metà.
    - **Set di riconoscimento già FISSO-completo (#74).** Se i **soli valori fissi** completano
      già un set di riconoscimento per la modalità (es. `MarketId`+`SelectionId` fissi in
      `BOTH`, oppure il set nomi tutto fisso), la riga sarebbe piazzabile per **qualsiasi**

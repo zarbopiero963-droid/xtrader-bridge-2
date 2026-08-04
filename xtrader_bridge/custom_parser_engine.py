@@ -39,7 +39,7 @@ Semantica di una regola (`FieldRule`):
 import re
 from dataclasses import dataclass, field
 
-from . import recognition, transforms, value_maps
+from . import recognition, transforms, validators, value_maps
 from .csv_writer import CSV_HEADER
 from .custom_parser import CustomParserDef, FieldRule
 from .dizionario import normalize
@@ -342,7 +342,22 @@ def matches_message(defn: CustomParserDef, text: str, mode: str = None,
         fixed_targets -= {"MarketId", "SelectionId"}
     fixed_complete = recognition.fields_complete({t: "x" for t in fixed_targets}, mode)
     for rule in defn.rules:
-        if not rule.has_extraction() or rule.is_fixed() or extract_value(text, rule) == "":
+        if not rule.has_extraction() or rule.is_fixed():
+            continue
+        estratto = extract_value(text, rule)
+        # Vuoto **o placeholder non risolto** non è contenuto reale (#194 PR-I, B16).
+        #
+        # Col parser d'esempio SPEDITO, un bot che pubblica il proprio template non riempito
+        # — `"Match: {HOME_TEAM} v {AWAY_TEAM}"` — produceva un'estrazione non vuota, quindi
+        # contava come contenuto. Combinato con `MarketId`/`SelectionId` FISSI (una
+        # configurazione supportata) il gate si apriva e il bet fisso partiva su un messaggio
+        # che **non porta alcun dato reale**: scommessa spuria con soldi veri.
+        #
+        # La guardia esisteva già nel repository (`value_maps._is_placeholder`, indurita dalla
+        # #16 L2-2) ma non era mai stata consultata sul percorso GREZZO — è lo stesso difetto
+        # di siblings non allineati che la #192 ha trovato tre volte. Ora il predicato è uno
+        # solo e lo usano tutti.
+        if estratto == "" or validators.has_unresolved_placeholder(estratto):
             continue
         if rule.required:
             return True                                  # estrazione obbligatoria = contenuto reale
