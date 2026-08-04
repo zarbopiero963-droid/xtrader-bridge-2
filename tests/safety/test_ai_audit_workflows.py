@@ -744,6 +744,91 @@ def test_pr_review_trigger_split():
             )
 
 
+def _touches_core_reale(name):
+    """`touches_core` VERO del workflow `name`, estratto via AST ed eseguito isolato.
+
+    Si estraggono dall'heredoc **solo** l'assegnazione `CORE_TRIGGER_PATTERNS` e la
+    funzione `touches_core`, e si eseguono in un namespace con `re`. Il resto dello script
+    non si può eseguire (a livello modulo chiama GitHub), ma queste due definizioni sì.
+
+    Perché via AST e non con un `in src` (rilievo GPT-5.5 sulla #248): un match di stringa
+    lega il test al **quoting** del sorgente, quindi diventa rosso se qualcuno riscrive lo
+    stesso pattern con apici singoli — un allarme su un cambiamento innocuo — e resterebbe
+    verde se il pattern ci fosse ma in una lista mai usata. Qui si misura il
+    **comportamento**: dato un path, il gate lo considera core o no."""
+    import ast
+
+    albero = ast.parse(_compiled_heredoc(name))
+    voluti = []
+    for nodo in albero.body:
+        if isinstance(nodo, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "CORE_TRIGGER_PATTERNS" for t in nodo.targets
+        ):
+            voluti.append(nodo)
+        elif isinstance(nodo, ast.FunctionDef) and nodo.name == "touches_core":
+            voluti.append(nodo)
+    assert len(voluti) == 2, (
+        f"{name}: attesi CORE_TRIGGER_PATTERNS e touches_core a livello modulo, trovati "
+        f"{len(voluti)} nodi — il gate costo è stato ristrutturato, aggiorna questo test"
+    )
+    ns = {"re": re}
+    exec(compile(ast.Module(body=voluti, type_ignores=[]), f"{name}#gate", "exec"), ns)  # noqa: S102
+    return ns["touches_core"]
+
+
+def test_gate_costo_copre_anche_il_license_manager():
+    """#247 ①: `license_manager/` DEVE stare nel set core dei due reviewer forti.
+
+    Il gate costo fa uscire Fable 5 e Fugu Ultra **senza chiamare il modello** quando il
+    push non tocca file core — e il job conclude `success` in 2–3 secondi. Finché
+    `license_manager/` restava fuori da quel set, una PR sul tool che **firma le licenze
+    ed emette la lista di revoca** vedeva i due reviewer più forti tacere, con un check
+    verde indistinguibile da un'approvazione.
+
+    Non è teorico: sulla PR #246 i due forti hanno parlato solo perché le label finali sono
+    state rimosse e riaggiunte a mano, e hanno poi trovato **quattro bloccanti reali di
+    perdita dati** sul registro licenze — cioè esattamente ciò che sarebbe passato
+    inosservato. Il costo in più (una review forte su ogni push a `license_manager/`) è
+    deliberato: è il prezzo di non avere reviewer muti sull'area che firma.
+
+    Il test esegue il `touches_core` REALE del workflow sui path, invece di cercare il
+    pattern come stringa: così misura la decisione del gate, non la sua ortografia.
+    """
+    core = [
+        "license_manager/registry.py",       # il registro licenze: il caso della #247
+        "license_manager/gui.py",
+        "main.py",
+        "xtrader_bridge/app.py",
+        "requirements.txt",
+    ]
+    non_core = [
+        "docs/ai_audit_workflows.md",
+        "tests/unit/test_reconnect_policy.py",
+        ".github/workflows/pr-checks.yml",
+        # Non deve bastare la sottostringa: `license_manager` è un SEGMENTO di path.
+        "docs/license_manager_guida.md",
+    ]
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review" or meta["trigger"] != "label":
+            continue
+        touches_core = _touches_core_reale(name)
+        for path in core:
+            assert touches_core([{"filename": path}]) is True, (
+                f"{name}: `{path}` NON è considerato core → il reviewer forte resterebbe "
+                "muto (check verde) su una PR che lo tocca"
+            )
+        for path in non_core:
+            assert touches_core([{"filename": path}]) is False, (
+                f"{name}: `{path}` è considerato core → review forte (a pagamento) su un "
+                "cambiamento che non la richiede"
+            )
+        # Il gate guarda anche il path PRECEDENTE: un file core RINOMINATO fuori da
+        # license_manager/ resta un cambiamento core.
+        assert touches_core(
+            [{"filename": "altrove/registry.py", "previous_filename": "license_manager/registry.py"}]
+        ) is True, f"{name}: una RINOMINA fuori da license_manager/ sfugge al gate costo"
+
+
 def test_pr_review_redige_output_del_modello():
     """Codex P2: l'OUTPUT del modello va redatto prima della pubblicazione.
 
