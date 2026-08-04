@@ -350,3 +350,99 @@ def test_b21bis_avviso_e_runtime_coerenti_su_OGNI_scope_del_dizionario():
         avvisato = bool(nms.ambiguous_alias_warnings(cfg))
         assert avvisato == atteso, f"avviso sbagliato per {righe}"
         assert perso == atteso, f"runtime sbagliato per {righe}"
+
+
+def test_b21bis_tier_piu_specifico_risolve_e_NON_genera_falsi_avvisi():
+    """Rilievo GPT-5.5/Fugu sulla #253: l'avviso non deve accusare una config che il runtime
+    risolve grazie alla **precedenza dei tier**.
+
+    Qui ogni chiamante ha una risposta: l'agnostico prende la riga agnostica (regola
+    «l'agnostica vince»), chi filtra `Calcio` o `Tennis` prende la sua. Nessuna ambiguità,
+    quindi nessun avviso — se questo diventasse rosso l'avviso starebbe accusando un
+    dizionario sano, che è il modo in cui una diagnostica smette di essere letta."""
+    cfg = _cfg_nomi([
+        {"betfair": "Esatta Calcio", "provider": "X", "sport": "Calcio"},
+        {"betfair": "AGN", "provider": "X"},
+        {"betfair": "Esatta Tennis", "provider": "X", "sport": "Tennis"},
+    ])
+    profs = nms.entries_for_profiles(cfg, ["P"])
+    assert nms.resolve_team("X", profs) == "AGN"
+    assert nms.resolve_team("X", profs, sport="Calcio") == "Esatta Calcio"
+    assert nms.resolve_team("X", profs, sport="Tennis") == "Esatta Tennis"
+    assert nms.ambiguous_alias_warnings(cfg) == []
+
+
+def test_b21bis_scope_COMBINATO_che_nessuna_riga_esibisce():
+    """Il terzo bloccante di Fable 5, confermato per ricerca esaustiva.
+
+    I chiamanti da sondare non sono le tuple **per riga**: un parser filtra una
+    **combinazione**, e quella può non comparire su nessuna singola riga. Il caso minimo:
+
+        righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
+        scope che perde: (sport="", entity_type="team", language="")
+
+    `("", "team", "")` non è la tupla di nessuna riga — entrambe le `team` hanno anche una
+    lingua — ma è esattamente ciò che passa `custom_pipeline` con un parser senza sport e
+    senza lingua-fonte: il caso più comune. Prima del prodotto cartesiano il runtime
+    fail-closava e l'avviso taceva."""
+    cfg = _cfg_nomi([
+        {"betfair": "A", "provider": "X"},
+        {"betfair": "A", "provider": "X", "entity_type": "team", "language": "IT"},
+        {"betfair": "B", "provider": "X", "entity_type": "team", "language": "EN"},
+    ])
+    profs = nms.entries_for_profiles(cfg, ["P"])
+    assert nms.resolve_team("X", profs, entity_type="team") is None, (
+        "lo scope combinato non fail-closa più: il caso non è più quello misurato"
+    )
+    assert nms.ambiguous_alias_warnings(cfg), "il runtime perde il segnale e l'avviso tace"
+
+
+def test_b21bis_avviso_e_runtime_ESAUSTIVO_su_tutti_i_dizionari_piccoli():
+    """La verifica che ha trovato il buco, tenuta come regressione.
+
+    Invece di scegliere a mano qualche caso, si generano **tutti** i dizionari di 2 e 3 righe
+    su un alfabeto ridotto di scope e si pretende, per ognuno, l'equivalenza esatta
+    «esiste un chiamante per cui il runtime fail-closa per AMBIGUITÀ» ⇔ «c'è l'avviso».
+
+    L'ambiguità si interroga con `_resolve_scoped`, non con `resolve_team`: quest'ultima
+    ritorna `None` anche per un nome **sconosciuto** in quello scope, che non è un conflitto —
+    la distinzione che aveva reso ingannevole il primo tentativo di misura.
+
+    **L'oracolo è indipendente dal codice.** L'insieme dei chiamanti se lo costruisce il test,
+    NON chiamando `_chiamanti_plausibili`: la prima stesura la usava, e un sabotaggio della
+    produzione degradava anche l'oracolo — il test confrontava il codice con sé stesso e
+    restava verde. Scoperto proprio provando a romperlo."""
+    import itertools
+
+    righe_possibili = [
+        {"provider": "X", "betfair": b, "sport": s, "entity_type": t, "language": l}
+        for b in ("A", "B") for s in ("", "Calcio") for t in ("", "team", "competition")
+        for l in ("", "IT", "EN")
+    ]
+
+    def chiamanti_attesi(righe):
+        """Il prodotto cartesiano, calcolato QUI: è l'oracolo, non può venire dal codice."""
+        dim = [sorted({r.get(d, "") or "" for r in righe} | {""})
+               for d in ("sport", "entity_type", "language")]
+        return list(itertools.product(*dim))
+    buchi, falsi, esaminati = [], [], 0
+    for n in (2, 3):
+        for combo in itertools.combinations(righe_possibili, n):
+            cfg = _cfg_nomi([dict(r) for r in combo])
+            profili = nms.entries_for_profiles(cfg, ["P"])
+            if not profili or not profili[0]:
+                continue
+            esaminati += 1
+            righe = profili[0]
+            ambiguo = any(
+                nms._resolve_scoped("x", [righe], s or None, t or None, l or None)
+                is nms._AMBIGUOUS
+                for s, t, l in chiamanti_attesi(righe))
+            avvisato = bool(nms.ambiguous_alias_warnings(cfg))
+            if ambiguo and not avvisato:
+                buchi.append(combo)
+            elif avvisato and not ambiguo:
+                falsi.append(combo)
+    assert esaminati > 5000, f"la ricerca copre troppo poco ({esaminati} dizionari)"
+    assert buchi == [], f"{len(buchi)} dizionari perdono segnali senza avviso, es. {buchi[0]}"
+    assert falsi == [], f"{len(falsi)} dizionari sani vengono accusati, es. {falsi[0]}"

@@ -275,12 +275,7 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
                     (key, nt), {"nome": str(e.get(key, "")).strip(), "betfair": []})
                 if e["betfair"] not in voce["betfair"]:
                     voce["betfair"].append(e["betfair"])
-        # I chiamanti da provare: l'AGNOSTICO più ogni combinazione di scope che il dizionario
-        # stesso contiene. Sono i soli scope per cui un parser dell'utente può fail-closare su
-        # queste righe, e sono in numero finito — quello delle righe.
-        chiamanti = {("", None, "")} | {(e.get("sport", "") or "",
-                                        (e.get("entity_type", "") or None),
-                                        e.get("language", "") or "") for e in righe}
+        chiamanti = _chiamanti_plausibili(righe)
         for (key, _nt), voce in conflitti.items():
             if len(voce["betfair"]) < 2:
                 continue                       # una sola destinazione = nessun conflitto
@@ -303,7 +298,10 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             # fail-closa anche un chiamante che FILTRA, il conflitto è dentro uno scope e
             # nessun parser può schivarlo: va corretto il dizionario. Se fail-closa solo
             # l'agnostico, le righe sono distinguibili e basta dichiarare lo scope.
-            solo_agnostico = ambigui == [("", None, "")]
+            # Confronto come INSIEME, non come lista: `chiamanti` è un set, quindi l'ordine di
+            # `ambigui` non è definito. Oggi la lista a un elemento rende il confronto corretto
+            # per caso; scritto così lo è per costruzione (rilievo GPT-5.5 sulla #253).
+            solo_agnostico = set(ambigui) == {("", None, "")}
             if solo_agnostico:
                 warnings.append(
                     f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
@@ -318,6 +316,33 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
                     f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
                     f"nomi, oppure distingui le righe per sport/tipo/lingua.")
     return warnings
+
+
+def _chiamanti_plausibili(righe) -> set:
+    """Gli scope ``(sport, entity_type, language)`` per cui un parser dell'utente può
+    interrogare **queste** righe: il **prodotto cartesiano** dei valori presenti su ciascuna
+    dimensione, più il vuoto (= non filtrata) su ognuna.
+
+    Il prodotto non è pignoleria (rilievo Fable 5 sulla #253). La stesura precedente provava
+    le tuple **per riga** più l'agnostico, e mancava le combinazioni che nessuna singola riga
+    esibisce. Una ricerca esaustiva su 26.235 dizionari di 2–3 righe ha trovato **528 casi** in
+    cui il runtime fail-closava per ambiguità senza che l'avviso dicesse nulla; il più semplice:
+
+        righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
+        scope che perde: (sport="", entity_type="team", language="")
+
+    `("", "team", "")` non è la tupla di nessuna riga — entrambe le righe `team` hanno anche
+    una lingua — ma è esattamente ciò che passa `custom_pipeline` con un parser senza sport e
+    senza lingua-fonte, cioè il caso **più comune**. La stessa ricerca, col prodotto, dà **0
+    buchi e 0 falsi positivi**.
+
+    Dimensione: `(|sport|+1) × (|tipo|+1) × (|lingua|+1)` per profilo, coi valori presi dalle
+    righe — tipi e lingue sono limitati dai rispettivi vocabolari, gli sport da quanti ne usa
+    l'utente. Si valuta **una volta al load**, non per messaggio."""
+    sport = {e.get("sport", "") or "" for e in righe} | {""}
+    tipi = {e.get("entity_type", "") or "" for e in righe} | {""}
+    lingue = {e.get("language", "") or "" for e in righe} | {""}
+    return {(s, t or None, l) for s in sport for t in tipi for l in lingue}
 
 
 def _entity_eligible(entry, allowed) -> bool:

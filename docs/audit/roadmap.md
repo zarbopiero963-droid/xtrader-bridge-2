@@ -5195,4 +5195,34 @@ predicato `_malformed_fields` col resolver — sono cioè già scritti nella for
 `source_manager.duplicate_name_warnings` non rispecchia alcuna decisione di runtime (il routing
 usa il `chat_id`). `ambiguous_alias_warnings` era l'unico sito fuori regola.
 
-Suite completa dopo la correzione: **5073 passed, 1 skipped**, zero `xfail` residui.
+**Terzo giro: il prodotto cartesiano, e una ricerca esaustiva invece di un'opinione.** Fable 5 ha
+poi osservato che i chiamanti sondati erano le tuple **per riga** più l'agnostico, e che un parser
+filtra una **combinazione** che può non comparire su nessuna singola riga. Il suo esempio non
+riproduceva (lì ogni chiamante risolve), ma un esempio che non riproduce non è una prova: sono
+stati generati **tutti** i dizionari di 2–3 righe su un alfabeto di scope ridotto — 26.235 casi —
+e confrontato «esiste un chiamante per cui il runtime fail-closa per ambiguità» con «c'è
+l'avviso». Esito: **528 buchi**, zero falsi positivi. Il più semplice:
+
+```
+righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
+scope che perde: (sport="", entity_type="team", language="")
+```
+
+`("", "team", "")` non è la tupla di nessuna riga — entrambe le `team` hanno anche una lingua — ma
+è **esattamente** ciò che passa `custom_pipeline` con un parser senza sport e senza lingua-fonte:
+il caso più comune. Con il prodotto cartesiano (`_chiamanti_plausibili`): **0 buchi, 0 falsi
+positivi**. La ricerca è rimasta come test di regressione.
+
+**Il primo tentativo di misura mentiva, e vale la pena dirlo.** La ricerca iniziale usava
+`resolve_team(...) is None` come segnale di fail-closed e trovava «buchi» in cui le due righe
+avevano lo **stesso** `betfair`: nessuna ambiguità, semplicemente nessuna riga per quello scope.
+`None` per nome sconosciuto non è un conflitto — la distinzione che il docstring di
+`test_avviso_e_runtime_dicono_la_STESSA_cosa` segnalava già, e che ho dovuto reimparare
+misurando. La ricerca buona interroga `_resolve_scoped` e confronta con `_AMBIGUOUS`.
+
+**E il test esaustivo, la prima volta, era verde su codice sabotato.** Costruiva l'insieme dei
+chiamanti chiamando `_chiamanti_plausibili`, cioè la funzione di produzione: sabotandola degradava
+anche l'oracolo e il confronto restava vero. Ora il prodotto cartesiano se lo calcola il test.
+Scoperto provando a rompere il test, non leggendolo.
+
+Suite completa dopo la correzione: **5076 passed, 1 skipped**, zero `xfail` residui.
