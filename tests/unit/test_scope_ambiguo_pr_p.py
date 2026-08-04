@@ -524,3 +524,34 @@ def test_b21bis_il_messaggio_non_manda_a_correggere_un_dizionario_SANO():
     [avviso] = nms.ambiguous_alias_warnings(rotto)
     assert "NEMMENO" in avviso, avviso
     assert "Correggi il Dizionario nomi" in avviso
+
+
+def test_b21bis_caso_MISTO_uno_scope_risolve_ma_un_altro_resta_rotto():
+    """Rilievo GPT-5.5 sulla #253, confermato misurando — e Fable 5, sullo stesso punto, aveva
+    dichiarato la regola «corretta per costruzione».
+
+    Tre righe: due in conflitto **dentro** `Calcio`, una che risolve in `Tennis`. Il discrimine
+    `any(...)` bastava una sola risoluzione per dichiarare il dizionario sano:
+
+        agnostico      -> None
+        sport=Calcio   -> None            (l'utente con un parser Calcio è bloccato)
+        sport=Tennis   -> 'Tennista United'
+
+    e usciva il messaggio morbido «dichiara lo scope nel parser». Ma dichiarare `Calcio` **non
+    aiuta**: quel conflitto va corretto nel dizionario. Il messaggio consigliava l'azione
+    sbagliata proprio all'utente che ha il problema.
+
+    La regola giusta guarda i chiamanti **più specifici possibili** — il prodotto dei valori
+    non vuoti presenti su ogni dimensione: se anche uno di quelli resta ambiguo, nessuna
+    configurazione di parser lo schiva."""
+    misto = _cfg_nomi([
+        {"provider": "United", "betfair": "Manchester Utd", "sport": "Calcio"},
+        {"provider": "United", "betfair": "Newcastle Utd", "sport": "Calcio"},
+        {"provider": "United", "betfair": "Tennista United", "sport": "Tennis"},
+    ])
+    profs = nms.entries_for_profiles(misto, ["P"])
+    assert nms.resolve_team("United", profs, sport="Tennis") == "Tennista United"  # uno risolve
+    assert nms.resolve_team("United", profs, sport="Calcio") is None               # l'altro no
+    [avviso] = nms.ambiguous_alias_warnings(misto)
+    assert "NEMMENO" in avviso, f"consiglia di dichiarare lo scope, ma su Calcio non basta: {avviso}"
+    assert "Correggi il Dizionario nomi" in avviso

@@ -309,7 +309,12 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             # una config che il runtime risolve.
             nt = normalize(voce["nome"])
             candidate = per_nome.get(nt, [])
-            esiti = {c: _resolve_scoped(nt, [candidate], *c) for c in chiamanti}
+            # I massimali sono strutturalmente un sottoinsieme dei plausibili, ma si sondano
+            # insieme: così la scelta del messaggio non dipende da quell'invariante: se un
+            # domani i due insiemi divergessero, `esiti` avrebbe comunque la risposta invece di
+            # un `None` silenzioso che farebbe passare per sano un conflitto insanabile.
+            massimali = _chiamanti_massimali(candidate)
+            esiti = {c: _resolve_scoped(nt, [candidate], *c) for c in chiamanti | massimali}
             if _AMBIGUOUS not in esiti.values():
                 continue
             fase = "alias" if key == "provider" else "nome canonico"
@@ -319,14 +324,23 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             # è sano e basta dichiarare lo scope nel parser; se no, il conflitto è dentro uno
             # scope e va corretto il dizionario.
             #
-            # La stesura precedente chiedeva invece «fail-closa SOLO il chiamante agnostico», e
-            # sbagliava appena le righe portavano più di una dimensione: due righe `sport`
-            # diverso ma **stesso** `entity_type` fanno fail-closare anche il chiamante che
-            # filtra il solo tipo, quindi finivano nel messaggio «nemmeno un parser…» — mentre
-            # `sport=Calcio` le risolveva benissimo. L'utente veniva mandato a correggere un
-            # dizionario sano. Trovato preparando gli screenshot del pannello, non da un test:
-            # la schermata e la misura, messe una accanto all'altra, si contraddicevano.
-            risolvibile = any(isinstance(v, str) and v for v in esiti.values())
+            # E la domanda va posta ai chiamanti **più specifici possibili**, non a uno
+            # qualsiasi. Due stesure sbagliate, entrambe corrette da una misura:
+            #
+            # - «fail-closa SOLO l'agnostico» sbagliava appena le righe portavano più di una
+            #   dimensione: con `sport` diverso ma **stesso** `entity_type`, anche il chiamante
+            #   che filtra il solo tipo resta bloccato → messaggio duro su un dizionario sano
+            #   (trovato preparando gli screenshot del pannello: la schermata e la misura,
+            #   messe una accanto all'altra, si contraddicevano);
+            # - «risolve QUALCUNO» sbagliava sul caso misto (rilievo GPT-5.5): due righe in
+            #   conflitto dentro `Calcio` più una che risolve in `Tennis` bastavano a
+            #   dichiararlo sano — ma dichiarare `Calcio` non aiuta, e il messaggio morbido
+            #   consigliava l'azione sbagliata proprio a chi ha il problema.
+            #
+            # `_chiamanti_massimali` è il prodotto dei valori NON vuoti presenti su ogni
+            # dimensione: sono gli scope più stretti che un parser possa dichiarare su queste
+            # righe. Se uno di quelli resta ambiguo, nessuna configurazione lo schiva.
+            risolvibile = all(esiti[c] is not _AMBIGUOUS for c in massimali)
             if risolvibile:
                 warnings.append(
                     f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
@@ -369,6 +383,27 @@ def _chiamanti_plausibili(righe) -> set:
     tipi = {e.get("entity_type", "") or "" for e in righe} | {""}
     lingue = {e.get("language", "") or "" for e in righe} | {""}
     return {(s, t or None, l) for s in sport for t in tipi for l in lingue}
+
+
+def _chiamanti_massimali(righe) -> set:
+    """Gli scope **più stretti** che un parser possa dichiarare su queste righe: il prodotto
+    dei valori NON vuoti presenti su ogni dimensione (una dimensione senza valori resta ``""``,
+    perché non c'è nulla da dichiarare).
+
+    Serve a scegliere il messaggio, non a decidere se avvisare. Se anche uno solo di questi
+    chiamanti resta ambiguo, **nessuna** configurazione di parser schiva il conflitto: la
+    diagnosi è «correggi il Dizionario nomi». Se invece li risolvono tutti, il dizionario è
+    sano e basta dichiarare lo scope nel parser.
+
+    Sottoinsieme di `_chiamanti_plausibili` (che include anche gli scope parziali, e serve a
+    decidere **se** avvisare): qui interessano solo i più specifici."""
+    dimensioni = []
+    for d in _SCOPE_DIMENSIONS:
+        valori = {e.get(d, "") or "" for e in righe}
+        valori.discard("")
+        dimensioni.append(sorted(valori) or [""])
+    return {(s, t or None, l)
+            for s in dimensioni[0] for t in dimensioni[1] for l in dimensioni[2]}
 
 
 def _entity_eligible(entry, allowed) -> bool:

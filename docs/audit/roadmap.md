@@ -5270,4 +5270,34 @@ trovato l'aver messo **la schermata e la misura una accanto all'altra**, che è 
 verifica che il testo di un avviso merita, perché è l'unica parte del sistema che parla
 direttamente all'utente.
 
-Suite completa dopo la correzione: **5078 passed, 1 skipped**, zero `xfail` residui.
+**Sesto giro: «risolve qualcuno» non è «il dizionario è sano».** Rilievo GPT-5.5, confermato
+misurando — e sullo stesso identico punto Fable 5 aveva scritto che la regola era «corretta per
+costruzione». Il caso misto: due righe in conflitto **dentro** `Calcio` più una che risolve in
+`Tennis`.
+
+```text
+agnostico      -> None
+sport=Calcio   -> None                  (l'utente con un parser Calcio è bloccato)
+sport=Tennis   -> 'Tennista United'
+```
+
+Con `any(...)` bastava la risoluzione di `Tennis` per dichiararlo sano, e usciva il messaggio
+morbido «dichiara lo scope nel parser» — ma dichiarare `Calcio` **non aiuta**: il messaggio
+consigliava l'azione sbagliata proprio all'utente che ha il problema.
+
+La regola giusta guarda i chiamanti **massimali** (`_chiamanti_massimali`): il prodotto dei valori
+non vuoti presenti su ogni dimensione, cioè gli scope più stretti che un parser possa dichiarare
+su quelle righe. Se anche uno solo resta ambiguo, nessuna configurazione lo schiva → «correggi il
+dizionario». I tre casi, misurati dopo:
+
+| Dizionario | Messaggio |
+|---|---|
+| Calcio/Basket, stesso tipo | morbido — dichiara lo scope |
+| stesso sport, stesso tipo | duro — correggi il dizionario |
+| misto (Calcio rotto, Tennis sano) | duro — correggi il dizionario |
+
+**Tre giri di fila sullo stesso predicato**, ciascuno corretto da una misura e non da una lettura:
+è il segno che il testo di un avviso va verificato come si verifica una funzione — la sua
+correttezza è «indica l'azione giusta», e nessun test di comportamento la cattura.
+
+Suite completa dopo la correzione: **5079 passed, 1 skipped**, zero `xfail` residui.
