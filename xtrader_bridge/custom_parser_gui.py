@@ -847,10 +847,12 @@ class CustomParserPanel(ctk.CTkFrame):
         # intestazione colonne — le colonne avanzate compaiono solo in modalità «Avanzate».
         self._rules_head = ctk.CTkFrame(rules_card, fg_color="transparent")
         self._rules_head.pack(fill="x", padx=8)
+        ui_cards.collapse_when_empty(self._rules_head)
         self._populate_rules_header()
 
         self._rows_frame = ctk.CTkFrame(rules_card, fg_color="transparent")
         self._rows_frame.pack(fill="x", padx=8, pady=6)
+        ui_cards.collapse_when_empty(self._rows_frame)
 
         # #182 PR A ⑥: avviso NON bloccante sulle righe con valore fisso. Vuoto = invisibile.
         self._fixed_warn_lbl = ctk.CTkLabel(
@@ -902,6 +904,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkLabel(test, text=i18n.tr("Anteprima righe generate (#192):")).pack(anchor="w", padx=6)
         self._preview_table = ctk.CTkFrame(test, fg_color="transparent")
         self._preview_table.pack(fill="x", padx=6, pady=(0, 4))
+        ui_cards.collapse_when_empty(self._preview_table)
         # Larghezze colonne della tabella anteprima (px), in ordine.
         self._preview_cols = (("#", 30), ("Tipo", 90), ("Esito", 70),
                               ("Riga CSV (campi valorizzati)", 560))
@@ -909,6 +912,7 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkLabel(test, text=i18n.tr("Diagnostica (una riga per colonna):")).pack(anchor="w", padx=6)
         self._diag_table = ctk.CTkFrame(test, fg_color="transparent")
         self._diag_table.pack(fill="x", padx=6, pady=(0, 4))
+        ui_cards.collapse_when_empty(self._diag_table)
         # Larghezze colonne della tabella diagnostica (px), in ordine.
         self._diag_cols = (("Colonna", 110), ("Stato", 64), ("Motivo", 280),
                            ("Inizia dopo", 120), ("Finisce prima", 120), ("Valore estratto", 170))
@@ -958,6 +962,7 @@ class CustomParserPanel(ctk.CTkFrame):
                       command=self._add_multi_market_clicked).pack(side="left", padx=6)
         self._multi_markets_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._multi_markets_box.pack(fill="x", padx=8, pady=(0, 4))
+        ui_cards.collapse_when_empty(self._multi_markets_box)
         self._multi_market_rows = []     # refs per riga MultiMarket
 
         # MultiSelection: più selezioni dello stesso mercato (eredita il mercato dalla base).
@@ -971,6 +976,7 @@ class CustomParserPanel(ctk.CTkFrame):
                       command=self._add_multi_selection_clicked).pack(side="left", padx=6)
         self._multi_selections_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._multi_selections_box.pack(fill="x", padx=8, pady=(0, 4))
+        ui_cards.collapse_when_empty(self._multi_selections_box)
         self._multi_selection_rows = []  # refs per riga MultiSelection
         # Hint estrazione dinamica (#325): spiega la combinazione che attiva una-riga-per-risultato.
         ctk.CTkLabel(
@@ -998,7 +1004,9 @@ class CustomParserPanel(ctk.CTkFrame):
         # in silenzio quei vincoli per-riga cambiando le righe CSV emesse (Codex P1).
         # `_multi_rule_from_refs` riparte da una copia di questa regola e applica SOLO i
         # campi in `_fields`.
-        refs = {"frame": row, "_rule": rule, "_fields": fields}
+        # `_box`: il contenitore va ricordato qui perché alla RIMOZIONE serve sapere
+        # quale far ricollassare — svuotarlo non lo riabbassa da solo.
+        refs = {"frame": row, "_rule": rule, "_fields": fields, "_box": container}
         for attr, label, w in fields:
             cell = ctk.CTkFrame(row, fg_color="transparent")
             cell.pack(side="left", padx=2)
@@ -1028,6 +1036,9 @@ class CustomParserPanel(ctk.CTkFrame):
         except ValueError:
             pass
         refs["frame"].destroy()
+        # Tolta l'ultima riga il contenitore resterebbe alto quanto l'ultimo contenuto:
+        # va ricollassato, o al posto delle righe compare un buco della stessa altezza.
+        ui_cards.collapse_when_empty(refs.get("_box"))
         self._refresh_multi_warnings()
 
     def _add_multi_market_clicked(self):
@@ -1080,6 +1091,10 @@ class CustomParserPanel(ctk.CTkFrame):
             for rule in self.builder.multi_selections:
                 self._add_multi_row_widget(self._multi_selections_box, self._multi_selection_rows,
                                            rule, fields=self._MULTI_SELECTION_FIELDS)
+            # Un parser SENZA righe multi lascerebbe i due contenitori alti quanto
+            # quelli del parser precedente: si ricollassano dopo la ricostruzione.
+            ui_cards.collapse_when_empty(self._multi_markets_box)
+            ui_cards.collapse_when_empty(self._multi_selections_box)
         finally:
             self._multi_reloading = False
         self._refresh_multi_warnings()
@@ -1161,6 +1176,7 @@ class CustomParserPanel(ctk.CTkFrame):
 
         self._conditions_box = ctk.CTkFrame(sec, fg_color="transparent")
         self._conditions_box.pack(fill="x", padx=8, pady=(0, 4))
+        ui_cards.collapse_when_empty(self._conditions_box)
         self._condition_rows = []        # refs per riga condizione
 
         ctk.CTkLabel(
@@ -1198,6 +1214,7 @@ class CustomParserPanel(ctk.CTkFrame):
         except ValueError:
             pass
         refs["frame"].destroy()
+        ui_cards.collapse_when_empty(self._conditions_box)
 
     def _reload_conditions_from_builder(self):
         """Ridisegna modo + righe condizioni dal builder (caricamento parser/nuovo).
@@ -1212,6 +1229,7 @@ class CustomParserPanel(ctk.CTkFrame):
             refs["frame"].destroy()
         for cond in getattr(self.builder, "conditions", []) or []:
             self._add_condition_row_widget(cond)
+        ui_cards.collapse_when_empty(self._conditions_box)
 
     def _sync_conditions_to_builder(self):
         """Riporta modo + righe condizioni nel builder. Le righe a testo vuoto vengono
@@ -1964,12 +1982,21 @@ class CustomParserPanel(ctk.CTkFrame):
             # Motivo accanto a ogni campo mancante (ordine proprietario 2026-08-04): la
             # diagnostica sa già CHI ha svuotato la colonna, ma finora restava solo nella
             # tabella sotto — chi legge il verdetto doveva dedurlo.
-            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag)))
+            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag),
+            # Motivo dello STATO e avvisi delle sezioni multi-riga (ordine proprietario
+            # 2026-08-04: «devo sapere tutto facendo prova messaggio»). Il primo porta nel
+            # verdetto la spiegazione che finora stava solo nella tabella sotto; i secondi
+            # quella che stava solo nel banner arancione della sezione.
+            status_reason=parser_diagnostics.motivo_stato(diag),
+            multi_warnings=self.builder.multi_warnings(),
+            content_status=diag.message_error))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)
 
-    _MULTI_KIND_LABEL = {"base": "Base", "market": "Mercato", "selection": "Selezione"}
+    # Fonte unica in `ParserBuilder`: le stesse etichette compaiono ora anche nel verdetto
+    # («riga 2 (Selezione): INVALID_PRICE — …»), e due copie divergerebbero.
+    _MULTI_KIND_LABEL = ParserBuilder._MULTI_KIND_LABEL
 
     def _render_preview_table(self, preview_rows):
         """Disegna la tabella anteprima multi-riga (#192) da `PreviewRow` già pronte

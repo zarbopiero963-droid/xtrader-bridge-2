@@ -83,6 +83,7 @@ class JournalPanel(ctk.CTkFrame):
 
         self._header = ctk.CTkFrame(self, fg_color="transparent")
         self._header.pack(fill="x", padx=12)
+        ui_cards.collapse_when_empty(self._header)
         self._rows_frame = ctk.CTkScrollableFrame(self, height=400, **ui_cards.card_style(),
                                                   label_text=i18n.tr("Eventi del diario"))
         ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
@@ -112,6 +113,9 @@ class JournalPanel(ctk.CTkFrame):
         mostra un avviso invece di far crashare la finestra Strumenti. Riusa la logica pura
         di `journal_view` (filtro + celle già redatte)."""
         self._clear(self._header)
+        # Se la lettura del diario fallisce si esce qui sotto con l'intestazione ancora
+        # svuotata: senza ricollassarla, al posto delle colonne resterebbe un buco.
+        ui_cards.collapse_when_empty(self._header)
         self._clear(self._rows_frame)
         try:
             all_events = event_journal.read_events(self._path)

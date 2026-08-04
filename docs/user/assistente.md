@@ -73,11 +73,23 @@ Se cambi la lingua dell'app, la nuova lingua vale dalla **successiva** riabilita
 Incolla un messaggio del canale e chiedi *«questo va bene?»* o *«cosa uscirebbe nel CSV?»*:
 l'assistente lo **prova col parser attivo** e ti dice:
 
-- se è **riconosciuto** (sì/no) e, se no, **perché** (es. manca la quota, campo obbligatorio non
-  trovato, parser non riconosce il formato);
+- se è **riconosciuto** (sì/no) e, se no, **perché** — con lo stesso dettaglio della tab
+  «🧩 Parser Personalizzato», non una sigla:
+  - **campo per campo**: quale colonna è vuota e chi l'ha svuotata (delimitatore non trovato,
+    trasformazione che non sa leggere il testo, value-map senza l'alias), col valore letto;
+  - **condizioni di gate**: se il messaggio è stato letto benissimo ma una condizione l'ha
+    fermato, te lo dice **nominando la condizione** — non ti manda a controllare i delimitatori,
+    che è quello che succedeva prima;
+  - **dizionario nomi / dizionario mercati**: nome o mercato non risolvibile, e perché;
+  - **Provider** mancante, o **campi di riconoscimento** richiesti dalla Modalità (con l'indicazione
+    che gli ID si prendono dal «Catalogo XTrader»);
+  - **MultiMarket / MultiSelection**: quale riga generata viene scartata e per quale motivo, e
+    l'avviso se un interruttore è acceso ma non c'è nessuna riga abilitata (in quel caso non
+    nasce nessuna riga extra, anche se il verdetto è «pronto»).
 - l'**anteprima della riga CSV** che uscirebbe — **colonne e valori** — con il **separatore decimale**
   giusto per la lingua CSV impostata (virgola per IT/ES, punto per EN);
-- puoi anche incollarne **più di uno** separandoli con una riga che contiene solo `---`.
+- puoi anche incollarne **più di uno** separandoli con una riga che contiene solo `---`: il motivo
+  è lo stesso anche lì, messaggio per messaggio.
 
 È tutto **in sola lettura**: l'assistente **non scrive** il CSV operativo, prova soltanto. Puoi usarlo
 come **tester** mentre sistemi il parser, finché la riga non è quella giusta.
@@ -114,6 +126,11 @@ ti spiega il **ciclo di vita** dell'ultimo segnale (ricevuto → parsato → val
 arrivato al CSV o no, più eventuali rifiuti/riconnessioni. Per il **motivo esatto** (duplicato,
 troppo vecchio, parser non riconosciuto, CSV non scrivibile) combina il diario con l'**«ultimo
 errore»** dei semafori. Tutto in **sola lettura**.
+
+> ℹ️ Il diario registra `NO_CONTENT_MATCH` **anche** quando a fermare il messaggio è stata una
+> **condizione di gate**: sono due cause diverse che lì appaiono uguali. Per distinguerle,
+> **riprova quel messaggio** (§5): la prova ti dice se il problema sono i delimitatori o una
+> condizione — e in quel caso te la nomina.
 
 ## 8. Proporre una modifica: tu confermi con «✅ Applica»
 

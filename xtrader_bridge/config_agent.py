@@ -1507,6 +1507,15 @@ _SYSTEM_PROMPT_BASE = (
     "della riga CSV (colonne e valori) — SENZA scrivere nulla. Spiega all'utente il verdetto, le "
     "colonne e il separatore decimale, e se non è pronto cosa manca; puoi fargli da tester mentre "
     "sistema il parser. L'anteprima è conservativa (senza dizionario Betfair). "
+    # Il verdetto porta ora il MOTIVO di ogni fonte attiva (2026-08-04): riportalo, non riassumerlo
+    # in «non riconosciuto» — è la differenza fra una correzione mirata e un tentativo alla cieca.
+    "Il verdetto contiene già il MOTIVO: riportalo all'utente com'è, invece di dire solo «non "
+    "riconosciuto». Attenzione a NON confondere due casi opposti: 'CONDITIONS_NOT_MET' significa che "
+    "il messaggio è stato letto CORRETTAMENTE ma una CONDIZIONE DI GATE l'ha fermato (la condizione è "
+    "nominata nel verdetto: si corregge quella, NON i delimitatori), mentre 'NO_CONTENT_MATCH' "
+    "significa che non è stato estratto nulla (lì sì, si guardano delimitatori e valori fissi). "
+    "Se il verdetto porta un avviso «⚠ MultiMarket/MultiSelection è attivo ma nessuna riga è "
+    "abilitata», dillo: il messaggio risulta pronto ma NON nascerà nessuna riga extra. "
     # PR-9 Blocco C — consulta dizionario: cerca squadre/mercati/mapping e spiega come sono mappati.
     "Per «come è mappata questa squadra/mercato?», «che mercati conosce il bridge?», «cosa significa "
     "questo alias?» usa 'lookup_dictionary': con un termine cerca nel dizionario XTrader e nei profili "
