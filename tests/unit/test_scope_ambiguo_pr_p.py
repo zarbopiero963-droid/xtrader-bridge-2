@@ -492,3 +492,35 @@ def test_b21bis_avvisi_non_bloccano_lo_START_su_un_dizionario_grande():
     durata = time.perf_counter() - inizio
     assert len(avvisi) == 200, f"attesi 200 alias in conflitto, trovati {len(avvisi)}"
     assert durata < 5.0, f"gli avvisi al load hanno impiegato {durata:.2f}s: START bloccato"
+
+
+def test_b21bis_il_messaggio_non_manda_a_correggere_un_dizionario_SANO():
+    """Il discrimine fra le due diagnosi è **esiste un parser che se la caverebbe?**
+
+    Trovato preparando gli screenshot del pannello: due righe con `sport` diverso ma lo
+    **stesso** `entity_type` facevano fail-closare anche il chiamante che filtra il solo tipo,
+    quindi finivano nel messaggio «nemmeno un parser con sport/tipo/lingua dichiarati riesce a
+    distinguere» — mentre `sport="Calcio"` le risolveva benissimo. L'utente veniva mandato a
+    correggere un dizionario **sano**, invece che a dichiarare lo sport nel suo parser.
+
+    Il messaggio è la sola cosa che l'utente legge: se dice l'azione sbagliata, la diagnostica
+    è peggio che assente."""
+    sano = _cfg_nomi([
+        {"provider": "Inter", "betfair": "Inter Milano", "sport": "Calcio", "entity_type": "team"},
+        {"provider": "Inter", "betfair": "Inter Miami", "sport": "Basket", "entity_type": "team"},
+    ])
+    profs = nms.entries_for_profiles(sano, ["P"])
+    assert nms.resolve_team("Inter", profs, sport="Calcio") == "Inter Milano"  # un parser risolve
+    [avviso] = nms.ambiguous_alias_warnings(sano)
+    assert "distinguibili SOLO da uno sport/tipo/lingua" in avviso, avviso
+    assert "NEMMENO" not in avviso, "manda a correggere un dizionario sano"
+
+    rotto = _cfg_nomi([
+        {"provider": "United", "betfair": "Manchester Utd", "sport": "Calcio", "entity_type": "team"},
+        {"provider": "United", "betfair": "Newcastle Utd", "sport": "Calcio", "entity_type": "team"},
+    ])
+    profs = nms.entries_for_profiles(rotto, ["P"])
+    assert nms.resolve_team("United", profs, sport="Calcio") is None   # nessun parser risolve
+    [avviso] = nms.ambiguous_alias_warnings(rotto)
+    assert "NEMMENO" in avviso, avviso
+    assert "Correggi il Dizionario nomi" in avviso

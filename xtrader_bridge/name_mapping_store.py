@@ -309,21 +309,25 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             # una config che il runtime risolve.
             nt = normalize(voce["nome"])
             candidate = per_nome.get(nt, [])
-            ambigui = [c for c in chiamanti
-                       if _resolve_scoped(nt, [candidate], *c) is _AMBIGUOUS]
-            if not ambigui:
+            esiti = {c: _resolve_scoped(nt, [candidate], *c) for c in chiamanti}
+            if _AMBIGUOUS not in esiti.values():
                 continue
             fase = "alias" if key == "provider" else "nome canonico"
             dove = ", ".join(f"«{b}»" for b in voce["betfair"])
-            # Due diagnosi diverse, perché richiedono due azioni diverse dall'utente. Se
-            # fail-closa anche un chiamante che FILTRA, il conflitto è dentro uno scope e
-            # nessun parser può schivarlo: va corretto il dizionario. Se fail-closa solo
-            # l'agnostico, le righe sono distinguibili e basta dichiarare lo scope.
-            # Confronto come INSIEME, non come lista: `chiamanti` è un set, quindi l'ordine di
-            # `ambigui` non è definito. Oggi la lista a un elemento rende il confronto corretto
-            # per caso; scritto così lo è per costruzione (rilievo GPT-5.5 sulla #253).
-            solo_agnostico = set(ambigui) == {("", None, "")}
-            if solo_agnostico:
+            # Due diagnosi diverse, perché chiedono due azioni diverse all'utente, e il
+            # discrimine è UNO: **esiste un parser che se la caverebbe?** Se sì, il dizionario
+            # è sano e basta dichiarare lo scope nel parser; se no, il conflitto è dentro uno
+            # scope e va corretto il dizionario.
+            #
+            # La stesura precedente chiedeva invece «fail-closa SOLO il chiamante agnostico», e
+            # sbagliava appena le righe portavano più di una dimensione: due righe `sport`
+            # diverso ma **stesso** `entity_type` fanno fail-closare anche il chiamante che
+            # filtra il solo tipo, quindi finivano nel messaggio «nemmeno un parser…» — mentre
+            # `sport=Calcio` le risolveva benissimo. L'utente veniva mandato a correggere un
+            # dizionario sano. Trovato preparando gli screenshot del pannello, non da un test:
+            # la schermata e la misura, messe una accanto all'altra, si contraddicevano.
+            risolvibile = any(isinstance(v, str) and v for v in esiti.values())
+            if risolvibile:
                 warnings.append(
                     f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
                     f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}), distinguibili "

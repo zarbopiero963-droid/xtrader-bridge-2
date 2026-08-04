@@ -5244,4 +5244,30 @@ sottoinsieme combaciante di quelli pieni. L'equivalenza è verificata dal test e
 dizionari, che resta verde. La regressione prestazionale è a sua volta un test, verificato per
 sabotaggio: togliendo l'indice diventa rosso.
 
-Suite completa dopo la correzione: **5077 passed, 1 skipped**, zero `xfail` residui.
+**Quinto giro: l'avviso mandava a correggere un dizionario SANO.** Trovato preparando gli
+screenshot del pannello per il proprietario, non da un test né da un reviewer. Il profilo di
+esempio «Serie A» — `Inter` → `Inter Milano` (Calcio) e `Inter Miami` (Basket), entrambe
+`entity_type=team` — riceveva il messaggio duro («NEMMENO un parser con sport/tipo/lingua
+dichiarati riesce a distinguere»), mentre la misura stampata **accanto alla schermata** diceva:
+
+```text
+Serie A: senza sport -> None | sport=Calcio -> 'Inter Milano'
+```
+
+Cioè un parser che dichiara lo sport risolveva benissimo, e l'avviso mandava l'utente a correggere
+un dizionario **sano** invece che a dichiarare lo scope nel parser. Il messaggio è la sola cosa che
+l'utente legge: se indica l'azione sbagliata, la diagnostica è peggio che assente.
+
+Causa: il discrimine fra le due diagnosi era «fail-closa **solo** il chiamante agnostico», che
+smette di funzionare appena le righe portano più di una dimensione valorizzata — con `sport` **e**
+`entity_type` popolati, anche il chiamante che filtra il solo tipo resta bloccato, e tanto basta a
+far scattare il ramo duro. Sostituito col discrimine giusto e più semplice: **esiste un chiamante
+che risolve?** Se sì → «dichiara lo scope nel parser»; se no → «correggi il dizionario».
+
+Verificato per sabotaggio (rimettendo la vecchia regola il test torna rosso). Vale la pena
+notarlo: nessuno dei quattro reviewer l'ha visto, e nessun test scritto fin lì lo copriva — l'ha
+trovato l'aver messo **la schermata e la misura una accanto all'altra**, che è una forma di
+verifica che il testo di un avviso merita, perché è l'unica parte del sistema che parla
+direttamente all'utente.
+
+Suite completa dopo la correzione: **5078 passed, 1 skipped**, zero `xfail` residui.
