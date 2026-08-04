@@ -22,7 +22,10 @@ Modulo puro: nessuna dipendenza da GUI/CSV/Telegram, interamente testabile.
 
 import math
 import time
+
 from dataclasses import dataclass, field
+
+from . import validators
 
 OVERWRITE_LAST = "OVERWRITE_LAST"
 APPEND_ACTIVE = "APPEND_ACTIVE"
@@ -41,6 +44,12 @@ DEFAULT_TIMEOUT = 90        # secondi di vita di un segnale se non confermato/so
 # PROPRIA per la stessa ragione di DEFAULT_TIMEOUT; deve restare UGUALE a
 # `settings_validation.MAX_TIMEOUT` (uguaglianza verificata da un test dedicato, AC-B43).
 MAX_TIMEOUT = 86400
+
+# Tetto righe attive su cui ricade un `max_active_signals` MALFORMATO (#194 PR-E).
+# Allineato a `config_store.DEFAULTS['max_active_signals']`: e' il tetto che l'utente
+# avrebbe senza toccare nulla. Importato pigramente nel modulo per non creare un ciclo
+# (config_store non dipende da signal_queue, ma la direzione inversa e' gia' usata).
+DEFAULT_MAX_ACTIVE = 2
 
 
 def normalize_mode(mode) -> str:
@@ -66,16 +75,13 @@ def timeout_from_config(cfg) -> float:
     key = "confirmation_timeout" if normalize_mode(cfg.get("queue_mode")) == QUEUE_UNTIL_CONFIRMED \
         else "clear_delay"
     raw = cfg.get(key)
-    # Rifiuta i bool PRIMA di float(): `float(True)` è `1.0` e bypasserebbe il
-    # fail-safe → ogni segnale scadrebbe dopo 1s (la riga sparirebbe prima che XTrader
-    # la legga, polling 10–15s). `True`/`False` da JSON = config malformata → default.
-    if isinstance(raw, bool):
-        return DEFAULT_TIMEOUT
-    try:
-        t = float(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_TIMEOUT
-    return min(t, MAX_TIMEOUT) if math.isfinite(t) and t > 0 else DEFAULT_TIMEOUT
+    # `finite_or_none` rifiuta i bool PRIMA di float(): `float(True)` e' `1.0` e bypasserebbe
+    # il fail-safe → ogni segnale scadrebbe dopo 1s (la riga sparirebbe prima che XTrader la
+    # legga, polling 10–15s). `True`/`False` da JSON = config malformata → default. E rifiuta gia' i bool e i non finiti, e — a differenza della vecchia
+    # tupla stretta scritta qui — cattura anche `OverflowError` (un `clear_delay` di 400
+    # cifre da config editata a mano faceva fallire lo START, #194 PR-E).
+    t = validators.finite_or_none(raw)
+    return min(t, MAX_TIMEOUT) if t is not None and t > 0 else DEFAULT_TIMEOUT
 
 
 def delay_until(expires_at: float, now: float) -> float:
@@ -127,17 +133,29 @@ class SignalQueue:
 
     @staticmethod
     def _validate_max_active(value) -> int:
-        """Tetto come intero >= 0 (0 = illimitato). Un valore malformato (bool/NaN/inf/
-        negativo/non intero) → 0 (illimitato, fail-safe: non blocca segnali per sbaglio)."""
-        if isinstance(value, bool):
-            return 0
-        try:
-            f = float(value)
-        except (TypeError, ValueError):
-            return 0
-        if not math.isfinite(f) or f < 0 or f != int(f):
-            return 0
-        return int(f)
+        """Tetto come intero >= 0 (**0 = illimitato**, scelta esplicita dell'utente).
+
+        Un valore **malformato** (bool/NaN/inf/negativo/non intero/troppo grande per un
+        float) → **`DEFAULT_MAX_ACTIVE`**, non `0`.
+
+        Perché è cambiato (#194 PR-E). Prima un malformato finiva a `0`, con la
+        motivazione «fail-safe: non blocca segnali per sbaglio». Ma in questo modulo `0`
+        significa **illimitato**: quel percorso **disattivava il tetto anti-overbetting**
+        proprio quando la configurazione era sospetta — il presidio di sicurezza si
+        spegneva da solo, in silenzio. È la stessa forma del difetto della revoca (#235),
+        dove il controllo era scattato e l'indicatore diceva il contrario.
+
+        Le due direzioni di fallimento non sono equivalenti su questo repository:
+        l'invariante numero uno è **nessuna doppia scommessa**, non «nessun segnale perso».
+        Un malformato ricade quindi sul default di `config_store.DEFAULTS`, che è il tetto
+        che l'utente avrebbe avuto senza toccare nulla.
+
+        Lo `0` **esplicito** resta illimitato: non è un valore malformato, è una scelta.
+        """
+        v = validators.finite_or_none(value)
+        if v is None or v < 0 or v != int(v):
+            return DEFAULT_MAX_ACTIVE
+        return int(v)
 
     @staticmethod
     def _validate_timeout(value) -> float:
@@ -146,11 +164,10 @@ class SignalQueue:
         romperebbe l'invariante "nessun vecchio segnale resta attivo per sempre":
         es. con `NaN`, `expires_at()` non è mai `<= now` e il segnale non
         scadrebbe MAI. Quindi si fallisce subito (fail-fast)."""
-        try:
-            t = float(value)
-        except (TypeError, ValueError):
+        t = validators.finite_or_none(value)
+        if t is None:
             raise ValueError(f"timeout non valido: {value!r}")
-        if not math.isfinite(t) or t <= 0:
+        if t <= 0:
             raise ValueError(f"timeout deve essere un numero finito > 0 (ricevuto {value!r})")
         return t
 
@@ -167,11 +184,8 @@ class SignalQueue:
         coerentemente `time.monotonic()` per `expire`/`add` e per programmare il tick."""
         if now is None:
             return time.monotonic()
-        try:
-            t = float(now)
-        except (TypeError, ValueError):
-            raise ValueError(f"now non valido: {now!r}")
-        if not math.isfinite(t):
+        t = validators.finite_or_none(now)
+        if t is None:
             raise ValueError(f"now deve essere un numero finito (ricevuto {now!r})")
         return t
 

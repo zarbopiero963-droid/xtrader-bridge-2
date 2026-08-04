@@ -29,6 +29,52 @@ WIN_RESERVED = frozenset(
 )
 
 
+# ── Classi di eccezione degli input ostili — FONTE UNICA (regola 3, #194 PR-E) ──────
+#
+# Perché esistono queste due costanti invece di ripetere le tuple nei singoli `except`.
+# Prima della #194 PR-E il repository aveva OTTO siti che scrivevano a mano
+# `except (TypeError, ValueError)` attorno a una `float()`, e TUTTI lasciavano passare
+# `OverflowError`. Non per distrazione: la tupla stretta è quella che viene in mente, e
+# `OverflowError` non è sottoclasse di `ValueError`, quindi il difetto è invisibile finché
+# qualcuno non prova un intero enorme. Scritte una volta sola, un domani si estendono in un
+# posto solo — che è esattamente ciò che le otto copie NON permettevano.
+
+#: Classi che una CONVERSIONE numerica (`float()`/`int()`) può sollevare su input ostile.
+#: `OverflowError` (#318 L1-1): un intero troppo grande per un float — es. ``10**400``,
+#: che `json.loads` accetta senza protestare — quindi raggiungibile da un `config.json`
+#: editato a mano o da uno stato persistito manomesso.
+NUMERIC_ERRORS = (TypeError, ValueError, OverflowError)
+
+#: Classi che il PARSING di un JSON ostile può sollevare **oltre** a `JSONDecodeError`.
+#: `RecursionError`: `json` decodifica ricorsivamente, quindi un documento annidato
+#: migliaia di livelli la solleva prima di finire. `OverflowError`: il letterale
+#: `Infinity`, che `json.loads` accetta per default, esplode alla prima conversione a int.
+#: Nessuna delle due è sottoclasse di `ValueError` (#240 B9).
+CORRUPT_JSON_ERRORS = (RecursionError, OverflowError)
+
+
+def finite_or_none(value):
+    """`value` come float **finito**, oppure ``None``. Non solleva **mai**.
+
+    Il gemello non-sollevante di `require_finite_now`, per i siti che hanno un default o un
+    fallback invece di un fail-fast: là dove il codice scriveva
+    ``try: float(x) except (TypeError, ValueError): return default``, ora si scrive
+    ``v = finite_or_none(x)`` e si decide su ``None``.
+
+    Rifiuta `bool` per la stessa ragione degli altri validatori di questo modulo:
+    ``float(True)`` è ``1.0``, quindi un ``true`` finito per errore in un campo numerico
+    passerebbe per il valore 1 invece di essere trattato come config malformata — trappola
+    già costata un bug su `saved_at` (#199) e uno su `clear_delay`.
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        f = float(value)
+    except NUMERIC_ERRORS:
+        return None
+    return f if math.isfinite(f) else None
+
+
 def require_positive_int(value, name: str) -> int:
     """`value` come int finito e > 0, altrimenti `ValueError`.
 

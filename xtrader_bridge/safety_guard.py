@@ -239,7 +239,11 @@ def load_state(daily: DailyLimiter, path: str) -> bool:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError, *validators.CORRUPT_JSON_ERRORS):
+        # `CORRUPT_JSON_ERRORS` (#194 PR-E): un file ANNIDATO migliaia di livelli fa sollevare
+        # `RecursionError` a `json` — fuori dalla tupla stretta. Questa funzione e' chiamata
+        # allo START **senza try** (app.py), quindi l'eccezione faceva fallire l'avvio invece
+        # di produrre il `False` che il contratto promette.
         return False
     # Propaga l'esito reale del restore: un JSON valido ma con struttura inattesa
     # (ignorato da restore_state) ritorna False, non un falso "caricato" (Sourcery).

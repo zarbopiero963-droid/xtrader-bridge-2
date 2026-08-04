@@ -297,15 +297,33 @@ def test_max_active_ininfluente_in_overwrite_last():
     assert q.active_rows()[0]["EventName"] == "b"
 
 
-def test_max_active_zero_e_malformato_significano_illimitato():
+def test_max_active_zero_esplicito_significa_illimitato():
+    """Lo `0` scritto apposta dall'utente resta «nessun tetto»: è una scelta, non un errore.
+
+    NB — la seconda metà di questo test è CAMBIATA in #194 PR-E, e non per far passare la
+    patch. Prima asseriva che anche un valore **malformato** desse `0`, cioè *illimitato*,
+    con la motivazione «fail-safe: non blocca per sbaglio». Ma `0` qui vuol dire senza
+    tetto: quel percorso **disattivava il presidio anti-overbetting** proprio quando il
+    config era sospetto. Su questo repository l'invariante numero uno è «nessuna doppia
+    scommessa», non «nessun segnale perso»: delle due direzioni di errore, spegnere il
+    tetto è quella che costa soldi. Il caso malformato ora vive in
+    `tests/unit/test_overflow_config_ostile_b6.py`, dove asserisce il **default**.
+    """
     q0 = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=0)
     for i in range(5):
         assert q0.add(_row(f"s{i}"), now=1000) is not None   # 0 = nessun tetto
     assert len(q0.active_rows()) == 5
-    # Valori malformati → 0 (illimitato, fail-safe: non blocca per sbaglio).
-    for bad in (-1, 1.5, float("nan"), float("inf"), True, "x", None):
-        q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=bad)
-        assert q.max_active == 0
+
+    # Un tetto valido resta quello che l'utente ha scritto, non il default.
+    assert sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=7).max_active == 7
+
+
+def test_max_active_malformato_ricade_sul_default_non_su_illimitato():
+    """Contro-prova del cambiamento: un tetto illeggibile non deve mai valere «infinito»."""
+    for malformato in (-1, 1.5, float("nan"), float("inf"), True, "x", None):
+        q = sq.SignalQueue(mode="APPEND_ACTIVE", default_timeout=60, max_active=malformato)
+        assert q.max_active == sq.DEFAULT_MAX_ACTIVE, (
+            f"{malformato!r} ha disattivato il tetto invece di ricadere sul default")
 
 
 def test_add_force_bypassa_il_tetto():

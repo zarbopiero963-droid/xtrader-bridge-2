@@ -421,11 +421,11 @@ class SignalTracker:
         # disabiliterebbe) e la persistenza NON deve MAI crashare lo START (review GPT-5.5/CodeRabbit
         # #139). Si sceglie il fallback, non `require_finite_now` che SOLLEVA (inadatto a un percorso
         # di recovery).
-        try:
-            cap = float(now)
-            if not math.isfinite(cap):
-                cap = time.time()
-        except (TypeError, ValueError):
+        # `finite_or_none` non solleva mai e copre anche `OverflowError` (#194 PR-E): un
+        # `now` intero-enorme faceva crashare il RECOVERY, cioe' proprio il percorso che il
+        # commento qui sopra prometteva non potesse mai crashare lo START.
+        cap = validators.finite_or_none(now)
+        if cap is None:
             cap = time.time()
         horizon = cap + CORRUPTION_HORIZON_S          # oltre = corruzione, non skew d'orologio
         # B45: `saved_at` valido → criterio decidibile; altrimenti si resta sull'orizzonte a 24 h.
@@ -541,7 +541,11 @@ def load_state(tracker: SignalTracker, path: str, *, now: float = None) -> bool:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError, ValueError):
+    except (OSError, json.JSONDecodeError, ValueError, *validators.CORRUPT_JSON_ERRORS):
+        # `CORRUPT_JSON_ERRORS` (#194 PR-E): un file ANNIDATO migliaia di livelli fa sollevare
+        # `RecursionError` a `json` — fuori dalla tupla stretta. Questa funzione e' chiamata
+        # allo START **senza try** (app.py), quindi l'eccezione faceva fallire l'avvio invece
+        # di produrre il `False` che il contratto promette.
         return False
     saved_at = None
     if isinstance(data, dict):

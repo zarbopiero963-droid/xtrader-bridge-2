@@ -606,7 +606,14 @@ def save_parser(defn: CustomParserDef, dir_path: str = None) -> str:
 #
 # `MemoryError` NON è qui di proposito: un processo senza memoria non è in uno stato in
 # cui «saltare il file» sia una risposta onesta — meglio che risalga.
-CORRUPT_FILE_ERRORS = (RecursionError, OverflowError)
+#: Alias storico di `validators.CORRUPT_JSON_ERRORS`, tenuto per i chiamanti e i test
+#: che lo nominano dalla #240. **Non è una seconda copia**: è LA stessa tupla. La #194
+#: PR-E ha avuto bisogno delle stesse classi per i file di STATO (`dedupe_state.json`,
+#: `daily_state.json`), e due tuple identiche in due moduli sono esattamente ciò che la
+#: regola della fonte unica vieta — oggi uguali, domani divergenti al primo che ne
+#: estende una sola. La definizione vive in `validators`, che è il modulo neutro già
+#: importato da entrambi i lati.
+CORRUPT_FILE_ERRORS = validators.CORRUPT_JSON_ERRORS
 
 
 def load_parser(path: str) -> CustomParserDef:
