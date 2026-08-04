@@ -177,6 +177,88 @@ def malformed_entry_warnings(cfg: dict) -> list:
     return warnings
 
 
+def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
+    """Avvisi **non bloccanti** (#254): voci mercato che combaciano con la **stessa frase** ma
+    indicano mercati **diversi**. Su queste `resolve_market` ritorna ``ambiguous`` e il segnale
+    viene scartato (fail-closed, design §5.2 D2) — ma finora nessuno lo diceva: il conflitto si
+    scopriva solo da un segnale che spariva. Gemella di
+    `name_mapping_store.ambiguous_alias_warnings`; ``_start`` porta questi messaggi nel log
+    eventi, così il conflitto si vede **al load** invece che a segnale già perso.
+
+    **Chiede al runtime, non lo simula** — ed è la lezione più cara della #253, dove l'avviso
+    gemello *rifaceva* la detection e in quattro giri di review sono emersi quattro modi diversi
+    in cui le due divergevano (fra cui un avviso che taceva su un conflitto vivo e uno che
+    mandava a correggere un dizionario sano). Qui, per ogni voce, si costruisce dalla voce
+    **stessa** il testo minimo che la farebbe combaciare — ``start_after`` + frase +
+    ``end_before`` — e si chiede l'esito a `resolve_market`. Stessa estrazione
+    (`extract_between`), stesso match a confini di token, stessa canonicalizzazione, stesso
+    tier lingua: la divergenza non è improbabile, è impossibile.
+
+    **Si provano più chiamanti**, non uno solo (B21 #194): l'ambiguità dipende da quale
+    lingua-fonte dichiara il parser, quindi si sonda il chiamante senza filtro **più** ogni
+    lingua presente nelle voci. Due voci di lingue diverse non sono un conflitto per chi
+    dichiara la lingua, ma lo sono per chi non la dichiara — e va detto a quest'ultimo.
+
+    Fail-safe come i fratelli: la config arriva da un file editabile a mano, e un avviso
+    diagnostico non deve mai impedire l'avvio."""
+    warnings = []
+    for profile, righe in _store(cfg).items():
+        if not isinstance(righe, (list, tuple)):
+            continue
+        voci = [e for e in righe if isinstance(e, dict)]
+        if not voci:
+            continue
+        profili = [voci]
+        # I chiamanti plausibili: senza filtro-lingua, più ogni lingua che il dizionario
+        # stesso contiene. Sono le sole lingue-fonte per cui un parser può interrogare
+        # queste voci.
+        lingue = {""} | {recognition.normalize_source_language(e.get("language", ""))
+                         for e in voci}
+        visti = set()
+        for e in voci:
+            sa = str(e.get("start_after", "") or "")
+            eb = str(e.get("end_before", "") or "")
+            ph = str(e.get("phrase", "") or "").strip()
+            if not ph or (not sa.strip(" \t") and not eb.strip(" \t")):
+                continue        # voce non applicata dal runtime: non può essere ambigua
+            # Il testo minimo che FA combaciare questa voce, costruito dai suoi delimitatori:
+            # cercare la frase in tutto il messaggio sarebbe l'errore che il design §5.5 ha
+            # già corretto una volta sul percorso runtime (banner/menu → falsi match).
+            sonda = f"{sa}{ph}{eb}" if eb else f"{sa}{ph}\n"
+            for lingua in sorted(lingue):
+                # Nessun `try` attorno alla chiamata: `resolve_market` è difensivo su tutto
+                # ciò che arriva da config (frase vuota, delimitatori assenti, coppia non
+                # canonica) e la frase passa da `re.escape`, quindi non c'è nulla da cui
+                # difendersi. Un blind-except qui sarebbe rumore, e il ratchet
+                # (`test_blind_except_allowlist`) lo rifiuta a ragione: la garanzia «non
+                # esplode» la dà `test_254_config_spazzatura_non_esplode`, che la MISURA
+                # sulle config rotte, invece di asserirla con un catch-all.
+                esito = resolve_market(sonda, profili, rows, lingua or None)
+                if esito.status != "ambiguous":
+                    continue
+                # Quali mercati si contendono la frase: senza i nomi l'utente non sa quali
+                # righe aprire.
+                contesi = []
+                for altra in voci:
+                    if str(altra.get("phrase", "") or "").strip() != ph:
+                        continue
+                    nome = str(altra.get("market_name", "") or "").strip()
+                    if nome and nome not in contesi:
+                        contesi.append(nome)
+                chiave = (profile, ph.casefold())
+                if chiave in visti:
+                    break
+                visti.add(chiave)
+                dove = ", ".join(f"«{m}»" for m in contesi) or "mercati diversi"
+                warnings.append(
+                    f"Mappatura mercati «{_norm_profile_name(profile)}», frase «{ph}»: "
+                    f"combacia con {len(contesi) or 2} mercati diversi ({dove}) -> il mercato "
+                    f"NON viene risolto e il segnale è scartato (fail-closed). Rendi le frasi "
+                    f"distinguibili, oppure togli una delle voci in conflitto.")
+                break
+    return warnings
+
+
 def _canonical_market(market_name: str, selection_name: str, rows=None):
     """Risolve ``(market_name, selection_name)`` del config nella tupla **canonica** del
     Catalogo XTrader ``{market_type, market_name, selection_name}``, o ``None`` se la

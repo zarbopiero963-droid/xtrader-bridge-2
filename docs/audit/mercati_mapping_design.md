@@ -103,10 +103,26 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    nessuna frase combacia, e il mercato non è stato estratto dalle regole → stato
    **`MARKET_MAPPING_MISSING`**: la riga **non** viene scritta nel CSV (come
    `MAPPING_MISSING` per i nomi). Mai scrivere un mercato "a caso".
-2. **Match ambiguo (più frasi combaciano) — DA CONFERMARE (default: fail-closed).**
+2. **Match ambiguo (più frasi combaciano) — fail-closed, E ANNUNCIATO.**
    Se due voci diverse combaciano e indicano Mercato/Selezione **diversi**, è ambiguo →
-   `MARKET_MAPPING_MISSING` (non si tira a indovinare). *Alternativa* (se preferisci):
-   match della frase **più lunga/più specifica**. Default proposto: **fail-closed**.
+   `MARKET_MAPPING_MISSING` (non si tira a indovinare).
+
+   Il fail-closed da solo non basta: fino alla **#254** il conflitto non veniva detto a
+   nessuno, e l'operatore lo scopriva da un segnale sparito — cioè quando era già perso.
+   `ambiguous_phrase_warnings` lo porta nel log eventi **allo START**, gemella di
+   `name_mapping_store.ambiguous_alias_warnings` (B21). È la stessa classe di difetto, e sui
+   mercati morde più facilmente: le voci si scrivono a **frasi libere** («gg», «over 2,5»,
+   «goal»), quindi due frasi finiscono per combaciare senza che l'utente se ne accorga molto
+   più facilmente di due squadre con lo stesso alias.
+
+   **L'avviso non ricalcola l'ambiguità: la chiede a `resolve_market`.** Per ogni voce
+   costruisce dalla voce stessa il testo minimo che la farebbe combaciare (`start_after` +
+   frase + `end_before`) e ne domanda l'esito — stessa estrazione, stesso match a confini di
+   token, stessa canonicalizzazione, stesso tier lingua. La lezione arriva dalla #253, dove
+   l'avviso gemello *simulava* il resolver e in quattro giri di review sono emersi quattro modi
+   diversi in cui le due detection divergevano. E come lì si provano **più chiamanti** (senza
+   filtro-lingua, più ogni lingua presente nelle voci): due voci di lingue diverse non sono un
+   conflitto per chi dichiara la lingua, ma lo sono per chi non la dichiara.
 3bis. **Niente ID stantii quando il dizionario vince.** La mappatura mercati è *name-based*
    (`resolve_market` non risolve `MarketId`/`SelectionId`: non sono nel Catalogo). Se le
    regole-colonna hanno estratto una coppia ID e poi il dizionario vince, lasciare quegli ID
