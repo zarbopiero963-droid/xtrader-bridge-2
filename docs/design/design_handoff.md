@@ -967,7 +967,7 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > ~130 scatti, ognuno con ridisegno completo dei widget visibili → effetto «scatta/trema»,
 > massimo sulla Griglia regole. Ogni `CTkScrollableFrame` del package è ora accordata con
 > `ui_cards.tune_scrolling()` (increment 3px → ~60px per scatto, un terzo dei ridisegni);
-> un test sorgente impone che ogni scrollable nuova venga accordata.
+> un test sorgente impone che ogni scrollable nuova venga accordata — copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non richiedono accordatura).
 
 L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
 ①..④** (vedi §5). I pannelli (§7.1–7.10; **7.6 «Betfair Sync» rimossa**, **7.7 «📖 Dizionario»
