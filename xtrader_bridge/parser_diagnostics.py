@@ -13,6 +13,8 @@ nessun widget, nessun I/O nascosto oltre al registro value-map condiviso del pip
 
 from dataclasses import dataclass, field
 
+import unicodedata
+
 from . import custom_pipeline, recognition, transforms, validator, value_maps
 from .custom_parser import CustomParserDef
 from .custom_parser_engine import (
@@ -357,12 +359,31 @@ _CODICI_VUOTO = (START_NOT_FOUND, END_NOT_FOUND, TRANSFORM_FAILED,
 _MAX_VALORE = 60
 
 
-def _leggibile(valore: str) -> str:
-    """Valore utente reso sicuro per UNA riga di verdetto: control-char in spazi,
-    spazi compattati, taglio a `_MAX_VALORE` con «…» esplicito (mai silenzioso)."""
-    testo = " ".join(str(valore or "").split())      # \n \r \t → spazio, spazi compattati
+def _leggibile(valore) -> str:
+    """Valore utente reso sicuro per UNA riga di verdetto.
+
+    Tre passaggi, in quest'ordine (rilievi Fable 5 + GPT-5.5 sulla #245 — la prima
+    versione prometteva nel docstring più di quanto facesse, e `str.split()` da solo
+    appiattisce SOLO lo whitespace):
+
+    1. **control-char e format-char via categoria Unicode** (`Cc`/`Cf`) → spazio: copre
+       `\x00`, gli escape ANSI `\x1b[…` e soprattutto i **bidi override** (U+202E),
+       che ribaltano visivamente tutto il testo a valle;
+    2. **delimitatori del motivo neutralizzati**: un valore contenente `«`/`»` chiuderebbe
+       la citazione e potrebbe far sembrare «testo del bridge» quello scelto da chi manda
+       il messaggio — si sostituiscono con le virgolette singole angolari;
+    3. whitespace compattato e taglio a `_MAX_VALORE` con «…» **esplicito** (un
+       troncamento invisibile ingannerebbe chi legge).
+
+    `None` → "" ; qualsiasi altro valore (anche `0`/`False`, che `or` avrebbe
+    schiacciato a vuoto) viene reso con `str()` e conservato."""
+    grezzo = "" if valore is None else str(valore)
+    pulito = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf") else ch
+                     for ch in grezzo)
+    pulito = pulito.replace("«", "‹").replace("»", "›")
+    testo = " ".join(pulito.split())                 # \n \r \t e spazi ripetuti → uno
     if len(testo) > _MAX_VALORE:
-        testo = testo[:_MAX_VALORE] + "…"
+        testo = testo[:_MAX_VALORE] + "…"            # lunghezza max = _MAX_VALORE + 1
     return testo
 
 

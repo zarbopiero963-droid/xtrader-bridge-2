@@ -111,3 +111,66 @@ def test_motivo_non_tronca_i_valori_corti():
         transform="score_to_over_ht", required=True))
     testo = pd.motivi_campi_mancanti(diag)["SelectionName"]
     assert "«primo tempo»" in testo and "…" not in testo
+
+
+def _motivo_con_valore(valore: str) -> str:
+    """Motivo prodotto quando la trasformazione fallisce su `valore`."""
+    regola = cp.FieldRule(target="SelectionName", start_after="Risultato:",
+                          end_before="§", transform="score_to_over_ht", required=True)
+    defn = cp.CustomParserDef(name="P", rules=[*_BASE, regola])
+    msg = f"Match: J v I\nRisultato: {valore}§\nQuota: 1,85\n"
+    diag = pd.diagnose(defn, msg, provider="TG", mode="NAME_ONLY", require_price=True)
+    return pd.motivi_campi_mancanti(diag)["SelectionName"]
+
+
+def test_motivo_neutralizza_i_control_char_non_whitespace():
+    """Rilievo Fable 5 (#245, bloccante): `split()` appiattisce solo lo whitespace.
+    ESC/NUL e i **bidi override** (U+202E, che ribalta visivamente il testo a valle)
+    passavano intatti — e il docstring prometteva il contrario. La promessa scritta
+    dev'essere quella mantenuta."""
+    testo = _motivo_con_valore("A\x1b[31mB\x00C‮D")
+    for ch in ("\x1b", "\x00", "‮"):
+        assert ch not in testo, f"control char {ch!r} sopravvissuto: {testo!r}"
+
+
+def test_motivo_neutralizza_i_delimitatori_del_motivo_stesso():
+    """Un valore che contiene «» chiuderebbe visivamente il delimitatore e potrebbe
+    far sembrare «testo del bridge» quello scelto da chi manda il messaggio."""
+    testo = _motivo_con_valore("X» e poi «finto motivo")
+    corpo = testo.split("leggere ", 1)[1]
+    assert corpo.count("«") == 1 and corpo.count("»") == 1, corpo
+
+
+def test_motivo_appiattisce_tab_ritorni_e_spazi_ripetuti():
+    """Completa la copertura chiesta da GPT-5.5: non solo `\\n`."""
+    testo = _motivo_con_valore("A\tB\rC   D")
+    assert "«A B C D»" in testo, testo
+
+
+def test_motivo_conserva_i_valori_falsy_non_stringa():
+    """`str(valore or "")` schiacciava `0`/`False` a vuoto perdendo l'informazione
+    (rilievo GPT-5.5): il motivo deve dire cosa ha letto, anche se è «0»."""
+    assert pd._leggibile(0) == "0"
+    assert pd._leggibile(False) == "False"
+    assert pd._leggibile(None) == ""
+
+
+def test_contratto_esatto_del_troncamento():
+    """Il contratto è fissato, non «< 200»: `_MAX_VALORE` caratteri + il segno «…»."""
+    reso = pd._leggibile("B" * 500)
+    assert len(reso) == pd._MAX_VALORE + 1
+    assert reso.endswith("…") and reso[:-1] == "B" * pd._MAX_VALORE
+
+
+def test_anche_il_ramo_value_map_e_sanificato():
+    """L'altro percorso che interpola testo utente (GPT-5.5: non era coperto)."""
+    regola = cp.FieldRule(target="SelectionName", start_after="Risultato:",
+                          end_before="§", value_map="selectionname", required=True)
+    defn = cp.CustomParserDef(name="P", rules=[*_BASE, regola])
+    msg = "Match: J v I\nRisultato: X\x1b[31m» finto\nQuota: 1,85\n§\n"
+    diag = pd.diagnose(defn, msg, provider="TG", mode="NAME_ONLY", require_price=True)
+    testo = pd.motivi_campi_mancanti(diag)["SelectionName"]
+    assert "value-map" in testo
+    assert "\x1b" not in testo and "\n" not in testo
+    corpo = testo.split("trovato ", 1)[1]
+    assert corpo.count("«") == 1 and corpo.count("»") == 1, corpo
