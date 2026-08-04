@@ -1982,12 +1982,21 @@ class CustomParserPanel(ctk.CTkFrame):
             # Motivo accanto a ogni campo mancante (ordine proprietario 2026-08-04): la
             # diagnostica sa già CHI ha svuotato la colonna, ma finora restava solo nella
             # tabella sotto — chi legge il verdetto doveva dedurlo.
-            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag)))
+            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag),
+            # Motivo dello STATO e avvisi delle sezioni multi-riga (ordine proprietario
+            # 2026-08-04: «devo sapere tutto facendo prova messaggio»). Il primo porta nel
+            # verdetto la spiegazione che finora stava solo nella tabella sotto; i secondi
+            # quella che stava solo nel banner arancione della sezione.
+            status_reason=parser_diagnostics.motivo_stato(diag),
+            multi_warnings=self.builder.multi_warnings(),
+            content_status=diag.message_error))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)
 
-    _MULTI_KIND_LABEL = {"base": "Base", "market": "Mercato", "selection": "Selezione"}
+    # Fonte unica in `ParserBuilder`: le stesse etichette compaiono ora anche nel verdetto
+    # («riga 2 (Selezione): INVALID_PRICE — …»), e due copie divergerebbero.
+    _MULTI_KIND_LABEL = ParserBuilder._MULTI_KIND_LABEL
 
     def _render_preview_table(self, preview_rows):
         """Disegna la tabella anteprima multi-riga (#192) da `PreviewRow` già pronte

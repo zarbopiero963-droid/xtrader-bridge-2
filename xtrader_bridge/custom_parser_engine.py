@@ -240,14 +240,44 @@ def conditions_pass(defn: CustomParserDef, text: str) -> bool:
     if not conds:
         return True
     hay = normalize(text)
-    results = []
-    for c in conds:
-        present = normalize(c.text) in hay
-        results.append((not present) if c.negate else present)
+    results = [_condition_holds(c, hay) for c in conds]
     # Modo già normalizzato da from_dict; ricontrollo difensivo (default costruttore/GUI).
     if defn.conditions_mode == "any":
         return any(results)
     return all(results)
+
+
+def _condition_holds(cond, hay: str) -> bool:
+    """UNA condizione contro il messaggio già normalizzato: `True` se soddisfatta.
+
+    Estratto da `conditions_pass` per essere riusato da `failed_conditions` senza
+    riscrivere il predicato (regola 3 — due copie corrette oggi sono due copie
+    divergenti domani: una diagnosi che spiega un criterio DIVERSO da quello che
+    blocca davvero sarebbe peggio di nessuna diagnosi)."""
+    present = normalize(cond.text) in hay
+    return (not present) if cond.negate else present
+
+
+def failed_conditions(defn: CustomParserDef, text: str) -> list:
+    """Le condizioni di gate che il messaggio NON soddisfa — per SPIEGARE lo scarto.
+
+    Serve all'anteprima «Prova messaggio»: dire «il messaggio non passa il gate» senza
+    dire QUALE condizione lo ferma lascia l'utente a provarle a una a una. Vuota se il
+    gate passa (o se non ci sono condizioni attive): si nominano solo le colpevoli.
+
+    In modo **«TUTTE (E)»** basta una condizione a bloccare, quindi si elencano solo
+    quelle davvero fallite — nominare anche le soddisfatte manderebbe a correggere
+    righe che vanno bene. In modo **«una qualsiasi (O)»** il gate fallisce solo se
+    sono fallite TUTTE, e infatti le ritorna tutte.
+
+    Sola lettura, e non è il giudice: chiede a `conditions_pass` se il gate è caduto e
+    solo allora cerca le colpevoli — così la spiegazione non può mai contraddire lo
+    scarto reale (né dire «bloccato» quando il messaggio in realtà passa)."""
+    conds = defn.active_conditions()
+    if not conds or conditions_pass(defn, text):
+        return []
+    hay = normalize(text)
+    return [c for c in conds if not _condition_holds(c, hay)]
 
 
 def matches_message(defn: CustomParserDef, text: str, mode: str = None,

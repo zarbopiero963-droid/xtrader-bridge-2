@@ -105,6 +105,47 @@ Derivano un valore calcolato da quello estratto. Built-in:
 > spuntata «Obblig.»** non ricevi alcun avviso: il campo esce vuoto e la riga risulta
 > «✅ Pronto». Con una trasformazione attiva, tieni la colonna obbligatoria.
 
+> 🔎 **«Prova messaggio» spiega OGNI fonte attiva, non solo i campi** (ordine proprietario
+> 2026-08-04). Fino a quella data il motivo accompagnava soltanto le colonne mancanti: tutto
+> il resto arrivava come **sigla nuda** — `⛔ Non pronto (MAPPING_MISSING)` e arrangiati. La
+> spiegazione esisteva già nella tabella diagnostica sotto, ma non nella riga che si legge
+> per prima. Ora ogni fonte dice cosa è andato storto e cosa correggere:
+>
+> ```text
+> ⛔ Non pronto (CONDITIONS_NOT_MET) · il messaggio è stato letto correttamente,
+>    ma non soddisfa la condizione di gate «contiene: GOL ANNULLATO»
+> ⛔ Non pronto (MAPPING_MISSING) · EventName non traducibile: separatore non trovato
+>    o squadra non nei profili di mappatura nomi
+> ⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: frasi ambigue, o
+>    nessuna frase combacia e nessun mercato dalle regole
+> ⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)
+> ⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti
+>    dalla Modalità: gli ID si prendono dal «Catalogo XTrader», i nomi si estraggono dal
+>    messaggio · mancanti: MarketId, SelectionId
+> ⚠ 1/2 righe piazzabili (le altre verranno scartate) · riga 1 (Mercato): INVALID_PRICE
+>    — quota non numerica o ≤ 1.0
+> ✅ Pronto · … · ⚠ MultiMarket è attivo ma nessuna riga mercato è abilitata: nessuna
+>    riga extra verrà generata.
+> ```
+>
+> Tre cose da sapere su questo elenco.
+>
+> **Le condizioni di gate hanno un codice loro** (`CONDITIONS_NOT_MET`). Prima finivano in
+> `NO_CONTENT_MATCH`, che significa «non ho estratto niente» — il motivo *sbagliato*: il
+> messaggio era stato letto benissimo, era la condizione a fermarlo, e il verdetto mandava a
+> correggere i delimitatori invece della condizione. In modo «TUTTE (E)» vengono nominate
+> **solo** le condizioni davvero fallite; in «una qualsiasi (O)» tutte, perché il gate cade
+> solo se cadono tutte. `NO_CONTENT_MATCH` resta per il suo caso vero (parser a soli valori
+> fissi che non estrae nulla).
+>
+> **Gli avvisi multi-riga compaiono anche nel verdetto**, non più solo nel banner arancione
+> della sezione: con l'interruttore acceso e nessuna riga abilitata si leggeva «✅ Pronto» e
+> si dava per scontato che le righe extra sarebbero nate. Restano **avvisi**: non declassano
+> mai un verdetto piazzabile.
+>
+> **Il gate del runtime non è cambiato.** Tutto questo è **sola diagnosi**: il bridge scarta
+> esattamente gli stessi messaggi di prima — cambia cosa ti viene spiegato, non cosa passa.
+
 Entrambe: input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
 **ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
 produce alcuna linea Over (#318 L2-1 · #166 P3-cp1). Stessi cap di plausibilità (fonte
@@ -710,7 +751,8 @@ Tutti questi gate devono passare perché una riga venga scritta:
    messaggio).
 6. **Condizioni di gate** (PR-1, opzionali): se il parser definisce condizioni
    `contiene`/`NON contiene` (con modo `E`/`O`), il messaggio viene processato **solo se**
-   le soddisfa; altrimenti è **scartato** (`NO_CONTENT_MATCH`, nessuna riga). Vedi §3ter.
+   le soddisfa; altrimenti è **scartato** (nessuna riga; in anteprima lo stato è
+   `CONDITIONS_NOT_MET`, col motivo che nomina la condizione). Vedi §3ter.
 
 ### Come si sceglie il BetType (#182 PR A ⑧)
 
@@ -748,10 +790,16 @@ mappa **in ingresso** (`validator._BETTYPE_CANON`); la tendina resta `PUNTA`/`BA
 
 Un Parser Personalizzato può opzionalmente dichiarare una lista di **condizioni** sul testo
 del messaggio: il parser **scatta soltanto se il messaggio le soddisfa**, altrimenti il
-messaggio è **scartato** (`NO_CONTENT_MATCH`, nessuna riga CSV). È un **filtro fail-closed**
-valutato **prima** di ogni estrazione (in cima a `custom_parser_engine.matches_message`), utile
-per far agire un parser **solo sui messaggi pertinenti** — es. «un mercato/lato diverso a
-seconda dello scenario nel messaggio».
+messaggio è **scartato** (nessuna riga CSV). È un **filtro fail-closed** valutato **prima** di
+ogni estrazione (in cima a `custom_parser_engine.matches_message`), utile per far agire un
+parser **solo sui messaggi pertinenti** — es. «un mercato/lato diverso a seconda dello
+scenario nel messaggio».
+
+In «🧪 Prova messaggio» lo scarto per condizioni ha un codice **suo**, `CONDITIONS_NOT_MET`,
+e il motivo **nomina le condizioni fallite** (`custom_parser_engine.failed_conditions`).
+Prima ricadeva in `NO_CONTENT_MATCH` — «non ho estratto niente» — che qui è falso e mandava
+a correggere i delimitatori invece della condizione. Il codice è di sola **diagnosi**: il
+runtime scarta il messaggio esattamente come prima.
 
 Modello (`custom_parser.py`):
 

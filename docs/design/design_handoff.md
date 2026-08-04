@@ -1207,6 +1207,30 @@ Sezioni (colonna destra, dall'alto):
   scarterebbe il bridge. Per un `ID_ONLY` **a riga singola** con ID obbligatori lasciati vuoti il
   verdetto resta `⛔ Non pronto` (l'arricchimento ID dal dizionario è funzione multi-riga; coerente
   col runtime che non lo piazzerebbe).
+
+  **Il verdetto porta il MOTIVO di ogni fonte attiva** (ordine proprietario 2026-08-04): non
+  solo dei campi mancanti (#245) ma anche degli stati di riga, che prima arrivavano come sigle
+  nude. La riga si compone così, in quest'ordine: `⛔ Non pronto (CODICE)` · *motivo dello
+  stato* · `mancanti: <campi (motivo per campo)>` · eventuali `⚠` degli avvisi multi-riga ·
+  eventuale `💡` del suggerimento separatore. Casi che il design deve saper mostrare (testi
+  verbatim, spesso **lunghi**: la label è `justify="left"` e va lasciata andare a capo):
+  - `⛔ Non pronto (CONDITIONS_NOT_MET) · il messaggio è stato letto correttamente, ma non
+    soddisfa la condizione di gate «contiene: GOL ANNULLATO»` — **codice nuovo**, prima era
+    `NO_CONTENT_MATCH` col motivo sbagliato;
+  - `⛔ Non pronto (MAPPING_MISSING) · EventName non traducibile: …` (Dizionario nomi);
+  - `⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: …` (Dizionario mercati);
+  - `⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)`;
+  - `⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti dalla
+    Modalità: gli ID si prendono dal «Catalogo XTrader», i nomi si estraggono dal messaggio ·
+    mancanti: MarketId, SelectionId`;
+  - `⚠ 1/2 righe piazzabili (le altre verranno scartate) · riga 1 (Mercato): INVALID_PRICE —
+    quota non numerica o ≤ 1.0` — il riepilogo multi-riga ora **nomina la riga** e il perché;
+  - `✅ Pronto · … · ⚠ MultiMarket è attivo ma nessuna riga mercato è abilitata: nessuna riga
+    extra verrà generata.` — gli avvisi delle sezioni multi, che prima stavano **solo** nel
+    banner arancione della sezione, compaiono ora anche qui. Restano **avvisi**: non
+    declassano mai un verdetto piazzabile a `⛔`.
+  Il banner in testa alla **tabella diagnostica** e il testo di **«📋 Copia diagnostica»**
+  mostrano lo stesso motivo, così le tre viste non dicono cose diverse.
 - **Anteprima righe generate (#192):** tabella `# · Tipo (Base/Mercato/Selezione) · Esito ·
   Riga CSV`. È la fonte **autorevole** per l'esito delle righe generate (la tabella diagnostica
   per-colonna qui sotto è a livello della sola riga base). Caso limite (P3-11 #76): se con

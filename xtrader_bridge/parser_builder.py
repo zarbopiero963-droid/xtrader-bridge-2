@@ -581,7 +581,9 @@ class ParserBuilder:
     def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
                      diag_status: str, res_row: dict, res_missing_required: list,
                      res_detail, content_ok: bool = True, res_warnings=(),
-                     res_hint: str = "", missing_reasons: dict = None) -> str:
+                     res_hint: str = "", missing_reasons: dict = None,
+                     status_reason: str = "", multi_warnings=(),
+                     content_status: str = None) -> str:
         """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.
 
         Precedenza (Codex #19):
@@ -620,6 +622,14 @@ class ParserBuilder:
         # Si accoda DOPO gli avvisi e non altera mai il verdetto di piazzabilità.
         if res_hint:
             warn += f" · 💡 {res_hint}"
+        # Avvisi delle sezioni multi-riga (ordine proprietario 2026-08-04). Esistevano già,
+        # ma SOLO nel banner arancione della sezione: chi guardava il verdetto vedeva
+        # «✅ Pronto» e credeva che le righe extra sarebbero state generate — mentre con
+        # l'interruttore acceso e nessuna riga abilitata non ne nasce nessuna. Sono AVVISI:
+        # si accodano senza mai declassare il verdetto di piazzabilità (un falso allarme
+        # bloccante sarebbe peggio del silenzio).
+        for avviso in multi_warnings or ():
+            warn += f" · ⚠ {avviso}"
         if any(getattr(p, "kind", "base") != "base" for p in preview_rows):
             # Gate di contenuto come il runtime (signal_router): un parser a soli valori fissi
             # è piazzabile su qualsiasi testo ma verrebbe scartato con NO_CONTENT_MATCH. Non
@@ -632,8 +642,15 @@ class ParserBuilder:
                 # Riusa il token di stato condiviso (`parser_diagnostics`, stessa fonte di
                 # `diag.message_error` da cui deriva `content_ok`) così il messaggio resta
                 # allineato allo status del runtime, senza letterale divergente (CodeRabbit/Sourcery).
-                return (f"⛔ Non pronto ({parser_diagnostics.NO_CONTENT_MATCH}) · "
-                        "nessun contenuto estratto dal messaggio") + warn
+                # `content_status` distingue ora «niente estratto» da «condizioni di gate non
+                # soddisfatte»: erano lo stesso codice, e il motivo mostrato era quello
+                # sbagliato — mandava a correggere i delimitatori invece delle condizioni.
+                # È un parametro ESPLICITO e non `diag_status`: quest'ultimo coincide col
+                # codice di contenuto solo quando la riga base è piazzabile, e legarci il ramo
+                # farebbe stampare uno stato scorrelato ai chiamanti che non li allineano.
+                codice = content_status or parser_diagnostics.NO_CONTENT_MATCH
+                motivo = status_reason or "nessun contenuto estratto dal messaggio"
+                return f"⛔ Non pronto ({codice}) · {motivo}" + warn
             return ParserBuilder.preview_summary(preview_rows) + warn
         if diag_placeable:
             # Decimali nel formato della lingua CSV corrente (#342, follow-up #344): l'anteprima
@@ -658,7 +675,13 @@ class ParserBuilder:
             extra = f" · mancanti: {', '.join(voci)}"
         else:
             extra = ""
-        return f"⛔ Non pronto ({diag_status}){extra}" + warn
+        # Motivo dello STATO (ordine proprietario 2026-08-04): stati come MAPPING_MISSING o
+        # MARKET_MAPPING_MISSING non hanno campi «mancanti» da elencare, quindi arrivavano
+        # come SIGLE NUDE — la spiegazione c'era già nella tabella diagnostica sotto, ma non
+        # nella riga che si legge per prima. Opzionale: i chiamanti che non lo passano
+        # (report batch, test storici) vedono esattamente la riga di prima.
+        causa = f" · {status_reason}" if status_reason else ""
+        return f"⛔ Non pronto ({diag_status}){causa}{extra}" + warn
 
     @staticmethod
     def preview_summary(preview_rows: list) -> str:
@@ -673,10 +696,38 @@ class ParserBuilder:
         placeable = sum(1 for p in preview_rows if p.placeable)
         if placeable == total:
             return f"✅ Pronto · {total} righe generate, tutte piazzabili."
+        scartate = ParserBuilder._scarti_per_riga(preview_rows)
         if placeable == 0:
             statuses = ", ".join(sorted({p.status for p in preview_rows}))
-            return f"⛔ Nessuna delle {total} righe è piazzabile ({statuses})."
-        return f"⚠ {placeable}/{total} righe piazzabili (le altre verranno scartate)."
+            return f"⛔ Nessuna delle {total} righe è piazzabile ({statuses}) · {scartate}"
+        return (f"⚠ {placeable}/{total} righe piazzabili (le altre verranno scartate) · "
+                f"{scartate}")
+
+    # Etichette leggibili del tipo di riga generata. Vivevano SOLO nella GUI; ora che
+    # anche il verdetto le usa stanno qui, nella logica pura (regola 3 — la GUI le
+    # rilegge da qui invece di tenerne una seconda copia che domani divergerebbe).
+    _MULTI_KIND_LABEL = {"base": "Base", "market": "Mercato", "selection": "Selezione"}
+
+    @staticmethod
+    def _scarti_per_riga(preview_rows: list) -> str:
+        """Elenco «riga N (tipo): STATO — motivo» delle righe NON piazzabili.
+
+        Ordine del proprietario (2026-08-04): «⚠ 1/2 righe piazzabili» diceva QUANTE
+        righe cadono ma non QUALI né perché — con dieci righe multi è un indovinello.
+        Il motivo viene da `parser_diagnostics.explain` (fonte unica, la stessa frase
+        della tabella diagnostica), non da un letterale nuovo qui."""
+        voci = []
+        for p in preview_rows:
+            if p.placeable:
+                continue
+            tipo = ParserBuilder._MULTI_KIND_LABEL.get(getattr(p, "kind", "base"),
+                                                       getattr(p, "kind", "base"))
+            motivo = parser_diagnostics.explain(p.status)
+            # `explain` ripiega sul codice quando non conosce la voce: in quel caso lo
+            # status è già stampato accanto, quindi non lo si ripete.
+            coda = f" — {motivo}" if motivo and motivo != p.status else ""
+            voci.append(f"riga {p.index + 1} ({tipo}): {p.status}{coda}")
+        return "; ".join(voci)
 
     def preview_rows(self, message: str, *, provider: str = "",
                      mode: str = None, require_price: bool = None,
