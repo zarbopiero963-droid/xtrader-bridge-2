@@ -27,6 +27,22 @@ PKG = pathlib.Path(__file__).resolve().parents[2] / "xtrader_bridge"
 SIBLINGS = {p.stem for p in PKG.glob("*.py") if p.stem != "__init__"}
 
 _SCOPI = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_COMPREHENSION = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _bind_target(target: ast.AST, nomi: set[str]) -> None:
+    """Lega SOLO i Name puri di un target (ricorsione su Tuple/List/Starred).
+
+    Un Name dentro `ast.Attribute`/`ast.Subscript` (es. ``ui_cards.foo = 1``,
+    ``x[i] = 1``) è un USO dell'oggetto, non un binding del nome — raccoglierlo
+    mascherava proprio il caso da bloccare (rilievo GPT-5.5 sul giro 1)."""
+    if isinstance(target, ast.Name):
+        nomi.add(target.id)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            _bind_target(elt, nomi)
+    elif isinstance(target, ast.Starred):
+        _bind_target(target.value, nomi)
 
 
 def _binding_di_scope(nodo: ast.AST) -> set[str]:
@@ -60,24 +76,18 @@ def _binding_di_scope(nodo: ast.AST) -> set[str]:
                     nomi.add(a.asname or a.name)
             elif isinstance(s, ast.Assign):
                 for t in s.targets:
-                    for n in ast.walk(t):
-                        if isinstance(n, ast.Name):
-                            nomi.add(n.id)
+                    _bind_target(t, nomi)
             elif isinstance(s, (ast.AnnAssign, ast.AugAssign)):
                 if isinstance(s.target, ast.Name):
                     nomi.add(s.target.id)
             elif isinstance(s, (ast.For, ast.AsyncFor)):
-                for n in ast.walk(s.target):
-                    if isinstance(n, ast.Name):
-                        nomi.add(n.id)
+                _bind_target(s.target, nomi)
                 raccogli(s.body); raccogli(s.orelse)
                 continue
             elif isinstance(s, (ast.With, ast.AsyncWith)):
                 for item in s.items:
                     if item.optional_vars is not None:
-                        for n in ast.walk(item.optional_vars):
-                            if isinstance(n, ast.Name):
-                                nomi.add(n.id)
+                        _bind_target(item.optional_vars, nomi)
                 raccogli(s.body)
                 continue
             elif isinstance(s, ast.Try):
@@ -93,10 +103,6 @@ def _binding_di_scope(nodo: ast.AST) -> set[str]:
                     break
                 if isinstance(n, ast.NamedExpr) and isinstance(n.target, ast.Name):
                     nomi.add(n.target.id)
-                if isinstance(n, ast.comprehension):
-                    for t in ast.walk(n.target):
-                        if isinstance(t, ast.Name):
-                            nomi.add(t.id)
             # statement composti restanti: scendi nei rami
             for campo in ("body", "orelse"):
                 sotto = getattr(s, campo, None)
@@ -112,18 +118,33 @@ def _usi_non_risolti(tree: ast.Module) -> set[str]:
     """Moduli fratelli usati come ``x.attr`` senza binding nella catena di scope."""
     rotti: set[str] = set()
 
-    def visita(nodo: ast.AST, catena: tuple[frozenset[str], ...]):
+    # Ogni voce della catena è (tipo_scope, nomi). Regole di visibilità reali di
+    # Python: entrando in una FUNZIONE si scartano gli scope classe ereditati (il
+    # corpo classe non è visibile ai metodi); le COMPREHENSION legano i loro
+    # target solo al proprio interno (in Py3 non leakano — rilievo GPT-5.5).
+    def visita(nodo: ast.AST, catena):
         if isinstance(nodo, _SCOPI):
-            catena = catena + (frozenset(_binding_di_scope(nodo)),)
+            catena = tuple(v for v in catena if v[0] != "classe") + \
+                (("funzione", frozenset(_binding_di_scope(nodo))),)
+        elif isinstance(nodo, ast.ClassDef):
+            corpo_cls: set[str] = set()
+            fittizio = ast.Module(body=nodo.body, type_ignores=[])
+            corpo_cls |= _binding_di_scope(fittizio)
+            catena = catena + (("classe", frozenset(corpo_cls)),)
+        elif isinstance(nodo, _COMPREHENSION):
+            target: set[str] = set()
+            for gen in nodo.generators:
+                _bind_target(gen.target, target)
+            catena = catena + (("comprehension", frozenset(target)),)
         for figlio in ast.iter_child_nodes(nodo):
             if (isinstance(figlio, ast.Attribute)
                     and isinstance(figlio.value, ast.Name)
                     and figlio.value.id in SIBLINGS
-                    and not any(figlio.value.id in s for s in catena)):
+                    and not any(figlio.value.id in nomi for _, nomi in catena)):
                 rotti.add(figlio.value.id)
             visita(figlio, catena)
 
-    visita(tree, (frozenset(_binding_di_scope(tree)),))
+    visita(tree, (("modulo", frozenset(_binding_di_scope(tree))),))
     return rotti
 
 
@@ -181,3 +202,37 @@ def test_rilevatore_import_locale_alla_funzione_vale():
             from . import ui_cards
             return ui_cards.card_style()
     """) == set()
+
+
+def test_rilevatore_assegnare_a_attributo_non_e_un_binding():
+    """Fixture negativa GPT-5.5 (giro 2): ``ui_cards.foo = 1`` senza import è un
+    USO scoperto — la v2 lo raccoglieva come binding e lo mascherava."""
+    assert _controlla("""
+        ui_cards.foo = 1
+    """) == {"ui_cards"}
+
+
+def test_rilevatore_target_di_comprehension_non_leaka():
+    """Fixture negativa GPT-5.5 (giro 2): in Py3 il target di comprehension non
+    leaka — l'uso DOPO la comprehension deve fallire, quello DENTRO no."""
+    assert _controlla("""
+        def f(mods):
+            dentro = [ui_cards.nome for ui_cards in mods]   # legittimo
+            return ui_cards.Card                            # scoperto
+    """) == {"ui_cards"}
+
+
+def test_rilevatore_scope_classe_visibile_nel_corpo_ma_non_nei_metodi():
+    """Rilievo GPT-5.5 (giro 2): un import nel corpo classe copre gli usi nel
+    corpo classe (niente falso positivo), ma NON i metodi (come in Python)."""
+    assert _controlla("""
+        class SoloCorpo:
+            from . import ui_cards
+            stile = ui_cards.card_style()   # legittimo: corpo classe
+    """) == set()
+    assert _controlla("""
+        class CorpoENonMetodo:
+            from . import ui_cards
+            def metodo(self):
+                return ui_cards.badge()     # scoperto: il corpo classe non fa scope
+    """) == {"ui_cards"}
