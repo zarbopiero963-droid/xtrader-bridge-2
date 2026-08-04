@@ -1680,6 +1680,7 @@ giorni nuovi; per cambiare nome o macchina si emette una licenza nuova dalla sch
   file**. Un test lo presidia sul sorgente;
 - **la copia non mente**: se gli appunti non sono disponibili l'azione lo **dice** invece di
   dichiarare successo — altrimenti si incolla il contenuto vecchio credendo di avere la chiave nuova;
+
 **La chiave di attivazione sta FUORI dalle schede (2026-08-04).** Sotto le schede, sopra la riga
 messaggi, c'è una barra permanente: etichetta «Chiave di attivazione da mandare all'utente», il
 riquadro monospaziato del token e «📋 Copia chiave di attivazione». È visibile da **qualunque**

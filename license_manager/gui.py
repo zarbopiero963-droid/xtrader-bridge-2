@@ -360,18 +360,35 @@ class LicenseManagerApp(ctk.CTk):
             return {"accepted": False, "needs_confirm": False,
                     "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
         nome, ser = rec.get("name", ""), rec.get("serial", "")
-        revocato = registry.is_serial_revoked(
-            self._read_revocations(directory=self._key_dir), ser)
+        # Tre stati, non due: `True` revocata, `False` non revocata, **`None` non lo so**.
+        # `revoked.jsonl` illeggibile o lockato è frequente su Windows — è la ragione per cui
+        # `_revoked_serials` esiste con `strict`. Qui la lettura serviva solo a scegliere il testo
+        # dell'avviso, ma senza guardia l'eccezione usciva da `_evaluate_delete` e da `_on_delete`
+        # (che non ha handler): il pulsante non faceva **nulla e senza messaggio**.
+        # E `None` NON ricade su «non revocata»: sarebbe una rassicurazione su uno stato che non
+        # abbiamo letto — la stessa distinzione già scritta nel docstring di `_revoked_serials`
+        # («non poter leggere le revoche non è "nessuno è revocato": è "non lo so"»).
+        try:
+            revocato = registry.normalize_serial(ser) in self._revoked_serials(strict=True)
+        except Exception as exc:    # noqa: BLE001 — la vista della revoca non è il gate: qui
+            # si sceglie solo COSA dire; il gate resta `conferma`, che non dipende da questo.
+            _log.debug("Revoche illeggibili in eliminazione [%s]", type(exc).__name__)
+            revocato = None
         # NIENTE si elimina senza `conferma=True`. Il gate è qui, non nell'handler: così anche un
         # chiamante futuro che dimenticasse di chiedere non può cancellare per sbaglio — e la
         # domanda non può essere «in anteprima» su un metodo che ha già scritto su disco.
         if not conferma:
-            avviso = (f"⚠️ La licenza {ser} ({nome}) è REVOCATA. Eliminarne la riga NON la riattiva "
-                      "— la revoca resta in vigore sui bridge — ma la fa sparire da questo elenco, "
-                      "quindi non la vedrai più."
-                      if revocato else
-                      f"Eliminare la riga {ser} ({nome})? L'operazione è irreversibile e il token "
-                      "va perso: «📋 Ri-mostra token» non potrà più ripescarlo.")
+            if revocato is True:
+                avviso = (f"⚠️ La licenza {ser} ({nome}) è REVOCATA. Eliminarne la riga NON la "
+                          "riattiva — la revoca resta in vigore sui bridge — ma la fa sparire da "
+                          "questo elenco, quindi non la vedrai più.")
+            elif revocato is None:
+                avviso = (f"⚠️ Non ho potuto leggere l'elenco delle revoche: non so se {ser} "
+                          f"({nome}) sia revocata. Eliminare la riga non riattiva nessuno, ma se "
+                          "una revoca c'è non la vedrai più qui. Il token va perso.")
+            else:
+                avviso = (f"Eliminare la riga {ser} ({nome})? L'operazione è irreversibile e il "
+                          "token va perso: «📋 Ri-mostra token» non potrà più ripescarlo.")
             return {"accepted": False, "needs_confirm": True, "revoked": revocato,
                     "message": avviso}
         try:
@@ -1003,6 +1020,15 @@ class LicenseManagerApp(ctk.CTk):
         self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
         self._msg_lbl.pack(fill="x", padx=12, pady=(2, 10))
 
+        # In coda a `_build_ui`, dove sono sempre stati: inserendo `_build_barra_token` qui sopra
+        # erano finiti nel SUO corpo, quindi giravano prima che `_msg_lbl` esistesse (rilievo
+        # bloccante di Fable 5 e rilievo di CodeRabbit, indipendenti). Non crashavano — nessuna
+        # delle due tocca la riga messaggi, e l'app parte davvero (verificato sotto Xvfb) — ma
+        # dipendere da quella coincidenza è il difetto: la prima delle due che un domani volesse
+        # scrivere un messaggio troverebbe `_msg_lbl` inesistente.
+        self._refresh_publish_fields()
+        self._refresh_publish_status()
+
     def _build_barra_token(self) -> None:
         """Riquadro della **chiave di attivazione**, fuori dalle schede.
 
@@ -1033,9 +1059,6 @@ class LicenseManagerApp(ctk.CTk):
         ctk.CTkButton(barra, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
                       fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
                       hover_color=ui_theme.BORDER).pack(anchor="w")
-
-        self._refresh_publish_fields()
-        self._refresh_publish_status()
 
     @staticmethod
     def _area_scorrevole(tab):

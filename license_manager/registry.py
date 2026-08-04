@@ -36,7 +36,7 @@ import threading
 from xtrader_bridge.licensing.license import license_serial
 
 from . import log_safe
-from .core import manager_dir
+from .core import _fsync_dir, manager_dir
 
 _log = log_safe.get_logger(__name__)
 
@@ -196,12 +196,33 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
         return 0
     path = registry_path(directory)
     with _WRITE_LOCK:
-        records = read_records(path=path)
-        tenuti = [r for r in records if normalize_serial(r.get("serial")) != voluto]
-        rimossi = len(records) - len(tenuti)
+        # Si filtrano le RIGHE GREZZE, non i record ri-serializzati (rilievo di Fable 5 e
+        # CodeRabbit, indipendenti). Ri-costruire il file da `read_records` avrebbe scartato per
+        # sempre le righe che quella funzione salta — vuote, troncate, non-dict — comprese quelle
+        # di **altri** serial, che l'utente non ha chiesto di toccare. Su questo registro sarebbe
+        # distruzione silenziosa: contiene l'unica copia del token di ogni licenza, e una riga
+        # troncata da un crash è ancora recuperabile a mano finché resta sul disco.
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                righe = f.readlines()
+        except OSError:
+            return 0
+        tenute, rimossi = [], 0
+        for grezza in righe:
+            testo = grezza.strip()
+            if not testo:
+                continue
+            try:
+                obj = json.loads(testo)
+            except (json.JSONDecodeError, ValueError):
+                obj = None
+            if isinstance(obj, dict) and normalize_serial(obj.get("serial")) == voluto:
+                rimossi += 1
+                continue
+            tenute.append(testo)      # illeggibile o di un altro serial → si TIENE
         if not rimossi:
             return 0
-        payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in tenuti)
+        payload = "".join(r + "\n" for r in tenute)
         parent = os.path.dirname(path) or "."
         os.makedirs(parent, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=parent, prefix=".registry_", suffix=".tmp")
@@ -217,6 +238,11 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
             except OSError:
                 pass
             raise
+        # `fsync` della DIRECTORY dopo il rename (rilievo Fugu Ultra): l'fsync del file rende
+        # durabile il CONTENUTO, non la voce di directory — un power-loss subito dopo `os.replace`
+        # poteva lasciare il registro al contenuto vecchio. Riusa l'helper di `core`, che e' gia'
+        # best-effort e non solleva (su Windows e' un no-op: la' il rename e' gia' atomico).
+        _fsync_dir(parent)
     return rimossi
 
 

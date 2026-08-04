@@ -173,9 +173,14 @@ class _AppFinta:
 
 
 def _app(directory):
+    """Aggancia i metodi REALI al doppio: `_evaluate_delete` e il seam che usa per leggere le
+    revoche. Legarli entrambi (invece di reimplementare il secondo) è ciò che ha fatto diventare
+    rosso questo file quando `_evaluate_delete` è passato a `_revoked_serials(strict=True)` —
+    il test doveva accorgersene, e se ne è accorto."""
     from license_manager.gui import LicenseManagerApp
     finta = _AppFinta(directory)
     finta._evaluate_delete = LicenseManagerApp._evaluate_delete.__get__(finta)
+    finta._revoked_serials = LicenseManagerApp._revoked_serials.__get__(finta)
     return finta
 
 
@@ -269,3 +274,71 @@ def test_i_messaggi_di_rinnovo_e_ri_mostra_dicono_DOVE_e_il_token():
     sorgente = inspect.getsource(gui_mod)
     assert sorgente.count("riquadro in fondo alla finestra") >= 2, (
         "i messaggi di emissione/rinnovo e ri-mostra devono indicare dove trovare il token")
+
+
+# ── percorsi di FALLIMENTO ──────────────────────────────────────────────────
+#
+# Rilievi di CodeRabbit e Fugu Ultra sulla PR #246: la riscrittura atomica è la parte più
+# rischiosa del codice nuovo, ed era coperta solo sui cammini felici.
+
+def test_se_la_riscrittura_fallisce_il_registro_resta_INTATTO(registro, monkeypatch):
+    """`os.replace` che fallisce (registro lockato da un'altra istanza su Windows) non deve
+    lasciare né un file mezzo riscritto né il temporaneo in giro."""
+    percorso = registry.registry_path(registro)
+    with open(percorso, "rb") as f:
+        prima = f.read()
+
+    def replace_ko(*_a, **_k):
+        raise OSError("registro lockato")
+
+    monkeypatch.setattr(registry.os, "replace", replace_ko)
+
+    with pytest.raises(OSError):
+        registry.remove_record("LIC-BBB", directory=registro)
+
+    with open(percorso, "rb") as f:
+        assert f.read() == prima, "il registro è stato alterato da una riscrittura fallita"
+    residui = [n for n in os.listdir(registro) if n.startswith(".registry_")]
+    assert residui == [], f"temporaneo non rimosso: {residui}"
+
+
+def test_una_riga_ILLEGGIBILE_di_un_altro_serial_non_viene_persa(registro):
+    """Rilievo di Fable 5 e CodeRabbit, indipendenti.
+
+    Il registro contiene l'**unica** copia del token di ogni licenza. Ricostruire il file dai soli
+    record che `read_records` sa leggere avrebbe scartato per sempre le righe troncate — comprese
+    quelle di serial che l'utente non ha chiesto di toccare, e che finché restano su disco sono
+    ancora recuperabili a mano.
+    """
+    percorso = registry.registry_path(registro)
+    with open(percorso, "a", encoding="utf-8") as f:
+        f.write('{"serial": "LIC-TRONCA", "token": "meta-riga\n')   # JSON troncato di proposito
+
+    registry.remove_record("LIC-AAA", directory=registro)
+
+    testo = open(percorso, encoding="utf-8").read()
+    assert "LIC-TRONCA" in testo, "la riga troncata di un ALTRO serial è stata distrutta"
+    assert "LIC-AAA" not in testo, "la riga richiesta non è stata eliminata"
+
+
+def test_revoche_ILLEGGIBILI_non_fanno_sparire_il_pulsante(registro):
+    """Rilievo CodeRabbit: `_read_revocations` può sollevare (store lockato — frequente su
+    Windows). Senza guardia l'eccezione usciva da `_evaluate_delete` e da `_on_delete`, che non ha
+    handler: il pulsante non faceva **nulla, e senza messaggio**.
+
+    E il testo non deve ricadere su «non revocata»: sarebbe una rassicurazione su uno stato che
+    non è stato letto.
+    """
+    app = _app(registro)
+
+    def leggi_ko(**_k):
+        raise OSError("revoked.jsonl lockato")
+
+    app._read_revocations = leggi_ko
+
+    esito = app._evaluate_delete("LIC-AAA")      # non deve sollevare
+
+    assert esito["needs_confirm"] is True
+    assert esito["revoked"] is None, "«non lo so» non deve diventare «non revocata»"
+    assert "non ho potuto leggere" in esito["message"].lower()
+    assert _serials(registro) == ["LIC-AAA", "LIC-BBB", "LIC-CCC"], "ha eliminato senza conferma"
