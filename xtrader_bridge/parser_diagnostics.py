@@ -21,6 +21,7 @@ from .custom_parser_engine import (
     EXTRACT_END_NOT_FOUND,
     EXTRACT_START_NOT_FOUND,
     extract_value_traced,
+    failed_conditions,
     matches_message,
 )
 
@@ -45,8 +46,14 @@ MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"  # mercato non risolvibile (am
 # MAPPING_MISSING: lì manca la traduzione (dizionario), qui manca lo split (separatore sbagliato).
 TEAM_SEPARATOR_NOT_FOUND = "TEAM_SEPARATOR_NOT_FOUND"
 
-# ── Codice a livello messaggio ──────────────────────────────────────────────
+# ── Codici a livello messaggio ──────────────────────────────────────────────
 NO_CONTENT_MATCH = "NO_CONTENT_MATCH"    # niente estratto: solo valori fissi / nessun match
+# Condizioni di gate non soddisfatte (ordine proprietario 2026-08-04). DISTINTO da
+# NO_CONTENT_MATCH: lì non è stato estratto nulla (delimitatori da correggere), qui
+# l'estrazione è RIUSCITA ma il gate ha fermato il messaggio (condizione da correggere).
+# Confonderli mandava a cercare l'errore nei delimitatori, cioè nel posto sbagliato.
+# È un codice di sola DIAGNOSI: il runtime scarta gli stessi messaggi di prima.
+CONDITIONS_NOT_MET = "CONDITIONS_NOT_MET"
 
 _OK_CODES = (OK, EMPTY_OPTIONAL)
 
@@ -75,7 +82,29 @@ _EXPLAIN = {
                                "nessuna riga scritta — correggi il campo «Separatore squadre» "
                                "del parser (o svuotalo per lasciare il nome invariato)"),
     NO_CONTENT_MATCH: "nessun contenuto estratto dal messaggio (solo valori fissi / nessun match)",
+    # Spiegazione generica: `diagnose` la sostituisce con quella che NOMINA le condizioni
+    # fallite, che è l'unica azionabile. Questa resta per i chiamanti che hanno solo il codice.
+    CONDITIONS_NOT_MET: ("le condizioni di gate non sono soddisfatte: il messaggio è stato "
+                         "letto correttamente ma il parser non scatta"),
 }
+
+
+# Stati a livello di RIGA (`custom_pipeline`/`validator`): finora avevano una spiegazione
+# solo nei loro gemelli per-campo qui sopra, quindi arrivavano al verdetto come sigle nude.
+# Dove il gemello esiste si RIUSA la sua frase (regola 3: due copie corrette oggi sono due
+# copie divergenti domani); dove non esiste la frase è scritta qui, e risponde alla domanda
+# che si pone chi legge — «quale colonna, e dove la prendo».
+_EXPLAIN.update({
+    custom_pipeline.NOT_READY: ("manca almeno un campo obbligatorio del parser "
+                                "(le colonne con «Obblig.» spuntato)"),
+    custom_pipeline.INVALID_MISSING_PROVIDER: _EXPLAIN[MISSING_PROVIDER],
+    custom_pipeline.MAPPING_MISSING: _EXPLAIN[MAPPING_MISSING],
+    custom_pipeline.MARKET_MAPPING_MISSING: _EXPLAIN[MARKET_MAPPING_MISSING],
+    validator.INVALID_MISSING_PRICE: "quota richiesta dal parser ma assente nel messaggio",
+    validator.INVALID_MISSING_FIELDS: (
+        "mancano i campi di riconoscimento richiesti dalla Modalità: gli ID si prendono dal "
+        "«Catalogo XTrader», i nomi si estraggono dal messaggio"),
+})
 
 
 def explain(code: str) -> str:
@@ -110,7 +139,11 @@ class Diagnosis:
     placeable: bool
     status: str                                  # status del pipeline (VALID/INVALID_*/NOT_READY)
     fields: "list[FieldDiagnostic]" = field(default_factory=list)
-    message_error: str = ""                      # NO_CONTENT_MATCH o ""
+    message_error: str = ""                      # NO_CONTENT_MATCH, CONDITIONS_NOT_MET o ""
+    # Motivo azionabile dello STATO (non dei singoli campi): la frase che nomina le
+    # condizioni fallite, o la spiegazione del codice. Vuoto = nessun motivo specifico.
+    # Calcolato in `diagnose`, dove `defn` e testo sono disponibili; letto da `motivo_stato`.
+    status_reason: str = ""
 
 
 def _classify_extraction(rule, raw, reason, after, final) -> str:
@@ -263,11 +296,21 @@ def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = No
     # `matches_message`, altrimenti `NO_CONTENT_MATCH`). Riflettiamolo nel verdetto,
     # così un parser a soli valori fissi che "validerebbe" non risulta PRONTO quando
     # il bridge in realtà lo scarterebbe (Codex).
-    message_error = "" if matches_message(defn, text, mode) else NO_CONTENT_MATCH
+    # `matches_message` fonde due cause in un unico `False`: nulla di estratto, OPPURE
+    # condizioni di gate non soddisfatte (che ritornano `False` per prime). Per il runtime
+    # è la stessa cosa — scarta e basta — ma per chi prova un messaggio sono due correzioni
+    # OPPOSTE: nel primo caso si sistemano i delimitatori, nel secondo le condizioni.
+    # Qui le separiamo: SOLO diagnosi, il gate resta quello di prima.
+    condizioni_fallite = failed_conditions(defn, text)
+    if condizioni_fallite:
+        message_error = CONDITIONS_NOT_MET
+    else:
+        message_error = "" if matches_message(defn, text, mode) else NO_CONTENT_MATCH
     placeable = result.placeable and not message_error
     status = message_error if (message_error and result.placeable) else result.status
-    return Diagnosis(placeable=placeable, status=status,
-                     fields=fields, message_error=message_error)
+    return Diagnosis(placeable=placeable, status=status, fields=fields,
+                     message_error=message_error,
+                     status_reason=_motivo_stato(status, condizioni_fallite))
 
 
 @dataclass
@@ -311,8 +354,12 @@ def diagnostic_table(diag: Diagnosis, defn: CustomParserDef) -> "list[TableRow]"
     rules_by_target = {r.target: r for r in defn.rules}
     rows: "list[TableRow]" = []
     if diag.message_error:
+        # Il motivo calcolato in `diagnose` è più preciso della spiegazione del solo codice
+        # (per le condizioni di gate NOMINA quelle fallite): la tabella mostra quello, così
+        # non dice meno del verdetto qui sopra. Ripiego sul codice se manca.
         rows.append(TableRow(
-            target=diag.message_error, status="⛔ ERR", reason=explain(diag.message_error),
+            target=diag.message_error, status="⛔ ERR",
+            reason=diag.status_reason or explain(diag.message_error),
             start_after="", end_before="", extracted="", ok=False, banner=True))
     for fd in diag.fields:
         start, end = _fmt_delim(rules_by_target.get(fd.target))
@@ -330,7 +377,12 @@ def format_report(diag: Diagnosis) -> str:
     head = "PRONTO ✅" if diag.placeable else f"NON PRONTO ⛔  (status: {diag.status})"
     lines = [head]
     if diag.message_error:
-        lines.append(f"• {diag.message_error} — {explain(diag.message_error)}")
+        lines.append(f"• {diag.message_error} — "
+                     f"{diag.status_reason or explain(diag.message_error)}")
+    elif diag.status_reason:
+        # Stati di riga (MAPPING_MISSING, INVALID_MISSING_PROVIDER…): l'intestazione
+        # riporta la sigla, il motivo la rende azionabile anche negli appunti.
+        lines.append(f"• {diag.status} — {diag.status_reason}")
     for fd in diag.fields:
         flag = "OK " if fd.ok else "ERR"
         kind = "obbl" if fd.required else "opz "
@@ -414,3 +466,49 @@ def motivi_campi_mancanti(diag: "Diagnosis") -> dict:
         else:   # REQUIRED_EMPTY
             motivi[fd.target] = "nessun valore estratto"
     return motivi
+
+
+# Etichette delle condizioni di gate, IDENTICHE a quelle della tendina nella GUI
+# (`CustomParserPanel._COND_CONTAINS`/`_COND_NOT_CONTAINS`): chi legge il motivo deve
+# ritrovare la stessa parola che ha scelto, non un sinonimo.
+_COND_LABEL = {False: "contiene", True: "NON contiene"}
+
+
+def _motivo_condizioni(condizioni) -> str:
+    """Frase che NOMINA le condizioni di gate non soddisfatte.
+
+    Il testo delle condizioni lo scrive l'utente, ma finisce accanto a testo del
+    bridge: passa dalla stessa sanificazione del valore letto (`_leggibile`) —
+    control-char, bidi override e delimitatori neutralizzati, lunghezza capata."""
+    voci = [f"«{_COND_LABEL[bool(c.negate)]}: {_leggibile(c.text)}»" for c in condizioni]
+    quali = ", ".join(voci)
+    return (f"il messaggio è stato letto correttamente, ma non soddisfa "
+            f"{'la condizione' if len(voci) == 1 else 'le condizioni'} di gate {quali}")
+
+
+def _motivo_stato(status: str, condizioni_fallite) -> str:
+    """Motivo azionabile dello STATO (non dei campi), calcolato in `diagnose`.
+
+    Usa `_EXPLAIN` DIRETTAMENTE e non `explain()`: quello, per contratto, ripiega sul
+    codice stesso quando non conosce la voce — utile in tabella, dannoso qui, dove
+    produrrebbe «⛔ Non pronto (X) · X». Stato senza voce → nessun motivo, e il verdetto
+    resta quello di prima invece di guadagnare rumore."""
+    if condizioni_fallite:
+        return _motivo_condizioni(condizioni_fallite)
+    if status in _OK_CODES or status == validator.VALID:
+        return ""
+    return _EXPLAIN.get(status, "")
+
+
+def motivo_stato(diag: "Diagnosis") -> str:
+    """Motivo azionabile dello stato complessivo, per la riga del verdetto.
+
+    Ordine del proprietario (2026-08-04): stati come `MAPPING_MISSING`,
+    `MARKET_MAPPING_MISSING` o `INVALID_MISSING_PROVIDER` arrivavano al verdetto come
+    SIGLE NUDE — la spiegazione esisteva già in `_EXPLAIN` e si vedeva nella tabella
+    diagnostica sotto, ma non nella riga che si legge per prima. Qui la si porta lì,
+    senza letterali nuovi (regola 3: la fonte resta `_EXPLAIN`).
+
+    Stringa vuota quando non c'è nulla da spiegare (stato OK, o codice senza voce):
+    il verdetto non guadagna rumore quando il parser va bene."""
+    return diag.status_reason

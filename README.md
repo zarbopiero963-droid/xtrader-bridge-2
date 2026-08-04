@@ -233,6 +233,10 @@ del verdetto e l'**anteprima della riga CSV** (colonne e valori, col separatore 
 CSV) — **senza scrivere nulla**. Puoi provarne più d'uno separandoli con una riga `---`, e usarlo come
 tester mentre sistemi il parser. L'anteprima è **prudente** (senza dizionario Betfair può mostrare
 «non pronto» un parser che a runtime, col dizionario, verrebbe scritto; mai il contrario).
+Il motivo copre **ogni fonte attiva**, non solo le colonne mancanti: condizioni di gate (nominando
+quella che ha fermato il messaggio), dizionario nomi e mercati, Provider, campi richiesti dalla
+Modalità, e le righe MultiMarket/MultiSelection scartate — con l'avviso quando un interruttore multi
+è acceso ma non c'è nessuna riga abilitata. È lo stesso motivo che vedi in «🧩 Parser Personalizzato».
 
 **📖 Consulta dizionario.** Chiedi «come è mappata la Juventus?», «che mercati conosce il bridge?»,
 «cosa significa questo alias?»: l'assistente cerca nel **dizionario XTrader** e nei tuoi **profili di
