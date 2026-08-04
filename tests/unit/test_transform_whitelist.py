@@ -18,8 +18,11 @@ disattiva la trasformazione, toglie solo il modo di vederla e ripararla.
 """
 from __future__ import annotations
 
+import ast
 import importlib
+import inspect
 import sys
+import textwrap
 import types
 
 import pytest
@@ -96,3 +99,29 @@ def test_via_di_fuga_regola_salvata_fuori_lista_resta_visibile(gui):
     assert gui.colonne_avanzate_visibili("Price", value_map="bettype") == (False, True)
     assert gui.colonne_avanzate_visibili(
         "EventName", transform="score_to_over", value_map="marketname") == (True, True)
+
+
+def test_la_colonna_resta_una_label_non_modificabile(gui):
+    """Guardia dell'invariante su cui poggia la whitelist (rilievo convergente di
+    Fable 5 e Fugu Ultra sulla #244).
+
+    `colonne_avanzate_visibili` è valutata UNA volta in `_add_row`: è corretto solo
+    perché il target di una riga è immutabile — `refs["target"]` è una stringa fissa
+    e la colonna a video è una `CTkLabel`. Se un domani la colonna diventasse
+    editabile (Entry/OptionMenu) senza ricalcolare la visibilità, le tendine
+    resterebbero stantie: menu su colonne non ammesse, o assenti dove servono.
+    Questo test fallisce in quel momento, non dopo."""
+    albero = ast.parse(textwrap.dedent(inspect.getsource(gui.CustomParserPanel._add_row)))
+    editabili = []
+    for nodo in ast.walk(albero):
+        if not (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)):
+            continue
+        if nodo.func.attr not in ("CTkEntry", "CTkOptionMenu", "CTkComboBox"):
+            continue
+        for kw in nodo.keywords:
+            # un widget costruito col TESTO del target = colonna resa editabile
+            if kw.arg in ("text", "textvariable", "variable") and ast.dump(kw.value).count("target"):
+                editabili.append(nodo.func.attr)
+    assert editabili == [], (
+        f"la colonna è diventata editabile ({editabili}): la whitelist va RICALCOLATA "
+        "al cambio target, non solo alla creazione della riga")
