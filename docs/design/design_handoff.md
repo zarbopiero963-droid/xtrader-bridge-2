@@ -557,9 +557,15 @@ varianti**, perché chiedono all'utente due azioni diverse:
 
 A questi si aggiunge, dalla **#254**, l'avviso gemello sul **Dizionario mercati**: due voci che
 combaciano con la stessa frase ma indicano mercati diversi («Mappatura mercati «X», frase «gg»:
-combacia con 2 mercati diversi (…) -> il mercato NON viene risolto e il segnale è scartato
-(fail-closed). Rendi le frasi distinguibili, oppure togli una delle voci in conflitto.»). Stessa
-forma `f"⚠️ {warn}"`, stessa regola «resta IT».
+combacia con 2 coppie mercato/selezione diverse («Entrambe le squadre a segno / Sì», «Over/Under
+2,5 gol / Over 2,5 goal») -> il mercato NON viene risolto e il segnale è scartato (fail-closed).
+Rendi le frasi distinguibili, oppure togli una delle voci in conflitto.»). Stessa forma
+`f"⚠️ {warn}"`, stessa regola «resta IT».
+
+Il conteggio è di **coppie mercato/selezione**, non di mercati: Over e Under dello stesso mercato
+contano due, perché sono i due lati opposti della scommessa e l'utente deve sapere quale delle due
+righe togliere. Per chi disegna il pannello questo allunga la riga — ogni contendente porta
+`«mercato / selezione»`, non il solo nome del mercato.
 
 La seconda variante dei nomi è la più lunga di tutte e la più probabile su dizionari multi-sport o multilingua:
 chi disegna il pannello non può assumere una riga corta. Per chi disegna la UI il punto resta che

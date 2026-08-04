@@ -167,7 +167,7 @@ def test_255_frasi_equivalenti_per_CASE_devono_comparire_ENTRAMBE():
     [avviso] = mms.ambiguous_phrase_warnings(cfg)
     assert "Entrambe le squadre a segno" in avviso, avviso
     assert "1º tempo - Totale goal 0,5" in avviso, avviso
-    assert "1 mercati" not in avviso, avviso
+    assert "1 coppie" not in avviso, avviso
 
 
 def test_255_una_voce_SANA_con_altri_delimitatori_non_va_elencata_come_contendente():
@@ -228,6 +228,84 @@ def test_255_oltre_il_tetto_il_controllo_si_FERMA_e_lo_dice(monkeypatch):
     # voce (le sonde duplicate sono deduplicate, e il ciclo dei contendenti parte solo sui
     # conflitti veri — qui non ce ne sono).
     assert sotto_il_tetto <= mms._MAX_VOCI_CONTROLLO_AMBIGUITA, sotto_il_tetto
+
+
+def test_255_selezioni_OPPOSTE_dello_stesso_mercato_compaiono_entrambe():
+    """Over e Under dello stesso mercato: due tuple canoniche diverse, quindi un conflitto vero.
+
+    Il difetto misurato prima della correzione — l'elenco dei contendenti deduplicava per
+    `market_name` invece che per la tupla `(tipo, mercato, selezione)`:
+
+        «...combacia con 1 mercati diversi («Over/Under 2,5 gol»)...»
+
+    Un mercato solo per un conflitto fra i **due lati opposti della scommessa**, e nessun modo
+    per l'operatore di capire quale delle due righe togliere. È il caso più pericoloso del
+    dizionario mercati: piazzare Over invece di Under non è un segnale perso, è la scommessa
+    contraria.
+
+    Qui si pretende che il messaggio nomini **entrambe** le selezioni, e che il conteggio dica
+    `2` — il che richiede anche il wording «coppie mercato/selezione», perché «2 mercati» con un
+    solo nome di mercato elencato due volte sembrerebbe un errore dell'avviso."""
+    cfg = _cfg([_voce("o25", "Over/Under 2,5 gol", "Over 2,5 goal"),
+                _voce("o25", "Over/Under 2,5 gol", "Under 2,5 goal")])
+    prof = mms.entries_for_profiles(cfg, ["M"])
+    assert mms.resolve_market("Mercato: o25\n", prof).status == "ambiguous"   # il runtime scarta
+    [avviso] = mms.ambiguous_phrase_warnings(cfg)
+    assert "Over 2,5 goal" in avviso, avviso
+    assert "Under 2,5 goal" in avviso, avviso
+    assert "2 coppie" in avviso, avviso
+
+
+def test_255_conflitti_su_frasi_DIVERSE_non_collassano_in_un_solo_avviso():
+    """Due frasi distinte in conflitto sugli **stessi** due mercati sono due righe diverse da
+    correggere, quindi due avvisi.
+
+    La chiave di dedup non includeva la sonda, solo `(profilo, contendenti)`. Misurato su una
+    config con 150 conflitti distinti: **1 avviso**, 149 nascosti. Una diagnostica che ne mostra
+    uno su 150 è peggio di nessuna, perché chi legge crede di aver visto il problema — è la
+    stessa classe «il reporting dice meno della detection» corretta quattro volte sulla #253.
+
+    Qui in piccolo e deterministico: tre frasi, tre avvisi, uno per frase."""
+    frasi = ("gg", "goal", "segnano")
+    cfg = _cfg([v for f in frasi
+                for v in (_voce(f, "Entrambe le squadre a segno", "Sì"),
+                          _voce(f, "1º tempo - Totale goal 0,5", "Over 0,5 goal"))])
+    avvisi = mms.ambiguous_phrase_warnings(cfg)
+    assert len(avvisi) == len(frasi), avvisi
+    for f in frasi:
+        assert any(f"«{f}»" in a for a in avvisi), f"conflitto sulla frase «{f}» nascosto: {avvisi}"
+
+
+def test_255_ogni_esito_ok_porta_le_TRE_chiavi_canoniche():
+    """Contratto di `resolve_market`: un esito `ok` ha SEMPRE `market_type`, `market_name` e
+    `selection_name`.
+
+    `ambiguous_phrase_warnings` ci accede diretto (`m["market_type"]`) per costruire la tupla
+    canonica, e due reviewer (GPT-5.5 e Fugu Ultra) hanno chiesto se un `ok` potesse arrivare
+    senza una di quelle chiavi → `KeyError` allo START, cioè l'avvio dell'app rotto da una
+    diagnostica. Leggendo il codice non è raggiungibile: c'è **un solo** `return` con
+    `status="ok"` e costruisce il dict come letterale con le tre chiavi.
+
+    Ma «vero per costruzione» dura finché qualcuno non aggiunge un secondo `return`. Questo test
+    lo àncora: se un domani nascesse un percorso `ok` con un dict parziale, fallisce qui invece
+    di far esplodere lo START. Si prova su mercati diversi, con e senza `market_type` esplicito
+    nella voce di config, e con e senza filtro-lingua."""
+    casi = [
+        (_voce("gg", "Entrambe le squadre a segno", "Sì"), "Mercato: gg\n", None),
+        (_voce("o25", "Over/Under 2,5 gol", "Under 2,5 goal"), "Mercato: o25\n", None),
+        (_voce("gg", "Entrambe le squadre a segno", "Sì", language="IT"), "Mercato: gg\n", "IT"),
+    ]
+    for voce, testo, lingua in casi:
+        # anche con un `market_type` grezzo stantio nella voce: il canonico lo ricalcola
+        voce = dict(voce, market_type="MERCATO_INESISTENTE")
+        esito = mms.resolve_market(testo, mms.entries_for_profiles(_cfg([voce]), ["M"]),
+                                   language=lingua)
+        assert esito.status == "ok", (voce, esito)
+        assert set(esito.market) >= {"market_type", "market_name", "selection_name"}, esito.market
+        # e i valori sono stringhe utilizzabili, non `None`: il CSV non deve mai vedere un None
+        for chiave in ("market_type", "market_name", "selection_name"):
+            assert isinstance(esito.market[chiave], str), (chiave, esito.market)
+        assert esito.market["market_name"] and esito.market["selection_name"], esito.market
 
 
 def test_255_sonde_identiche_non_vengono_risondate():

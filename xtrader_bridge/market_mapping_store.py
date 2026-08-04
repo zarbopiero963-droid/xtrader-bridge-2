@@ -317,9 +317,15 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                 # Mercato + selezione: col solo mercato due righe in conflitto sullo
                 # stesso mercato sarebbero indistinguibili nel messaggio.
                 dove = ", ".join(f"«{mn} / {sn}»" for _mt, mn, sn in contesi)
+                # «coppie mercato/selezione», non «mercati»: i contendenti sono tuple canoniche,
+                # quindi Over e Under dello STESSO mercato contano due — ed è giusto che contino
+                # due, sono i due lati opposti della scommessa. Dire «2 mercati diversi» davanti
+                # a un solo nome di mercato elencato due volte si legge come un errore
+                # dell'avviso (GPT-5.5 e Fable 5, indipendentemente): il conteggio deve dire
+                # esattamente cosa conta.
                 warnings.append(
                     f"Mappatura mercati «{_norm_profile_name(profile)}», frase «{ph}»: "
-                    f"combacia con {len(contesi)} mercati diversi ({dove}) -> il mercato "
+                    f"combacia con {len(contesi)} coppie mercato/selezione diverse ({dove}) -> il mercato "
                     f"NON viene risolto e il segnale è scartato (fail-closed). Rendi le frasi "
                     f"distinguibili, oppure togli una delle voci in conflitto.")
                 break
