@@ -592,3 +592,24 @@ def test_b21bis_i_massimali_non_costano_sondaggi_in_piu():
     massimali = nms._chiamanti_massimali(righe)
     assert massimali <= plausibili, sorted(massimali - plausibili)
     assert (plausibili | massimali) == plausibili
+
+
+def test_b21bis_il_motivo_di_MAPPING_MISSING_include_la_causa_NUOVA():
+    """Regola 2-bis sul consumatore che parla all'utente.
+
+    `parser_diagnostics` spiega `MAPPING_MISSING` a GUI e assistente. Il testo elencava le due
+    cause storiche — «separatore non trovato o squadra non nei profili» — ma B21 ne introduce
+    una **terza**: la squadra **è** nei profili, due volte, e non è decidibile. Con il testo
+    vecchio l'utente leggeva «non nei profili» e sarebbe andato ad aggiungere una riga già
+    presente, peggiorando il conflitto invece di risolverlo.
+
+    È lo stesso difetto già corretto tre volte in questa PR sul testo dell'avviso al load: il
+    codice era coerente, il messaggio indicava l'azione sbagliata."""
+    from xtrader_bridge import parser_diagnostics as pdg
+
+    motivo = pdg.explain(pdg.MAPPING_MISSING)   # API pubblica, non il dict interno
+    assert "ambigu" in motivo.lower(), (
+        f"il motivo non nomina la causa introdotta da B21: {motivo!r}"
+    )
+    # E le due cause storiche non devono sparire: restano i modi più comuni di fallire.
+    assert "separatore" in motivo.lower() and "profili" in motivo.lower(), motivo

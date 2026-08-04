@@ -597,8 +597,14 @@ def test_resolve_team_canonico_esatto_sport_batte_alias_agnostico():
     assert nm.resolve_team("Inter", profs, sport="Calcio") == "Inter"    # canonico esatto-sport vince
     # Fallback: chiedendo un altro sport (nessuna riga esatta) resta valido l'alias agnostico.
     assert nm.resolve_team("Inter", profs, sport="Tennis") == "Wrong"
-    # Senza sport: comportamento legacy (ordine salvato) → l'alias agnostico salvato prima vince.
+    # Senza sport vince l'alias AGNOSTICO — non perché salvato prima (B21 PR-P: l'ordine non
+    # decide più nulla), ma perché è la riga che l'utente ha scritto come «vale per ogni
+    # sport», quindi è la risposta esplicita per un chiamante che non filtra. Misurato:
+    # invertendo le due righe l'esito resta 'Wrong'.
     assert nm.resolve_team("Inter", profs) == "Wrong"
+    invertito = nm.entries_for_profiles(
+        {"name_mappings": {"P": list(reversed(cfg["name_mappings"]["P"]))}}, ["P"])
+    assert nm.resolve_team("Inter", invertito) == "Wrong"   # l'ordine non decide
 
 
 def test_resolve_team_canonico_esatto_tipo_batte_alias_agnostico():
