@@ -81,6 +81,7 @@ from . import (
     signal_router,
     source_manager,
     telegram_dispatch,
+    ui_cards,
     ui_theme,
     write_path,
 )
@@ -1999,8 +2000,10 @@ class App(ctk.CTk):
         # coi nomi leggibili (da source_chats) quando disponibili. Aggiornata a Salva
         # Config e al caricamento di un profilo. Rende visibile il modello "ascolta solo
         # queste chat, mai tutte" (allowed_chats, A2).
+        chats_card = ctk.CTkFrame(tab_chats, **ui_cards.card_style())
+        chats_card.pack(fill="both", expand=True, padx=10, pady=8)
         self._chats_lbl = ctk.CTkLabel(
-            tab_chats, text="", font=ctk.CTkFont(size=11), text_color="gray",
+            chats_card, text="", font=ctk.CTkFont(size=11), text_color="gray",
             wraplength=_CONTENT_WRAP, anchor="w", justify="left")
         self._chats_lbl.pack(anchor="w", padx=12, pady=8)
         self._refresh_listened_chats()
@@ -2022,9 +2025,11 @@ class App(ctk.CTk):
                     wraplength=_CONTENT_WRAP, anchor="w", justify="left")
         # Una label per campo, creata dalla fonte unica _LAST_FIELDS (niente prefissi
         # duplicati a mano). _set_last le aggiorna usando lo stesso prefisso.
+        stato_card = ctk.CTkFrame(tab_stato, **ui_cards.card_style())
+        stato_card.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         self._last_lbls = {}
         for i, (kind, prefix) in enumerate(_LAST_FIELDS):
-            lbl = ctk.CTkLabel(tab_stato, text=f"{prefix}: —", **_sty)
+            lbl = ctk.CTkLabel(stato_card, text=f"{prefix}: —", **_sty)
             pady = (0, 1) if i == 0 else ((1, 8) if i == len(_LAST_FIELDS) - 1 else 1)
             lbl.pack(anchor="w", padx=12, pady=pady)
             self._last_lbls[kind] = lbl
@@ -2033,14 +2038,16 @@ class App(ctk.CTk):
         # esistenti. Decisioni in `health_check.build_semaphores` (pura, testata in CI); qui
         # solo le label, aggiornate da `_refresh_health` sugli stessi hook della
         # dashboard (START/STOP, _set_last, salvataggio config).
+        health_card = ctk.CTkFrame(tab_health, **ui_cards.card_style())
+        health_card.pack(fill="both", expand=True, padx=10, pady=8)
         self._health_lbls = {}
         for i, key in enumerate(("telegram", "message", "parser", "signal",
                                  "csv", "confirmation", "mode")):
-            lbl = ctk.CTkLabel(tab_health, text="", font=ctk.CTkFont(size=12),
+            lbl = ctk.CTkLabel(health_card, text="", font=ctk.CTkFont(size=12),
                                wraplength=_CONTENT_WRAP, anchor="w", justify="left")
             lbl.pack(anchor="w", padx=12, pady=(8 if i == 0 else 2, 0))
             self._health_lbls[key] = lbl
-        ctk.CTkButton(tab_health, text=i18n.tr("🔄 Aggiorna"), width=110, height=26,
+        ctk.CTkButton(health_card, text=i18n.tr("🔄 Aggiorna"), width=110, height=26,
                       fg_color=ui_theme.SURFACE3, hover_color=ui_theme.BORDER, text_color=ui_theme.TEXT,
                       # P3-9 #76: il refresh ESPLICITO bypassa la cache TTL della sonda
                       # CSV — l'utente che clicca vuole lo stato vero, non quello cached.
@@ -2055,12 +2062,12 @@ class App(ctk.CTk):
             sticky="w", padx=12, pady=(8, 2))
         self._stat_lbls = {}
         for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
-            cell = ctk.CTkFrame(tab_dash, fg_color="transparent")
-            cell.grid(row=1, column=col, padx=8, pady=(0, 8), sticky="w")
+            cell = ctk.CTkFrame(tab_dash, **ui_cards.card_style())
+            cell.grid(row=1, column=col, padx=6, pady=(0, 8), sticky="nsew")
+            val = ctk.CTkLabel(cell, text="0", font=ctk.CTkFont(size=20, weight="bold"))
+            val.pack(anchor="w", padx=12, pady=(8, 0))
             ctk.CTkLabel(cell, text=i18n.tr(label), font=ctk.CTkFont(size=10),
-                         text_color="gray").pack(anchor="w")
-            val = ctk.CTkLabel(cell, text="0", font=ctk.CTkFont(size=16, weight="bold"))
-            val.pack(anchor="w")
+                         text_color="gray").pack(anchor="w", padx=12, pady=(0, 8))
             self._stat_lbls[name] = val
 
         # — Log + filtro per livello (PR-14b) —
@@ -2088,7 +2095,8 @@ class App(ctk.CTk):
         ctk.CTkCheckBox(log_hdr, text=i18n.tr("🐞 Debug"), variable=self._debug_var,
                         command=self._on_debug_toggle).pack(side="left", padx=(12, 0))
         self._log_box = ctk.CTkTextbox(
-            tab_log, font=ctk.CTkFont(size=11, family="Courier"))
+            tab_log, font=ctk.CTkFont(size=11, family="Courier"),
+            **ui_cards.card_style())
         self._log_box.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
     # ── widget helper per le impostazioni avanzate (PR-13) ────────────────
