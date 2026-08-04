@@ -918,6 +918,21 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 
 ### 6.5 Tabview Monitoraggio (area espandibile)
 
+> **Restyle #182 fase 2 (finestra principale).** I contenuti delle schede di monitoraggio
+> vivono ora dentro **card** (`ui_cards.card_style()`: superficie `SURFACE`, bordo `BORDER`,
+> raggio `RADIUS_CARD`) invece di fluttuare sullo sfondo del tab: card unica per Chat
+> ascoltate, Salute (semafori + «🔄 Aggiorna» dentro la card), Stato (le 4 righe dinamiche;
+> la riga pulsanti resta sopra la card), e il **box Log** porta gli stessi token
+> (bordo/raggio/superficie). La **Dashboard** è composta a **stat-tile**: una card per
+> contatore col **numero grande sopra** e la didascalia grigia sotto (composizione dello
+> sketch «Sketch completo»). Anche il **corpo del Wizard** e il **trascritto
+> dell'Assistente** sono card. **Invariante intoccata**: i tre banner
+> (REALE/COLLAUDO/LICENZA) restano label piene a tutto colore con testo bianco — mai
+> convertiti in card (il test `test_i_banner_di_sicurezza_non_sono_stati_toccati` lo
+> impone). Il tab Generale mantiene la griglia storica: incartarlo eroderebbe il budget
+> di larghezza della riga CSV Path alla larghezza minima della finestra
+> (`test_gen_layout_budget`).
+
 **Tab 📡 Chat ascoltate:**
 - Etichetta con l'elenco chat che verranno ascoltate, oppure avviso arancione:
   > ⚠️ Nessuna chat configurata — il bridge non si avvierà finché non imposti una Chat ID
@@ -933,7 +948,8 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 **Tab 📡 Stato** — 4 righe dinamiche (formato `Prefisso: valore o —`):
 - **Ultimo segnale**, **Ultimo messaggio**, **Ultimo CSV**, **Ultimo errore**.
 
-**Tab 📊 Dashboard** — titolo "Contatori dall'avvio" + 7 contatori:
+**Tab 📊 Dashboard** — titolo "Contatori dall'avvio" + 7 contatori a **stat-tile**
+(card col numero grande sopra, didascalia sotto):
 - 📥 Ricevuti · ✅ Scritti · ⚠️ Scartati · ♻️ Duplicati · 🚦 Limitati · 🧪 Simulati · ❌ Errori.
 
 **Tab 📋 Log:**

@@ -7,7 +7,7 @@ di modulo (testabili headless), mentre la costruzione dei widget è **verifica m
 """
 
 from . import config_agent_controller as ctl
-from . import event_log, i18n, token_store, ui_theme
+from . import event_log, i18n, token_store, ui_cards, ui_theme
 
 # Palette semantica theme-aware `(chiaro, scuro)`, coerente col resto della GUI.
 _COLOR_OK = ui_theme.STATUS_OK          # verde = attivo (token)
@@ -143,7 +143,8 @@ class AssistantPanel:
         self._stop_btn.pack(side="left", padx=2)
 
         # Trascritto conversazione (sola lettura) + input.
-        self._transcript = ctk.CTkTextbox(outer, height=180, wrap="word")
+        self._transcript = ctk.CTkTextbox(outer, height=180, wrap="word",
+                                          **ui_cards.card_style())
         self._transcript.pack(fill="both", expand=True, pady=(2, 4))
         self._transcript.configure(state="disabled")
 

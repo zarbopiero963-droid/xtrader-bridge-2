@@ -11,7 +11,7 @@ import threading
 
 import customtkinter as ctk
 
-from . import i18n, wizard
+from . import i18n, ui_cards, wizard
 
 _W = 620          # larghezza contenuti/wraplength
 _OK, _KO = "#66bb6a", "#ef5350"
@@ -50,7 +50,7 @@ class WizardWindow(ctk.CTkToplevel):
 
         self._title_lbl = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=14, weight="bold"))
         self._title_lbl.pack(anchor="w", padx=14, pady=(12, 4))
-        self._body = ctk.CTkFrame(self, fg_color="transparent")
+        self._body = ctk.CTkFrame(self, **ui_cards.card_style())
         self._body.pack(fill="both", expand=True, padx=14, pady=4)
         self._result_lbl = ctk.CTkLabel(self, text="", anchor="w", justify="left",
                                         wraplength=_W, font=ctk.CTkFont(size=12))
@@ -71,7 +71,8 @@ class WizardWindow(ctk.CTkToplevel):
         self._e_chat.insert(0, str(initial.get("chat_id", "") or ""))
         self._e_csv = ctk.CTkEntry(self._body, width=_W)
         self._e_csv.insert(0, str(initial.get("csv_path", "") or ""))
-        self._msg_box = ctk.CTkTextbox(self._body, width=_W, height=140)
+        self._msg_box = ctk.CTkTextbox(self._body, width=_W, height=140,
+                                       **ui_cards.card_style())
         self._hint = ctk.CTkLabel(self._body, text="", anchor="w", justify="left",
                                   wraplength=_W, font=ctk.CTkFont(size=11),
                                   text_color="gray")
