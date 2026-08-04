@@ -84,6 +84,27 @@ Derivano un valore calcolato da quello estratto. Built-in:
 - `score_to_over_ht`: stesso punteggio → `"over 6,5 ht"`, risolto a **primo tempo**
   (`FIRST_HALF_GOALS_*`).
 
+> 🔎 **Perché «Non pronto» quando c'è una trasformazione, e come leggerlo.** Le
+> trasformazioni sono **fail-closed**: se il testo estratto non è un punteggio, il campo
+> resta **vuoto** — meglio fermarsi che scrivere nel CSV un valore che il bridge non sa
+> interpretare (senza trasformazione lo stesso messaggio passerebbe scrivendo il testo
+> grezzo, es. `SelectionName = "primo tempo"`). Dal 2026-08-04 il verdetto di «🧪 Prova
+> messaggio» **nomina la causa e il valore letto**, invece di elencare solo il campo:
+>
+> ```text
+> ⛔ Non pronto (NOT_READY) · mancanti: SelectionName
+>     (la trasformazione «score_to_over_ht» non ha saputo leggere «primo tempo»)
+> ⛔ Non pronto (NOT_READY) · mancanti: SelectionName («Inizia dopo» non trovato nel messaggio)
+> ⛔ Non pronto (NOT_READY) · mancanti: SelectionName
+>     (la value-map «selectionname» non ha trovato «primo tempo» nel dizionario)
+> ```
+>
+> Tre cause, tre correzioni diverse: prima erano indistinguibili. I motivi vengono dalla
+> stessa diagnostica per-colonna già mostrata nella tabella sotto (`parser_diagnostics`),
+> quindi non possono divergere dal verdetto. ⚠️ **Se la colonna con la trasformazione NON è
+> spuntata «Obblig.»** non ricevi alcun avviso: il campo esce vuoto e la riga risulta
+> «✅ Pronto». Con una trasformazione attiva, tieni la colonna obbligatoria.
+
 Entrambe: input non interpretabile → vuoto (→ "Non pronto"). Le cifre devono essere
 **ASCII**: un «٦-٠» (arabo-indiane) o «６-０» (fullwidth) **non** è un punteggio e non
 produce alcuna linea Over (#318 L2-1 · #166 P3-cp1). Stessi cap di plausibilità (fonte
@@ -435,6 +456,17 @@ primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (
 > stesso: toglieva solo l'unico comando con cui ripararla, lasciando la riga `⛔ Non pronto`
 > senza via d'uscita. Il valore già salvato non viene modificato e la validazione non cambia: un
 > parser esistente si comporta esattamente come prima.
+
+> 📐 **Whitelist per-colonna delle tendine avanzate (ordine proprietario 2026-08-04).** Le
+> tendine compaiono solo dove hanno senso — dedotto dal codice, non deciso a tavolino:
+> **Trasformazione** su `SelectionName`, `MarketType`, `MarketName` (le trasformazioni
+> `score_to_over`/`score_to_over_ht` producono «Over N,5»/«over N,5 ht», forme risolte solo
+> dalle value-map di quelle tre famiglie); **Value-map** sulle stesse tre **più `BetType`**
+> (mappa built-in `bettype`: BACK→PUNTA / LAY→BANCA). Sulle altre righe compare un «—» che
+> tiene allineate le colonne. **Via di fuga** (stesso principio dell'avviso valore-fisso): una
+> regola salvata con transform/value-map su una colonna fuori lista mostra comunque la sua
+> tendina, così la si vede e la si può riparare — niente comportamento invisibile. Il motore
+> NON cambia: un parser salvato si comporta esattamente come prima.
 
 **MarketType / MarketName / SelectionName** hanno in colonna **«Valore fisso»** una **tendina
 editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del

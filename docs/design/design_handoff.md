@@ -969,6 +969,13 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 
 ## 7. Hub Strumenti e finestre secondarie
 
+> **Scorrimento accordato (segnalazione proprietario 2026-08-04).** Su Windows CustomTkinter
+> scrolla 20px per scatto di rotellina: sull'editor del Parser (~2600px di contenuto) servivano
+> ~130 scatti, ognuno con ridisegno completo dei widget visibili → effetto «scatta/trema»,
+> massimo sulla Griglia regole. Ogni `CTkScrollableFrame` del package è ora accordata con
+> `ui_cards.tune_scrolling()` (increment 3px → ~60px per scatto, un terzo dei ridisegni);
+> un test sorgente impone che ogni scrollable nuova venga accordata — copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non richiedono accordatura).
+
 L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
 ①..④** (vedi §5). I pannelli (§7.1–7.10; **7.6 «Betfair Sync» rimossa**, **7.7 «📖 Dizionario»
 attualmente nascosta ma ritenuta**, come «🧹 Nomi squadra» dalla #182 PR N → 7 schede mostrate):
@@ -1196,6 +1203,12 @@ Sezioni (colonna destra, dall'alto):
 
 > Questa è la schermata che più beneficerebbe di un redesign: è densa, tabellare, con molte
 > colonne e concetti (delimitatori, trasformazioni, value-map, mapping, multi-riga). Vedi §14.
+
+> **Whitelist tendine avanzate (2026-08-04).** In modalità «Avanzate» le tendine
+> Trasformazione/Value-map della griglia compaiono solo sulle righe dove hanno senso
+> (Trasformazione: SelectionName·MarketType·MarketName; Value-map: le stesse + BetType);
+> sulle altre un «—» grigio da 150px mantiene l'allineamento delle colonne. Regola salvata
+> fuori lista → tendina comunque visibile (riparabilità, come per il valore fisso).
 
 ### 7.2 📡 Chat sorgenti (`source_chats_gui.py`)
 Titolo **"📡  Chat sorgenti (multi-chat)"**. Tabella con colonne: **Attiva · Nome · Chat ID

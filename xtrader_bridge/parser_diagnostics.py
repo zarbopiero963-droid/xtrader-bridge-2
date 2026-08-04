@@ -13,6 +13,8 @@ nessun widget, nessun I/O nascosto oltre al registro value-map condiviso del pip
 
 from dataclasses import dataclass, field
 
+import unicodedata
+
 from . import custom_pipeline, recognition, transforms, validator, value_maps
 from .custom_parser import CustomParserDef
 from .custom_parser_engine import (
@@ -91,6 +93,10 @@ class FieldDiagnostic:
     final: str = ""               # dopo la value-map (CP-03) — valore XTrader
     required: bool = False
     error: str = OK               # uno dei codici sopra
+    # Nomi degli stadi applicati alla colonna: servono al motivo azionabile
+    # (`motivi_campi_mancanti`) per dire CHI ha svuotato il campo, non solo che è vuoto.
+    transform: str = ""
+    value_map: str = ""
 
     @property
     def ok(self) -> bool:
@@ -132,6 +138,7 @@ def _field_diag(rule, text, registry) -> FieldDiagnostic:
         target=rule.target, raw=raw, after_transform=after, final=final,
         required=bool(rule.required),
         error=_classify_extraction(rule, raw, reason, after, final),
+        transform=rule.transform or "", value_map=rule.value_map or "",
     )
 
 
@@ -336,3 +343,74 @@ def format_report(diag: Diagnosis) -> str:
         reason = f" — {why}" if (why and not fd.ok) else ""
         lines.append(f"[{flag}] {fd.target} ({kind}): {fd.error}{reason}  |  {chain}")
     return "\n".join(lines)
+
+
+# Codici che significano «la colonna è VUOTA e si può fare qualcosa» — gli unici per cui
+# ha senso un motivo accanto al verdetto (gli errori di VALORE, es. quota non numerica,
+# hanno già il loro testo e non compaiono fra i «mancanti»).
+_CODICI_VUOTO = (START_NOT_FOUND, END_NOT_FOUND, TRANSFORM_FAILED,
+                 VALUE_MAP_MISS, REQUIRED_EMPTY)
+
+# Il valore mostrato viene dal messaggio Telegram: testo NON attendibile (rilievo
+# convergente Fable 5 + GPT-5.5 sulla #245). Grezzo renderebbe illeggibile la riga
+# sintetica del verdetto, e un valore multilinea potrebbe far sembrare «righe del
+# verdetto» del testo scelto dall'utente — stessa classe di rischio dei control-char
+# nel CSV (`csv_writer._sanitize_cell`). Qui: una riga sola, cappata, taglio VISIBILE.
+_MAX_VALORE = 60
+
+
+def _leggibile(valore) -> str:
+    """Valore utente reso sicuro per UNA riga di verdetto.
+
+    Tre passaggi, in quest'ordine (rilievi Fable 5 + GPT-5.5 sulla #245 — la prima
+    versione prometteva nel docstring più di quanto facesse, e `str.split()` da solo
+    appiattisce SOLO lo whitespace):
+
+    1. **control-char e format-char via categoria Unicode** (`Cc`/`Cf`) → spazio: copre
+       `\x00`, gli escape ANSI `\x1b[…` e soprattutto i **bidi override** (U+202E),
+       che ribaltano visivamente tutto il testo a valle;
+    2. **delimitatori del motivo neutralizzati**: un valore contenente `«`/`»` chiuderebbe
+       la citazione e potrebbe far sembrare «testo del bridge» quello scelto da chi manda
+       il messaggio — si sostituiscono con le virgolette singole angolari;
+    3. whitespace compattato e taglio a `_MAX_VALORE` con «…» **esplicito** (un
+       troncamento invisibile ingannerebbe chi legge).
+
+    `None` → "" ; qualsiasi altro valore (anche `0`/`False`, che `or` avrebbe
+    schiacciato a vuoto) viene reso con `str()` e conservato."""
+    grezzo = "" if valore is None else str(valore)
+    pulito = "".join(" " if unicodedata.category(ch) in ("Cc", "Cf") else ch
+                     for ch in grezzo)
+    pulito = pulito.replace("«", "‹").replace("»", "›")
+    testo = " ".join(pulito.split())                 # \n \r \t e spazi ripetuti → uno
+    if len(testo) > _MAX_VALORE:
+        testo = testo[:_MAX_VALORE] + "…"            # lunghezza max = _MAX_VALORE + 1
+    return testo
+
+
+def motivi_campi_mancanti(diag: "Diagnosis") -> dict:
+    """`{colonna: motivo azionabile}` per le colonne rimaste VUOTE.
+
+    Nasce dall'ordine del proprietario (2026-08-04): «Prova messaggio» diceva solo
+    «mancanti: SelectionName», lasciando indovinare fra delimitatori sbagliati,
+    trasformazione che non sa leggere il testo, o value-map che non trova l'alias —
+    tre correzioni completamente diverse. Il motivo include **il valore davvero
+    letto**, che è ciò che chiude il caso a colpo d'occhio.
+
+    Pura e testabile in CI: non tocca il motore, solo il testo mostrato."""
+    motivi = {}
+    for fd in diag.fields:
+        if fd.error not in _CODICI_VUOTO:
+            continue
+        if fd.error == START_NOT_FOUND:
+            motivi[fd.target] = "«Inizia dopo» non trovato nel messaggio"
+        elif fd.error == END_NOT_FOUND:
+            motivi[fd.target] = "«Finisce prima» non trovato dopo l'inizio"
+        elif fd.error == TRANSFORM_FAILED:
+            motivi[fd.target] = (f"la trasformazione «{fd.transform}» non ha saputo "
+                                 f"leggere «{_leggibile(fd.raw)}»")
+        elif fd.error == VALUE_MAP_MISS:
+            motivi[fd.target] = (f"la value-map «{fd.value_map}» non ha trovato "
+                                 f"«{_leggibile(fd.after_transform)}» nel dizionario")
+        else:   # REQUIRED_EMPTY
+            motivi[fd.target] = "nessun valore estratto"
+    return motivi

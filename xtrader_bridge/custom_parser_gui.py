@@ -84,6 +84,29 @@ _RULE_COLUMNS = (
 )
 
 
+# Whitelist per-colonna delle tendine avanzate (ordine proprietario 2026-08-04: «le colonne
+# esatte me le deve dire il codice»). Le TRASFORMAZIONI producono «Over N,5»/«over N,5 ht»,
+# forme risolte solo dalle value-map markettype/marketname/selectionname (docstring di
+# `_score_to_over_ht`; test end-to-end: SelectionName e MarketType). Le VALUE-MAP esistenti
+# sono le tre del dizionario più la built-in `bettype` (BACK→PUNTA/LAY→BANCA) → BetType.
+# Sulle altre colonne le tendine spariscono: una trasformazione fail-closed su EventId o
+# Price non significa nulla e può solo SVUOTARE in silenzio un campo buono.
+TRANSFORM_COLS = frozenset({"SelectionName", "MarketType", "MarketName"})
+VALUE_MAP_COLS = TRANSFORM_COLS | {"BetType"}
+
+
+def colonne_avanzate_visibili(target: str, transform: str = "", value_map: str = ""):
+    """(mostra_trasformazione, mostra_value_map) per la riga `target`.
+
+    Via di fuga anti-comportamento-invisibile (stesso principio della decisione
+    valore-fisso 2026-08-03): una regola SALVATA con transform/value-map fuori
+    whitelist mostra comunque la sua tendina — nasconderla non disattiverebbe la
+    trasformazione, toglierebbe solo il modo di vederla e ripararla. Pura,
+    testabile headless."""
+    return (target in TRANSFORM_COLS or bool(transform),
+            target in VALUE_MAP_COLS or bool(value_map))
+
+
 def _visible_rule_columns(show_advanced: bool):
     """Colonne ``(label, larghezza)`` da mostrare nell'intestazione della tabella regole:
     tutte se ``show_advanced``, altrimenti SENZA le colonne avanzate (Trasformazione/Value-map).
@@ -635,6 +658,7 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # ── colonna destra: editor scrollabile (tutte le sezioni-card) ──
         outer = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        ui_cards.tune_scrolling(outer)   # scroll fluido (regola 2: ogni scrollable)
         if callable(getattr(outer, "grid", None)):
             outer.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=8)
         self._outer = outer
@@ -681,6 +705,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
         # La lista riempie la colonna in VERTICALE (negli sketch scorre lei, non la card).
         self._saved_list = ctk.CTkScrollableFrame(manage, fg_color="transparent")
+        ui_cards.tune_scrolling(self._saved_list)   # scroll fluido (regola 2: ogni scrollable)
         self._saved_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._saved_rows = {}          # nome parser → widget riga (per evidenziare la selezione)
         ui_cards.hint(ctk, manage,
@@ -758,6 +783,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._nm_status_lbl = ctk.CTkLabel(nm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._nm_status_lbl.pack(side="left", padx=(8, 2))
         self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
+        ui_cards.tune_scrolling(self._profiles_box)   # scroll fluido (regola 2: ogni scrollable)
         self._profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._profile_checks = {}        # nome profilo → BooleanVar
         self._existing_profiles = set()  # profili realmente presenti in config (non ⚠)
@@ -780,6 +806,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._mm_status_lbl = ctk.CTkLabel(mm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._mm_status_lbl.pack(side="left", padx=(8, 2))
         self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
+        ui_cards.tune_scrolling(self._market_profiles_box)   # scroll fluido (regola 2: ogni scrollable)
         self._market_profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._market_profile_checks = {}        # nome profilo mercati → BooleanVar
         self._existing_market_profiles = set()  # profili mercati realmente in config (non ⚠)
@@ -1302,12 +1329,26 @@ class CustomParserPanel(ctk.CTkFrame):
         refs["transform"] = ctk.StringVar(value=rule.transform)
         refs["value_map"] = ctk.StringVar(value=rule.value_map)
         if getattr(self, "_show_advanced", False):
-            refs["transform_menu"] = ctk.CTkOptionMenu(
-                row, variable=refs["transform"], values=self._transforms, width=150)
-            refs["transform_menu"].pack(side="left", padx=2)
-            refs["value_map_menu"] = ctk.CTkOptionMenu(
-                row, variable=refs["value_map"], values=self._value_maps, width=150)
-            refs["value_map_menu"].pack(side="left", padx=2)
+            # Whitelist per-colonna (ordine proprietario 2026-08-04): tendina solo dove la
+            # trasformazione/mappa ha senso, o dove una regola salvata ne ha già una (via di
+            # fuga). Dove sparisce, un segnaposto «—» della stessa larghezza tiene allineate
+            # le colonne successive della griglia.
+            vis_transform, vis_value_map = colonne_avanzate_visibili(
+                rule.target, rule.transform, rule.value_map)
+            if vis_transform:
+                refs["transform_menu"] = ctk.CTkOptionMenu(
+                    row, variable=refs["transform"], values=self._transforms, width=150)
+                refs["transform_menu"].pack(side="left", padx=2)
+            else:
+                ctk.CTkLabel(row, text="—", width=150, text_color="gray").pack(
+                    side="left", padx=2)
+            if vis_value_map:
+                refs["value_map_menu"] = ctk.CTkOptionMenu(
+                    row, variable=refs["value_map"], values=self._value_maps, width=150)
+                refs["value_map_menu"].pack(side="left", padx=2)
+            else:
+                ctk.CTkLabel(row, text="—", width=150, text_color="gray").pack(
+                    side="left", padx=2)
         # #182 PR A ⑥: sulle righe con VALORE FISSO un avviso spiega che Trasformazione/Value-map
         # si applicano ANCHE al valore fisso — il comportamento reale è l'opposto dell'intuizione,
         # e una trasformazione fail-closed come `score_to_over` lo svuota → riga «⛔ Non pronto»
@@ -1919,7 +1960,11 @@ class CustomParserPanel(ctk.CTkFrame):
             # nemmeno quando il nome è palesemente divisibile. Il suggerimento vive SOLO qui,
             # nell'anteprima: NON passa dai `warnings`, che il runtime logga a ogni segnale.
             res_hint=ParserBuilder.separator_hint(
-                (res.row or {}).get("EventName", ""), self.builder.team_separator)))
+                (res.row or {}).get("EventName", ""), self.builder.team_separator),
+            # Motivo accanto a ogni campo mancante (ordine proprietario 2026-08-04): la
+            # diagnostica sa già CHI ha svuotato la colonna, ma finora restava solo nella
+            # tabella sotto — chi legge il verdetto doveva dedurlo.
+            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag)))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)

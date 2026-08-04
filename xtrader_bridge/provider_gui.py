@@ -77,6 +77,7 @@ class ProviderPanel(ctk.CTkFrame):
         self._rows_frame = ctk.CTkScrollableFrame(
             self, height=360, label_text=i18n.tr("Provider salvati"),
             **ui_cards.card_style())
+        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
