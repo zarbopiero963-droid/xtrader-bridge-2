@@ -84,6 +84,29 @@ _RULE_COLUMNS = (
 )
 
 
+# Whitelist per-colonna delle tendine avanzate (ordine proprietario 2026-08-04: «le colonne
+# esatte me le deve dire il codice»). Le TRASFORMAZIONI producono «Over N,5»/«over N,5 ht»,
+# forme risolte solo dalle value-map markettype/marketname/selectionname (docstring di
+# `_score_to_over_ht`; test end-to-end: SelectionName e MarketType). Le VALUE-MAP esistenti
+# sono le tre del dizionario più la built-in `bettype` (BACK→PUNTA/LAY→BANCA) → BetType.
+# Sulle altre colonne le tendine spariscono: una trasformazione fail-closed su EventId o
+# Price non significa nulla e può solo SVUOTARE in silenzio un campo buono.
+TRANSFORM_COLS = frozenset({"SelectionName", "MarketType", "MarketName"})
+VALUE_MAP_COLS = TRANSFORM_COLS | {"BetType"}
+
+
+def colonne_avanzate_visibili(target: str, transform: str = "", value_map: str = ""):
+    """(mostra_trasformazione, mostra_value_map) per la riga `target`.
+
+    Via di fuga anti-comportamento-invisibile (stesso principio della decisione
+    valore-fisso 2026-08-03): una regola SALVATA con transform/value-map fuori
+    whitelist mostra comunque la sua tendina — nasconderla non disattiverebbe la
+    trasformazione, toglierebbe solo il modo di vederla e ripararla. Pura,
+    testabile headless."""
+    return (target in TRANSFORM_COLS or bool(transform),
+            target in VALUE_MAP_COLS or bool(value_map))
+
+
 def _visible_rule_columns(show_advanced: bool):
     """Colonne ``(label, larghezza)`` da mostrare nell'intestazione della tabella regole:
     tutte se ``show_advanced``, altrimenti SENZA le colonne avanzate (Trasformazione/Value-map).
@@ -1306,12 +1329,26 @@ class CustomParserPanel(ctk.CTkFrame):
         refs["transform"] = ctk.StringVar(value=rule.transform)
         refs["value_map"] = ctk.StringVar(value=rule.value_map)
         if getattr(self, "_show_advanced", False):
-            refs["transform_menu"] = ctk.CTkOptionMenu(
-                row, variable=refs["transform"], values=self._transforms, width=150)
-            refs["transform_menu"].pack(side="left", padx=2)
-            refs["value_map_menu"] = ctk.CTkOptionMenu(
-                row, variable=refs["value_map"], values=self._value_maps, width=150)
-            refs["value_map_menu"].pack(side="left", padx=2)
+            # Whitelist per-colonna (ordine proprietario 2026-08-04): tendina solo dove la
+            # trasformazione/mappa ha senso, o dove una regola salvata ne ha già una (via di
+            # fuga). Dove sparisce, un segnaposto «—» della stessa larghezza tiene allineate
+            # le colonne successive della griglia.
+            vis_transform, vis_value_map = colonne_avanzate_visibili(
+                rule.target, rule.transform, rule.value_map)
+            if vis_transform:
+                refs["transform_menu"] = ctk.CTkOptionMenu(
+                    row, variable=refs["transform"], values=self._transforms, width=150)
+                refs["transform_menu"].pack(side="left", padx=2)
+            else:
+                ctk.CTkLabel(row, text="—", width=150, text_color="gray").pack(
+                    side="left", padx=2)
+            if vis_value_map:
+                refs["value_map_menu"] = ctk.CTkOptionMenu(
+                    row, variable=refs["value_map"], values=self._value_maps, width=150)
+                refs["value_map_menu"].pack(side="left", padx=2)
+            else:
+                ctk.CTkLabel(row, text="—", width=150, text_color="gray").pack(
+                    side="left", padx=2)
         # #182 PR A ⑥: sulle righe con VALORE FISSO un avviso spiega che Trasformazione/Value-map
         # si applicano ANCHE al valore fisso — il comportamento reale è l'opposto dell'intuizione,
         # e una trasformazione fail-closed come `score_to_over` lo svuota → riga «⛔ Non pronto»
