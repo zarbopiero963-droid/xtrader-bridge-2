@@ -182,17 +182,26 @@ def test_resolve_team_ambiguo_cross_profilo_NON_scatta_primo_profilo_vince():
 
 
 def test_resolve_team_override_scoped_NON_e_ambiguo():
-    """Regressione: due righe con lo stesso alias ma FIRMA di scoping diversa (una taggata per
-    sport, una agnostica) NON sono ambigue — sono override distinguibili, non un conflitto.
-    Con filtro sport vince il tier esatto; SENZA filtro resta la precedenza legacy (prima riga
-    salvata), non fail-closed. L'ambiguità scatta solo a parità di firma di scoping."""
+    """Regressione: due righe con lo stesso alias, una taggata per sport e una AGNOSTICA, non
+    sono un conflitto — c'è una risposta giusta in entrambi i casi.
+
+    Con filtro sport vince il tier esatto. SENZA filtro vince la riga **agnostica**: è quella
+    che l'utente ha scritto come «vale per tutto», quindi è la risposta esplicita per un
+    chiamante che non filtra. Prima di PR-P (B21) qui vinceva `Inter Calcio` — non perché
+    fosse più giusta, ma perché era la PRIMA SALVATA: invertendo le due righe cambiava
+    l'esito. Ora l'ordine non conta."""
     cfg = {"name_mappings": {"P": [
         {"betfair": "Inter Calcio", "provider": "Inter", "sport": "Calcio"},
         {"betfair": "Inter generico", "provider": "Inter"},   # agnostica
     ]}}
     prof = nm.entries_for_profiles(cfg, ["P"])
     assert nm.resolve_team("Inter", prof, sport="Calcio") == "Inter Calcio"  # tier esatto
-    assert nm.resolve_team("Inter", prof) == "Inter Calcio"                  # senza filtro: legacy, NON ambiguo
+    assert nm.resolve_team("Inter", prof) == "Inter generico"                # senza filtro: l'agnostica
+    # L'ordine di salvataggio non decide più: è la proprietà che B21 ha introdotto.
+    cfg_inv = {"name_mappings": {"P": list(reversed(cfg["name_mappings"]["P"]))}}
+    prof_inv = nm.entries_for_profiles(cfg_inv, ["P"])
+    assert nm.resolve_team("Inter", prof_inv) == nm.resolve_team("Inter", prof)
+    assert nm.resolve_team("Inter", prof_inv, sport="Calcio") == "Inter Calcio"
 
 
 def test_resolve_event_name_squadra_ambigua_fail_closed_end_to_end():
@@ -915,7 +924,10 @@ def test_language_typo_fail_closed_riga_scartata():
 
 def test_resolve_team_filtro_lingua_esatta_e_agnostica():
     # Con `language` valorizzata: la riga della lingua ESATTA vince sull'agnostica; una riga
-    # di ALTRA lingua è saltata; senza filtro (`language=None`) vale l'ordine salvato (legacy).
+    # di ALTRA lingua è saltata; SENZA filtro (`language=None`) vince l'AGNOSTICA — la riga
+    # che vale per ogni lingua è la risposta giusta per chi non dichiara la lingua.
+    # Prima di PR-P (B21) l'ultima riga pretendeva "Squadra EN", cioè la prima salvata:
+    # spostando la riga IT in cima lo stesso messaggio dava una squadra diversa.
     cfg = {"name_mappings": {"P": [
         {"betfair": "Squadra EN", "provider": "Team", "language": "EN"},
         {"betfair": "Squadra IT", "provider": "Team", "language": "IT"},
@@ -925,7 +937,11 @@ def test_resolve_team_filtro_lingua_esatta_e_agnostica():
     assert nm.resolve_team("Team", profs, language="EN") == "Squadra EN"   # lingua esatta vince
     assert nm.resolve_team("Team", profs, language="IT") == "Squadra IT"
     assert nm.resolve_team("Team", profs, language="ES") == "Squadra AGN"  # nessuna ES → agnostica
-    assert nm.resolve_team("Team", profs) == "Squadra EN"                  # legacy: prima riga
+    assert nm.resolve_team("Team", profs) == "Squadra AGN"                 # senza filtro: l'agnostica
+    # Senza la riga agnostica, un chiamante che non dichiara la lingua non ha modo di scegliere
+    # fra EN e IT: fail-closed, invece di prendere quella scritta per prima.
+    solo_lingue = {"name_mappings": {"P": cfg["name_mappings"]["P"][:2]}}
+    assert nm.resolve_team("Team", nm.entries_for_profiles(solo_lingue, ["P"])) is None
 
 
 def test_resolve_team_lingua_esatta_prioritaria_su_agnostica_precedente():
@@ -1050,15 +1066,25 @@ def test_nessun_avviso_quando_non_c_e_ambiguita():
     assert nm.ambiguous_alias_warnings({"name_mappings": {}}) == []
 
 
-def test_scope_diverso_non_e_ambiguo_scope_uguale_si():
-    """La regola vera di `_resolve_in_tier`: l'ambiguita' esiste solo a PARITA' di firma di
-    scoping. Due righe su sport diversi sono override distinguibili — avvisare li' sarebbe
-    un falso positivo su una configurazione corretta e intenzionale."""
+def test_scope_diverso_e_ambiguo_SE_il_chiamante_non_filtra():
+    """La regola vera di `_resolve_in_tier` dopo PR-P (B21): due righe sono distinguibili solo
+    se il **chiamante** ha filtrato sulla dimensione che le distingue.
+
+    Prima si assumeva che sport diversi bastassero, e il commento diceva che avvisare li'
+    sarebbe stato «un falso positivo su una configurazione corretta e intenzionale». L'assunto
+    era sbagliato: `custom_pipeline` passa `sport=getattr(defn, "sport", "")`, che per un
+    parser senza sport e' VUOTO — e quelle due righe si risolvevano per ordine di salvataggio.
+    Quindi l'avviso non e' un falso positivo: e' l'unico posto in cui l'utente scopre che il
+    suo dizionario, con quel parser, non e' decidibile."""
     cfg_sport_diversi = {"name_mappings": {"P": [
         {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
         {"betfair": "Inter Miami", "provider": "Inter", "sport": "Tennis"},
     ]}}
-    assert nm.ambiguous_alias_warnings(cfg_sport_diversi) == []
+    assert len(nm.ambiguous_alias_warnings(cfg_sport_diversi)) == 1
+    profs = nm.entries_for_profiles(cfg_sport_diversi, ["P"])
+    assert nm.resolve_team("Inter", profs) is None                    # chiamante agnostico
+    assert nm.resolve_team("Inter", profs, sport="Calcio") == "Inter Milano"   # chi filtra risolve
+    assert nm.resolve_team("Inter", profs, sport="Tennis") == "Inter Miami"
 
     cfg_stesso_sport = {"name_mappings": {"P": [
         {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
@@ -1135,14 +1161,18 @@ def test_avviso_e_runtime_dicono_la_STESSA_cosa():
         ([{"betfair": "A", "provider": "X"}, {"betfair": "B", "provider": "X"}], "X", True),
         ([{"betfair": "A", "provider": "X"}, {"betfair": "A", "provider": "X"}], "X", False),
         ([{"betfair": "A", "provider": "X"}, {"betfair": "B", "provider": "Y"}], "X", False),
+        # Le tre righe qui sotto valevano `False` fino a PR-P (B21): si assumeva che una firma
+        # di scoping diversa bastasse a distinguerle. Ma `resolve_team` viene interrogata
+        # SENZA scope in questo ciclo — ed e' la stessa cosa che fa `custom_pipeline` quando il
+        # parser non ha sport o lingua-fonte. Senza filtro non c'e' modo di scegliere: ambigue.
         ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
-          {"betfair": "B", "provider": "X", "sport": "Tennis"}], "X", False),
+          {"betfair": "B", "provider": "X", "sport": "Tennis"}], "X", True),
         ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
           {"betfair": "B", "provider": "X", "sport": "calcio"}], "X", True),
         ([{"betfair": "A", "provider": "X", "language": "IT"},
-          {"betfair": "B", "provider": "X", "language": "EN"}], "X", False),
+          {"betfair": "B", "provider": "X", "language": "EN"}], "X", True),
         ([{"betfair": "A", "provider": "X", "entity_type": "team"},
-          {"betfair": "B", "provider": "X", "entity_type": "player"}], "X", False),
+          {"betfair": "B", "provider": "X", "entity_type": "player"}], "X", True),
         ([{"betfair": "A", "provider": "X", "entity_type": "team"},
           {"betfair": "B", "provider": "X", "entity_type": "TEAM"}], "X", True),
         ([{"betfair": "A"}, {"betfair": "A", "provider": "A"}], "A", False),

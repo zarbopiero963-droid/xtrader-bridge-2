@@ -18,33 +18,28 @@ aggirare perché confronta la dimensione sbagliata.
 In entrambi i casi la direzione giusta è **non risolvere**: una squadra o un mercato sbagliati
 valgono meno di nessuna riga.
 
-**Stato di questa PR: B20 è corretto, B21 no** — e i test di B21 restano qui, marcati
-`xfail(strict=True)`, perché la correzione richiede una decisione che non è tecnica.
-
-Fail-closare su chiamante agnostico rompe **8 test esistenti** che codificano di proposito il
-comportamento storico (fra cui `test_source_language_wiring_5b.py::test_source_language_none_
-comportamento_legacy`, il cui commento dice: «Senza `source_language` (""), il filtro è inerte:
-si risolve col comportamento storico»). Il baratto misurato è:
+**Entrambi corretti.** B21 richiedeva una decisione che non era tecnica, perché il baratto era:
 
 - **fail-closed** → eventi oggi tradotti smettono di esserlo (**segnali persi**);
 - **ordine di salvataggio** → ogni tanto si traduce la squadra **sbagliata** (**scommessa
   sbagliata**).
 
-Il piano #194 non copre questa scelta e CLAUDE.md (Regola 5) prescrive di fermarsi e chiedere.
-`strict=True` è deliberato: quando la decisione arriverà e la patch entrerà, questi test passano
-e l'`xfail` diventa **rosso** — non si possono dimenticare.
+Il proprietario ha scelto **fail-closed**: un segnale perso è visibile e si corregge, una squadra
+sbagliata finisce nell'`EventName` — quindi nel mercato e nella selezione su cui si scommette — e
+non si vede. Otto test esistenti codificavano il comportamento a ordine di salvataggio e sono
+stati **riorientati**, non cancellati: ognuno continua a difendere la garanzia per cui era stato
+scritto, misurata sul comportamento nuovo.
+
+La guardia non è diventata «non risolvo mai». Quando c'è una risposta giusta viene data: chi
+filtra ottiene la sua riga, e chi non filtra ottiene la riga **agnostica** — quella che l'utente
+ha scritto come «vale per tutto» — se esiste. Fail-closed scatta solo quando due destinazioni
+diverse sono davvero indistinguibili per quel chiamante.
 """
 
 import pytest
 
 from xtrader_bridge import market_mapping_store as mms
 from xtrader_bridge import name_mapping_store as nms
-
-_B21_APERTO = pytest.mark.xfail(
-    strict=True,
-    reason="B21 aperto: fail-closare su chiamante agnostico è una decisione del proprietario "
-           "(segnali persi vs. squadra sbagliata) — vedi docstring del modulo e roadmap PR-P",
-)
 
 
 def _riga_nome(provider, betfair, sport="", entity_type="", language=""):
@@ -59,7 +54,6 @@ def _riga_nome(provider, betfair, sport="", entity_type="", language=""):
 
 # ── B21 · lo scope distingue solo se il chiamante ha filtrato ────────────────
 
-@_B21_APERTO
 def test_b21_sport_diversi_ma_chiamante_agnostico_non_deve_indovinare():
     """Il cuore di B21: due squadre diverse dietro lo stesso alias, e nessun filtro.
 
@@ -71,7 +65,6 @@ def test_b21_sport_diversi_ma_chiamante_agnostico_non_deve_indovinare():
     assert nms.resolve_team("Inter", [righe]) is None
 
 
-@_B21_APERTO
 def test_b21_l_ordine_di_salvataggio_non_deve_decidere_la_squadra():
     """Il sintomo che rende il difetto grave: **misurato prima della patch**,
     l'ordine A dava `'Inter Milano'` e l'ordine B `'Inter Miami'`.
@@ -91,7 +84,6 @@ _TRE_DIMENSIONI = [
 ]
 
 
-@_B21_APERTO
 @pytest.mark.parametrize("dimensione,valore_a,valore_b,filtro", _TRE_DIMENSIONI)
 def test_b21_vale_per_TUTTE_e_tre_le_dimensioni(dimensione, valore_a, valore_b, filtro):
     """Non solo lo sport: la firma di scoping ha tre dimensioni, e il difetto è nella
@@ -106,9 +98,9 @@ def test_b21_vale_per_TUTTE_e_tre_le_dimensioni(dimensione, valore_a, valore_b, 
 @pytest.mark.parametrize("dimensione,valore_a,valore_b,filtro", _TRE_DIMENSIONI)
 def test_b21_il_filtro_esplicito_risolve_su_tutte_e_tre_le_dimensioni(
         dimensione, valore_a, valore_b, filtro):
-    """Il controllo positivo, tenuto **separato** dall'`xfail` di sopra: è la linea di base
-    che la futura patch di B21 non deve spostare. Chi filtra ottiene la sua riga, oggi come
-    dopo la correzione — se questo diventasse rosso, la patch sarebbe troppo stretta."""
+    """Il controllo positivo, tenuto **separato** da quello di sopra: è la linea di base che la
+    patch di B21 non doveva spostare, e non ha spostato. Chi filtra ottiene la sua riga — se
+    questo diventasse rosso, la guardia sarebbe troppo stretta e perderemmo segnali validi."""
     righe = [_riga_nome("Inter", "Inter Milano", **{dimensione: valore_a}),
              _riga_nome("Inter", "Inter Miami", **{dimensione: valore_b})]
     assert nms.resolve_team("Inter", [righe], **filtro) == "Inter Milano", (
@@ -116,7 +108,6 @@ def test_b21_il_filtro_esplicito_risolve_su_tutte_e_tre_le_dimensioni(
     )
 
 
-@_B21_APERTO
 def test_b21_e_vivo_sul_PERCORSO_DI_PRODUZIONE_non_solo_in_astratto():
     """La forma **esatta** della chiamata reale, non una agnostica di comodo.
 
@@ -128,16 +119,20 @@ def test_b21_e_vivo_sul_PERCORSO_DI_PRODUZIONE_non_solo_in_astratto():
         ordine A -> 'Inter Milano'
         ordine B -> 'Inter Miami'
 
-    Quindi B21 non è teorico: le dimensioni che restano scoperte sul percorso vero sono
-    `sport` e `language`. È il test che dice al proprietario che la decisione è su un rischio
-    **vivo**, non su un caso di laboratorio."""
+    Le dimensioni scoperte sul percorso vero erano `sport` e `language`. È il test che ha reso
+    la decisione del proprietario una scelta su un rischio **vivo**, non su un caso di
+    laboratorio — e ora è la sua regressione."""
     righe = [_riga_nome("Inter", "Inter Milano", sport="Calcio", entity_type="team"),
              _riga_nome("Inter", "Inter Miami", sport="Basket", entity_type="team")]
     et = nms.PARTICIPANT_ENTITY_TYPES
     diretto = nms.resolve_team("Inter", [righe], sport="", entity_type=et, language="")
     invertito = nms.resolve_team("Inter", [list(reversed(righe))], sport="",
                                  entity_type=et, language="")
+    assert diretto is None, "con sport vuoto ha ancora scelto una squadra"
     assert diretto == invertito, "la squadra dipende dall'ordine di salvataggio"
+    # E chi dichiara lo sport continua a essere servito, sulla stessa firma di produzione.
+    assert nms.resolve_team("Inter", [righe], sport="Calcio", entity_type=et,
+                            language="") == "Inter Milano"
 
 
 def test_b21_entity_type_e_SEMPRE_filtrato_dal_chiamante_di_produzione():
@@ -146,8 +141,8 @@ def test_b21_entity_type_e_SEMPRE_filtrato_dal_chiamante_di_produzione():
 
     Due righe distinte solo per `entity_type` si risolvono correttamente e in modo
     deterministico: la riga `competition` viene esclusa dal filtro, non «indovinata». Verde
-    oggi e dopo l'eventuale patch di B21 — serve a non far sembrare il difetto più largo di
-    quello che è."""
+    prima e dopo la patch di B21 — serve a non far sembrare il difetto più largo di quello che
+    era."""
     righe = [_riga_nome("Inter", "Inter Milano", entity_type="team"),
              _riga_nome("Inter", "Inter Miami", entity_type="competition")]
     et = nms.PARTICIPANT_ENTITY_TYPES

@@ -279,13 +279,32 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
         for (key, _nt, _sig), voce in conflitti.items():
             if len(voce["betfair"]) < 2:
                 continue                       # una sola destinazione = nessun conflitto
+            # L'avviso NON ricalcola l'ambiguità: la CHIEDE al runtime (B21 #194). Prima la
+            # rifaceva raggruppando per `_scope_signature`, e appena il runtime è diventato
+            # più stretto le due detection sono divergute — con l'avviso che dichiarava sana
+            # una configurazione su cui il resolver ormai fail-closava. Chiedendolo a
+            # `_resolve_in_tier` la divergenza è strutturalmente impossibile.
+            nt = normalize(voce["nome"])
+            agnostico = _resolve_in_tier(nt, righe, key, ()) is _AMBIGUOUS
+            if not agnostico:
+                continue
             fase = "alias" if key == "provider" else "nome canonico"
             dove = ", ".join(f"«{b}»" for b in voce["betfair"])
-            warnings.append(
-                f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
-                f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) con lo stesso "
-                f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
-                f"nomi, oppure distingui le righe per sport/tipo/lingua.")
+            # Due diagnosi diverse, perché richiedono due azioni diverse dall'utente.
+            distinguibile = _resolve_in_tier(nt, righe, key, _SCOPE_DIMENSIONS) is not _AMBIGUOUS
+            if distinguibile:
+                warnings.append(
+                    f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
+                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}), distinguibili "
+                    f"SOLO da uno sport/tipo/lingua -> un parser che non li specifica NON traduce "
+                    f"il nome (fail-closed). Va bene se i tuoi parser dichiarano lo scope; "
+                    f"altrimenti lascia una riga agnostica come ripiego.")
+            else:
+                warnings.append(
+                    f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
+                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) con lo stesso "
+                    f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
+                    f"nomi, oppure distingui le righe per sport/tipo/lingua.")
     return warnings
 
 
@@ -358,21 +377,45 @@ def _scoped_entry_groups(entries, want_sport, want_entity=None, want_language=""
 _AMBIGUOUS = object()
 
 
-def _scope_signature(e):
-    """Firma di scoping di una riga: ``(sport, entity_type, language)``. Due righe con firma
-    DIVERSA sono override distinguibili (il chiamante può separarle passando lo scope), non un
+#: Le dimensioni di scoping, nell'ordine della firma. Fonte unica: `_scope_signature`
+#: e `resolve_team` devono nominarle allo stesso modo, o la firma si disallinea in
+#: silenzio dal filtro (B21 #194).
+_SCOPE_DIMENSIONS = ("sport", "entity_type", "language")
+
+
+def _scope_signature(e, dimensioni_filtrate=()):
+    """Firma di scoping di una riga, limitata alle dimensioni su cui il chiamante **ha
+    davvero filtrato**. Due righe con firma DIVERSA sono override distinguibili, non un
     conflitto; solo righe con firma UGUALE sono indistinguibili.
 
     Le righe arrivano già ripulite da `_clean_entry` (sport via `sports.normalize_sport`, tipo e
     lingua via i rispettivi normalizzatori), quindi due scope **equivalenti** scritti con casing o
     spazi diversi (``"Calcio"``/``"calcio"``) collassano allo STESSO valore → l'ambiguità fra
-    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica."""
-    return (str(e.get("sport", "") or ""),
-            str(e.get("entity_type", "") or ""),
-            str(e.get("language", "") or ""))
+    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica.
+
+    **`dimensioni_filtrate` (B21 #194, audit #192 L13).** Prima la firma includeva SEMPRE tutte e
+    tre le dimensioni, e quindi dichiarava «distinguibili» due righe che il chiamante **non aveva
+    alcun modo di distinguere**. Un parser sport-agnostico chiama `resolve_team` senza `sport`:
+    con `Inter → Inter Milano` (Calcio) e `Inter → Inter Miami` (Basket) le firme risultavano
+    diverse, la guardia anti-ambiguità non scattava, e vinceva la **prima riga salvata**.
+    Misurato prima della correzione:
+
+        ordine A -> 'Inter Milano'
+        ordine B -> 'Inter Miami'      <- la squadra dipendeva dall'ordine di salvataggio
+
+    Senza un avviso, e su un percorso vivo: quel nome finisce nell'`EventName`, quindi nel
+    mercato e nella selezione su cui si scommette.
+
+    La regola giusta è che **una dimensione distingue solo se il chiamante ha filtrato su di
+    essa**: se non ha passato `sport`, lo sport non può separare due righe in conflitto, perché
+    non è una scelta che qualcuno abbia fatto — è solo un dato che sta nel file. Le dimensioni
+    non filtrate collassano fuori dalla firma, le righe tornano indistinguibili e la guardia
+    esistente fa fail-closed, come già faceva a firma uguale."""
+    return tuple(str(e.get(d, "") or "") for d in _SCOPE_DIMENSIONS
+                 if d in dimensioni_filtrate)
 
 
-def _resolve_in_tier(nt, group, key):
+def _resolve_in_tier(nt, group, key, dimensioni_filtrate=()):
     """Risolve una fase (``key``: ``"provider"`` = alias · ``"betfair"`` = canonico) dentro un
     tier (gruppo di righe dello stesso rango), preservando l'ordine salvato:
 
@@ -391,9 +434,24 @@ def _resolve_in_tier(nt, group, key):
                if e.get(key, "") and e.get("betfair", "") and normalize(e.get(key, "")) == nt]
     if not matches:
         return None
+    # Dimensioni su cui il chiamante NON ha filtrato: lì una riga AGNOSTICA è la risposta
+    # naturale — è esattamente ciò per cui l'utente l'ha creata — mentre le righe che portano
+    # un valore SPECIFICO sono override che a questa domanda non si applicano. Se esistono
+    # righe agnostiche su tutte le dimensioni non filtrate si usano quelle (comportamento
+    # legacy: «agnostica + override per-sport, chiamante senza sport → l'agnostica»).
+    # Solo quando NON ce n'è nessuna restano in gioco righe tutte specifiche e non
+    # distinguibili, ed è lì che vive B21: `Calcio → Inter Milano` contro
+    # `Basket → Inter Miami` con chiamante agnostico non ha una risposta giusta, e prima
+    # vinceva la prima salvata.
+    non_filtrate = [d for d in _SCOPE_DIMENSIONS if d not in dimensioni_filtrate]
+    if non_filtrate:
+        agnostiche = [e for e in matches
+                      if all(not str(e.get(d, "") or "") for d in non_filtrate)]
+        if agnostiche:
+            matches = agnostiche
     by_sig = {}
     for e in matches:
-        by_sig.setdefault(_scope_signature(e), set()).add(e.get("betfair", ""))
+        by_sig.setdefault(_scope_signature(e, dimensioni_filtrate), set()).add(e.get("betfair", ""))
     if any(len(betfairs) > 1 for betfairs in by_sig.values()):
         return _AMBIGUOUS
     return matches[0].get("betfair", "")
@@ -447,6 +505,19 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
     if not nt:
         return None
     want = sports.normalize_sport(sport)
+    # Quali dimensioni di scope il chiamante ha DAVVERO filtrato (B21 #194). Solo queste
+    # possono rendere «distinguibili» due righe in conflitto: una dimensione su cui non si è
+    # filtrato non è una scelta di nessuno, è solo un dato che sta nel file — e usarla per
+    # separare due righe significa risolvere in base all'ordine di salvataggio. Si usano i
+    # valori NORMALIZZATI (come il filtro stesso), così uno sport ignoto — che non filtra
+    # nulla — non conta come filtro attivo.
+    filtrate = set()
+    if want:
+        filtrate.add("sport")
+    if _entity_filter(entity_type) is not None:
+        filtrate.add("entity_type")
+    if recognition.normalize_source_language(language):
+        filtrate.add("language")
     for entries in profiles:
         # Si esaurisce un TIER di priorità (alias, poi canonico) PRIMA di scendere al tier
         # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
@@ -455,7 +526,7 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
         # (≥2 betfair diversi) fa fail-closed (None), non si indovina (audit #137).
         for group in _scoped_entry_groups(entries, want, entity_type, language):
             for key in ("provider", "betfair"):   # alias PRIMA del canonico (precedenza invariata)
-                hit = _resolve_in_tier(nt, group, key)
+                hit = _resolve_in_tier(nt, group, key, filtrate)
                 if hit is _AMBIGUOUS:
                     _LOG.warning(
                         "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "

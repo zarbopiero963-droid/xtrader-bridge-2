@@ -5037,11 +5037,11 @@ dall'audit, non toccata.
 
 ---
 
-## PR-P (#194 · B20 fatto, B21 aperto) — la guardia che confrontava la dimensione sbagliata
+## PR-P (#194 · B20 + B21) — la guardia che confrontava la dimensione sbagliata
 
 Due difetti della stessa forma: una guardia anti-ambiguità **c'è già**, ma si lascia aggirare
-perché confronta la dimensione sbagliata. Uno è chiuso qui; l'altro no, e il perché è la parte
-che conta.
+perché confronta la dimensione sbagliata. Entrambi chiusi qui — B21 dopo una decisione esplicita
+del proprietario, perché il suo baratto non era tecnico.
 
 ### B20 (#192 L16) — la selezione poteva venire da un altro mercato · CORRETTO
 
@@ -5071,13 +5071,13 @@ ora rifiuta → il segnale si perde invece di essere sbagliato. Direzione sicura
 qui perché non venga riscoperto come bug. `config_agent` usa la stessa funzione ma passa sempre un
 `MarketType`: non toccato (area dichiarata sana, Regola 5).
 
-### B21 (#192 L13) — l'ordine di salvataggio decide la squadra · APERTO, serve una decisione
+### B21 (#192 L13) — l'ordine di salvataggio decideva la squadra · CORRETTO fail-closed
 
-Una riga del Dizionario nomi è considerata «distinguibile» da un'altra se differisce per
+Una riga del Dizionario nomi era considerata «distinguibile» da un'altra se differiva per
 `(sport, entity_type, language)`. Ma la firma **non sa se il chiamante ha davvero filtrato** su
 quelle dimensioni: un parser sport-agnostico passa `sport=None`, le due righe restano formalmente
-distinte, la guardia anti-ambiguità non scatta e la risoluzione ricade sulla **prima salvata**.
-Misurato sul codice attuale:
+distinte, la guardia anti-ambiguità non scattava e la risoluzione ricadeva sulla **prima salvata**.
+Misurato prima della correzione:
 
 ```
 alias "Inter" -> "Inter Milano" (Calcio)  |  "Inter Miami" (Basket)
@@ -5103,39 +5103,56 @@ Quindi le dimensioni scoperte sono **`sport` e `language`**, non `entity_type`: 
 filtrata e infatti risolve in modo deterministico (riga `competition` esclusa dal filtro, non
 indovinata). Il difetto è più stretto di come lo descriveva la prima stesura, e comunque **reale**.
 
-**Perché non è stata aggiunta una mitigazione ad avvisi** (richiesta da Fugu Ultra: «serve guardia
-fail-closed temporanea o decisione esplicita, non solo test in attesa»). L'idea era estendere
-`ambiguous_alias_warnings` — che oggi raggruppa per `_scope_signature` **completa** e quindi su
-questo caso **tace**. Non è stato fatto, e la ragione è nel docstring della funzione stessa: «un
-avviso che diverge è peggio di nessun avviso, perché o tace su un conflitto vivo o accusa una
-configurazione sana». `ambiguous_alias_warnings(cfg)` vede **solo il dizionario**, non se il parser
-attivo valorizza `sport`: per l'utente che lo valorizza le righe *sono* distinguibili e l'avviso
-sarebbe un falso positivo a ogni avvio, su una configurazione corretta e intenzionale — quella che
-`test_scope_diverso_non_e_ambiguo_scope_uguale_si` protegge di proposito. Una mitigazione accurata
-dovrebbe leggere il parser attivo, e la sua forma dipende comunque dalla decisione qui sotto.
-Perciò: nessun avviso approssimativo, la misura al suo posto.
+**La mitigazione ad avvisi, e perché è arrivata solo con la correzione.** In review (rilievo Fugu
+Ultra) era stato chiesto un avviso temporaneo. Rifiutato allora, e per una ragione che vale la pena
+tenere: `ambiguous_alias_warnings(cfg)` vede **solo il dizionario**, non se il parser attivo
+valorizza `sport`. Finché il runtime risolveva per ordine di salvataggio, per l'utente che lo
+valorizza le righe *erano* distinguibili e l'avviso sarebbe stato un falso positivo a ogni avvio —
+esattamente ciò contro cui mette in guardia il docstring della funzione: «un avviso che diverge è
+peggio di nessun avviso, perché o tace su un conflitto vivo o accusa una configurazione sana».
 
-**Perché non è corretto in questa PR.** La patch esiste ed è verde sui suoi test, ma rompe **8
-test esistenti** che codificano di proposito il comportamento storico — fra cui l'end-to-end
-`test_source_language_wiring_5b.py::test_source_language_none_comportamento_legacy`, il cui
-commento dice: «Senza `source_language` (""), il filtro è inerte: si risolve col comportamento
-storico (prima riga alias combaciante nell'ordine salvato)». Con la patch quel percorso ritorna
-`MAPPING_MISSING`.
+Con il fail-closed la contraddizione sparisce: se le righe sono distinguibili solo dallo scope, un
+parser che non lo dichiara **davvero** non traduce, quindi l'avviso non accusa nessuno — informa.
+Perciò l'avviso c'è, in **due varianti**, perché chiedono due azioni diverse: righe con lo stesso
+scope → «correggi il dizionario»; righe distinguibili solo da sport/tipo/lingua → «va bene se i
+tuoi parser dichiarano lo scope, altrimenti lascia una riga agnostica come ripiego».
 
-Il baratto non è tecnico, è di prodotto:
+E non ricalcola nulla: **chiede al runtime** (`_resolve_in_tier`) invece di rifare la detection
+raggruppando per firma. Prima la rifaceva, e appena il runtime è diventato più stretto le due
+sarebbero divergute — con l'avviso che dichiarava sana una configurazione su cui il resolver ormai
+fail-closava. Chiedendolo, la divergenza è strutturalmente impossibile, ed è ciò che
+`test_avviso_e_runtime_dicono_la_STESSA_cosa` verifica su una matrice di configurazioni.
+
+### La decisione, e cosa comporta
+
+Il baratto non era tecnico:
 
 | Scelta | Costo |
 |---|---|
 | **fail-closed** (non risolvo se il chiamante non ha filtrato) | eventi oggi tradotti smettono di esserlo → **segnali persi** |
-| **ordine di salvataggio** (oggi) | ogni tanto si traduce la squadra sbagliata → **scommessa sbagliata** |
+| **ordine di salvataggio** (com'era) | ogni tanto si traduce la squadra sbagliata → **scommessa sbagliata** |
 
-Il piano #194 non copre questa scelta (non è fra D1/D2/D3) e CLAUDE.md Regola 5 prescrive di
-fermarsi e chiedere invece di procedere. Quindi B21 resta aperto, **in attesa della decisione del
-proprietario**.
+Il piano #194 non copriva questa scelta (non è fra D1/D2/D3) e CLAUDE.md Regola 5 prescrive di
+fermarsi e chiedere. **Il proprietario ha scelto fail-closed**: un segnale perso è visibile e si
+corregge, una squadra sbagliata no.
 
-I test di B21 sono comunque scritti e committati, marcati `xfail(strict=True)` in
-`tests/unit/test_scope_ambiguo_pr_p.py`. `strict` è deliberato: quando la patch entrerà, quei test
-passeranno e l'`xfail` diventerà **rosso** — la correzione non può essere dimenticata, e chi la
-farà troverà i test già pronti (Regola 1 già soddisfatta). I controlli positivi — «chi filtra
-ottiene la sua riga», su tutte e tre le dimensioni — sono **separati e verdi**: sono la linea di
-base che la futura patch non deve spostare.
+**La guardia non è «non risolvo mai», ed è la parte da non rompere.** Quando c'è una risposta
+giusta viene data. Chi filtra ottiene la sua riga. Chi **non** filtra ottiene la riga
+**agnostica** — quella che l'utente ha scritto come «vale per tutto» — se esiste: è la risposta
+esplicita per un chiamante senza scope, e ha il pregio di non dipendere dall'ordine. Fail-closed
+scatta solo quando restano ≥2 destinazioni davvero indistinguibili per quel chiamante.
+
+**Gli otto test riorientati, non cancellati.** Codificavano il comportamento a ordine di
+salvataggio; ognuno continua a difendere la garanzia per cui era stato scritto:
+
+| Test | Cosa difendeva | Come è stato riorientato |
+|---|---|---|
+| `..._source_language_none_comportamento_legacy` | che senza lingua si risolvesse comunque | rinominato `..._su_dizionario_ambiguo_ora_fail_closed`; aggiunto il gemello che verifica che un dizionario **decidibile** traduca come sempre, BetType incluso |
+| `..._globale_malformata_fail_safe` | «malformata == assente», non un filtro rotto | l'invariante è verificata **come uguaglianza fra i due casi** invece che cablando l'esito «Liverpool - Leeds», che era il comportamento a ordine di salvataggio |
+| `..._parita_live_preview_source_language` | parità live/anteprima per ogni lingua | la parità si pretende **anche sul percorso fail-closed** — un'anteprima che mostra una riga mentre il live la scarta è il modo peggiore di sbagliare |
+| `test_end_to_end_agnostico_fail_closed_su_ambiguita` | il gate MERCATI | il gate NOMI ora scatta prima (i nomi *erano* ambigui, e il commento diceva «Nomi risolti»); aggiunto il compagno con nomi non ambigui, così il gate mercati resta coperto |
+| `..._override_scoped_NON_e_ambiguo` · `..._filtro_lingua_esatta_e_agnostica` | che scoped + agnostica non fosse un conflitto | resta vero, ma senza filtro vince l'**agnostica** invece della prima salvata; aggiunto l'assert che l'ordine non conta più |
+| `test_scope_diverso_non_e_ambiguo_scope_uguale_si` | che sport diversi non fossero un falso positivo | l'assunto era sbagliato — `custom_pipeline` passa `sport` **vuoto** per un parser senza sport; rinominato `test_scope_diverso_e_ambiguo_SE_il_chiamante_non_filtra` |
+| `test_avviso_e_runtime_dicono_la_STESSA_cosa` | equivalenza avviso ↔ runtime | equivalenza **invariata**; tre righe della matrice passano da `False` a `True`, perché il ciclo interroga `resolve_team` **senza scope** — la stessa cosa che fa la pipeline |
+
+Suite completa dopo la correzione: **5071 passed, 1 skipped**, zero `xfail` residui.
