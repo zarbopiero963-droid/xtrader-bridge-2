@@ -204,10 +204,46 @@ un parser custom può estrarre testo arbitrario):
   **originale**, solo preceduto dall'apice: il contenuto non viene mai riscritto. Il controllo
   dei control-char iniziali resta invece sul primo carattere *grezzo*, perché TAB/CR/LF **sono**
   spazio bianco e `strip()` li nasconderebbe.
-  **I control-char *interni* non vengono neutralizzati**, ed è deliberato: dentro un campo
-  quotato un a-capo è CSV valido per RFC-4180 e un parser conforme lo rilegge come un solo
-  campo (verificato con un round-trip scrittura→rilettura nei test). Resta fuori dalla garanzia
-  il caso di un reader non conforme.
+- **A-capo interni: neutralizzati (B11 #194, decisione D2 — ⚠️ cambio di comportamento).**
+  Nessun `CR`/`LF` sopravvive in una cella. La neutralizzazione avviene prima della scrittura,
+  in **due fasi**, perché bordi e interni non vanno trattati allo stesso modo:
+
+  | valore estratto | finisce nel file come | |
+  |---|---|---|
+  | `"Inter\r\nMilan"` | `"Inter Milan"` | a-capo **interno** → un solo spazio |
+  | `"1.85\r\n"` | `"1.85"` | a-capo **in coda** → rimosso |
+  | `"\r\n1.85"` | `"1.85"` | a-capo **in testa** → rimosso |
+
+  Ai bordi si **rimuove** invece di sostituire perché uno spazio residuo romperebbe il
+  contratto numerico: `"1.85 "` non è più un numero per il riconoscitore del progetto, e
+  XTrader lo leggerebbe come **testo**. `"\r\n=1+1"` diventa `"'=1+1"`: l'a-capo sparisce e
+  la protezione anti-formula resta.
+
+  *Cosa è cambiato e perché.* Fino alla B11 i control-char interni erano lasciati intatti
+  **deliberatamente**: dentro un campo quotato un a-capo è CSV valido per RFC-4180, e un
+  parser conforme lo rilegge come un campo solo. Il ragionamento era corretto ma poggiava su
+  una premessa **mai verificata** — che il parser di XTrader sia conforme. Il PoC della #192
+  (M7) ha misurato che, con una configurazione parser del tutto ordinaria
+  (`end_before="Quota:"`), un messaggio Telegram con CR/LF interni deposita nel file una
+  **riga fisica** i cui primi 14 campi separati da virgola sono interamente scelti
+  dall'attaccante: evento diverso, selezione diversa, **`BANCA` al posto di `PUNTA`**, quota
+  `1.01`. Un lettore riga-orientata piazza la scommessa **col lato invertito**.
+
+  *Cosa si perde.* La garanzia di **round-trip esatto** su un valore che contiene a-capo: chi
+  rilegge il CSV recupera `"Inter Milan"`, non `"Inter\r\nMilan"`. Nessun segnale legittimo ha
+  un a-capo dentro il nome di una squadra, quindi la garanzia perduta non ha un caso d'uso
+  reale — mentre il costo di sbagliare sulla conformità di XTrader è una scommessa invertita.
+  **Non è un breaking change del contratto**: le 14 colonne, il loro ordine, il quoting e il
+  formato numerico restano identici.
+
+  *Perimetro, misurato.* Solo `CR` e `LF`: a livello di file nessun altro carattere spezza una
+  riga. `VT`, `FF`, `NEL`, `U+2028` e `U+2029` spezzano soltanto sotto `str.splitlines()` di
+  Python, mai nell'iterazione del file. Il **TAB** non è toccato: non spezza righe, e il suo
+  round-trip resta esatto. La neutralizzazione è **incondizionata** anche sulle celle
+  numeriche: `"1.85\r\n"` risulterebbe *numerico* (la numericità si decide dopo `strip()`, che
+  toglie gli a-capo finali) e una regola limitata alle sole celle non numeriche l'avrebbe
+  lasciato passare con l'a-capo dentro. L'esenzione numerica non ne soffre — nessun numero
+  valido contiene un a-capo.
 - **Separatore decimale — lingua CSV (#342/#343).** Il formato scritto nel file è governato
   dalla config **`csv_language`** (`IT`/`EN`/`ES`, default **`IT`**, allineata dal **selettore
   lingua al primo avvio**, #343): con `IT`/`ES` le colonne decimali (`Price`, `MinPrice`,

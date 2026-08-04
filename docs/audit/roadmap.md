@@ -3718,8 +3718,23 @@ messaggio (`market_matched`, calcolato dal router via `resolve_market(...).statu
 nessun match gli ID fissi restano e il non-segnale è bloccato (`NO_CONTENT_MATCH`). Il path
 supportato «ID fissi + mappatura mercati + EventName» resta valido quando un mercato combacia.
 
-**Escluso (non confermato):** CR/LF interni ai campi verso il CSV — meccanica reale ma neutralizzata
-da `QUOTE_ALL` + `_sanitize_cell`; nessuna scommessa sbagliata.
+**~~Escluso (non confermato):~~ CONFERMATO e corretto — B11 (#192 M7 → #194 D2 → PR-N).** La
+valutazione originale diceva: «CR/LF interni ai campi verso il CSV — meccanica reale ma
+neutralizzata da `QUOTE_ALL` + `_sanitize_cell`; nessuna scommessa sbagliata». **Era sbagliata**,
+e vale la pena tenerne traccia perché l'errore è istruttivo: `_sanitize_cell` guardava solo il
+**primo** carattere, quindi non neutralizzava affatto i CR/LF *interni*; e `QUOTE_ALL` protegge
+soltanto un parser **conforme a RFC-4180** — premessa mai verificata su XTrader, e che il
+repository stesso dichiarava fuori garanzia due righe più in là.
+
+Il PoC della #192 (M7) ha poi misurato la scommessa sbagliata che qui si escludeva: con
+`end_before="Quota:"`, una configurazione del tutto ordinaria, un messaggio con CR/LF interni
+deposita una riga fisica i cui primi 14 campi sono scelti dall'attaccante — **`BANCA` al posto di
+`PUNTA`**, quota `1.01`. Chiuso in `_sanitize_cell` neutralizzando gli a-capo in **due fasi**:
+quelli ai **bordi** vengono rimossi, le sequenze **interne** diventano un solo spazio. La
+distinzione non è estetica — collassare anche i bordi lasciava `"1.85\r\n"` come `"1.85 "`, che
+non è più un numero per `_NUMERIC_RE` e XTrader leggerebbe come testo (bloccante Fable 5,
+confermato da Fugu Ultra sulla #250)
+(vedi `docs/xtrader_csv_contract.md`).
 
 ---
 

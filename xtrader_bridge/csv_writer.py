@@ -154,9 +154,22 @@ def _localize_row(row: dict, lang: str) -> dict:
 def localize_row(row: dict, lang: str = None) -> dict:
     """Wrapper PUBBLICO di `_localize_row` per le ANTEPRIME (GUI «Prova messaggio»): copia
     della riga coi decimali nel formato della lingua CSV (`lang`, default = lingua corrente),
-    cioè come usciranno davvero nel file. Stessa fonte di verità del write-path (#342): la
-    preview non può divergere dal CSV reale. NON usare nel percorso interno (validatori/dedup
-    lavorano sui valori canonici col punto)."""
+    cioè come usciranno davvero nel file. Stessa fonte di verità del write-path (#342), quindi
+    sui **decimali** la preview non può divergere dal CSV reale. NON usare nel percorso interno
+    (validatori/dedup lavorano sui valori canonici col punto).
+
+    **Limite dichiarato: la parità è sui decimali, non sull'intera cella.** Il write-path è
+    `_sanitize_row(_localize_row(...))`: la sanificazione viene **dopo**, e questo wrapper non
+    la applica. Nell'anteprima non si vedono quindi né l'apostrofo anti-formula (una cella
+    `=1+1` è mostrata nuda e scritta come `'=1+1`) né la neutralizzazione degli a-capo (B11:
+    `"Inter\\r\\nMilan"` è mostrato con l'a-capo e scritto come `"Inter Milan"`).
+
+    È deliberato: l'anteprima serve all'operatore per capire **cosa ha estratto il parser**, e
+    mostrargli l'apostrofo di una mitigazione anti-injection lo confonderebbe su un dato che
+    non ha scritto lui. Sanificare anche qui sarebbe un cambiamento di ciò che la GUI mostra —
+    va deciso come modifica di design, non introdotto di straforo da un fix del CSV. Il
+    docstring precedente prometteva una parità totale che il codice non ha mai dato (l'apostrofo
+    divergeva già): meglio una promessa stretta e vera."""
     return _localize_row(row, get_csv_language() if lang is None else lang)
 
 # Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
@@ -355,6 +368,16 @@ def _replace_with_retry(src: str, dst: str, attempts: int = _REPLACE_ATTEMPTS, *
 # mette in sicurezza il PARSING ma non neutralizza questi prefissi (audit B1).
 _CSV_FORMULA_CHARS = ("=", "+", "-", "@")
 _CSV_CTRL_CHARS = ("\t", "\r", "\n")
+
+# Gli unici caratteri che spezzano una riga a livello di FILE (misurato in
+# `tests/unit/test_crlf_riga_forgiata_b11.py::test_solo_cr_e_lf_spezzano_il_file`).
+# Due regex, non una, perché a-capo ai BORDI e a-capo INTERNI vanno trattati diversamente:
+# quelli ai bordi si tolgono e basta, quelli in mezzo diventano UN solo spazio (`\r\n` è un
+# a-capo, non due). Sostituire anche i bordi con uno spazio lascerebbe un residuo che rompe
+# il contratto numerico: `"1.85\r\n"` diventerebbe `"1.85 "`, che per `_NUMERIC_RE` NON è
+# più un numero — e XTrader lo leggerebbe come testo (bloccante Fable 5 sulla #250).
+_CSV_LINEBREAK_EDGE_RE = re.compile(r"\A[\r\n]+|[\r\n]+\Z")
+_CSV_LINEBREAK_RE = re.compile(r"[\r\n]+")
 # Numero "puro" (segno opzionale + decimale con . o ,): es. Handicap "-1"/"+1,5", Price
 # "1.85". Un numero legittimo NON va prefissato, altrimenti XTrader leggerebbe "'-1" come
 # testo e il contratto numerico si romperebbe. Frammento condiviso (anti-drift, audit L4).
@@ -378,10 +401,57 @@ def _sanitize_cell(value):
 
     Il ramo control-char resta su `s[0]`: TAB/CR/LF **sono** spazio bianco, quindi `strip()` li
     toglierebbe e non li vedrebbe più. Sono due domande diverse — «questa cella inizia con un
-    control-char?» e «il suo contenuto è una formula?» — e vanno poste su viste diverse."""
+    control-char?» e «il suo contenuto è una formula?» — e vanno poste su viste diverse.
+
+    **A-capo interni (B11 #194, decisione D2 del proprietario).** Nessun `\\r`/`\\n` sopravvive
+    in una cella, e la neutralizzazione avviene PRIMA di ogni altro controllo. In **due fasi**,
+    perché bordi e interni non vanno trattati allo stesso modo:
+
+        "Inter\\r\\nMilan"  ->  "Inter Milan"   (interno: un solo spazio)
+        "1.85\\r\\n"        ->  "1.85"          (coda: RIMOSSO, niente spazio residuo)
+        "\\r\\n=1+1"        ->  "'=1+1"         (testa: rimosso, la formula resta apostrofata)
+
+    Si smette così di dipendere dalla conformità RFC-4180 del parser di XTrader, che **non è
+    verificata**: con `QUOTE_ALL` un a-capo dentro un campo quotato è CSV valido e un parser
+    conforme lo rilegge come un campo solo, ma un lettore riga-orientata vede una **riga
+    fisica nuova**. Il PoC della #192 (M7) ha misurato che da lì escono 14 campi scelti
+    dall'attaccante, con `BANCA` al posto di `PUNTA` e quota 1.01. Nessun segnale legittimo ha
+    un a-capo dentro il nome di una squadra: la garanzia di round-trip che si perde non ha un
+    caso d'uso reale, mentre l'alternativa è una scommessa col lato invertito.
+
+    Tre scelte di implementazione, tutte misurate e non intuite:
+
+    - **incondizionata, non «solo le celle non numeriche»**: la numericità si decide sul valore
+      spogliato, e `strip()` toglie i CR/LF finali — quindi `"1.85\\r\\n"` risulta *numerico* e
+      una sanificazione condizionata l'avrebbe lasciato passare con l'a-capo dentro. L'esenzione
+      numerica non ne soffre: nessun numero valido contiene un a-capo, quindi qui non cambia mai
+      un numero;
+    - **bordi tolti, interni sostituiti** (bloccante Fable 5 + follow-up Fugu Ultra sulla #250):
+      collassare *tutto* in uno spazio lasciava un residuo in coda, e `"1.85\\r\\n"` finiva nel
+      file come `"1.85 "` — che per `_NUMERIC_RE` **non è più un numero**, quindi XTrader
+      l'avrebbe letto come testo. Il ramo interno non se ne accorgeva perché decide su
+      `s.strip()`, dove lo spazio residuo sparisce: la cella risultava «numerica» e usciva senza
+      apostrofo, ma scritta non lo era più. Ora un a-capo in testa o in coda viene **rimosso**,
+      e solo quelli in mezzo diventano uno spazio;
+    - **prima degli altri controlli**: un `"\\r\\n=1+1"` prendeva già l'apice dal ramo
+      control-char, ma l'a-capo restava nella cella e la riga si spezzava lo stesso. Neutralizzando
+      per primo si tiene la riga intatta e la formula resta comunque intercettata dal ramo che
+      decide sul valore spogliato;
+    - **solo `\\r` e `\\n`**: a livello di file nessun altro carattere spezza una riga. VT, FF,
+      NEL, U+2028 e U+2029 spezzano soltanto sotto `str.splitlines()` di Python, mai
+      nell'iterazione del file, e nessun consumatore legge il CSV così (verificato). Gli altri
+      control-char sono la classe della B23, che ha una PR sua: allargare qui significherebbe
+      correggerla a metà e in due posti."""
     s = "" if value is None else str(value)
     if not s:
         return s
+    # Prima i BORDI (via del tutto), poi gli INTERNI (uno spazio): vedi le due regex.
+    s = _CSV_LINEBREAK_EDGE_RE.sub("", s)
+    # `\r\n` è UN a-capo, non due: `+` lo collassa in un solo spazio («Inter Milan», non
+    # «Inter  Milan») senza cambiare il numero di campi della riga.
+    s = _CSV_LINEBREAK_RE.sub(" ", s)
+    if not s:
+        return s        # la cella era SOLO a-capo: resta vuota, niente da apostrofare
     if s[0] in _CSV_CTRL_CHARS:
         return "'" + s
     nudo = s.strip()
