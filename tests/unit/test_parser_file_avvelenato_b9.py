@@ -286,7 +286,15 @@ def test_fuzz_strutturale_nessuna_classe_inattesa(cartella):
         except Exception as exc:                # noqa: BLE001 — è ciò che si sta misurando
             sfuggite.append((type(exc).__name__, str(documento)[:80]))
 
-    assert provati >= 300, f"il fuzz si è ridotto a {provati} casi: non copre più lo schema"
+    # Conteggio ESATTO, non una soglia (rilievo Fugu Ultra sulla PR #240): un
+    # `>= 300` tollererebbe in silenzio una riduzione da 336 a 300 casi — cioè
+    # lascerebbe degradare la guardia continuando a chiamarsi «fuzz». È lo stesso
+    # difetto che questa PR corregge: un presidio che accetta meno di quanto promette.
+    # Aggiungere una chiave o un valore allo schema fa fallire QUI, dove si aggiorna
+    # il numero avendo appena guardato cosa si è aggiunto.
+    atteso = len(chiavi) * len(valori) + 5 * len(valori)
+    assert provati == atteso == 336, (
+        f"il fuzz copre {provati} casi, attesi {atteso}: schema cambiato, aggiorna il numero")
     assert not sfuggite, f"classi fuori da (OSError, ValueError): {sfuggite[:5]}"
 
 
