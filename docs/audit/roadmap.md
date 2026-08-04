@@ -5034,3 +5034,80 @@ che oggi scrive correttamente, un danno molto maggiore di quello che questa PR p
 
 Invariato anche il percorso **con dizionario attivo** (`MAPPING_MISSING`): area dichiarata sana
 dall'audit, non toccata.
+
+---
+
+## PR-P (#194 · B20 fatto, B21 aperto) — la guardia che confrontava la dimensione sbagliata
+
+Due difetti della stessa forma: una guardia anti-ambiguità **c'è già**, ma si lascia aggirare
+perché confronta la dimensione sbagliata. Uno è chiuso qui; l'altro no, e il perché è la parte
+che conta.
+
+### B20 (#192 L16) — la selezione poteva venire da un altro mercato · CORRETTO
+
+`dizionario.selections_for_market` combacia su `MarketType` **oppure** `MarketName`. È utile per
+le tendine della GUI (si passa l'uno o l'altro), ma al momento di **accoppiare** mercato e
+selezione è pericoloso: se il `MarketName` risolto coincide col `MarketType` di un'**altra** riga,
+la selezione arriva da quella riga e si accoppia al `market_type` di questa. Misurato sul codice
+vecchio, con un catalogo di due righe:
+
+```
+{'market_type': 'MATCH_ODDS', 'market_name': 'Vincente',
+ 'selection_name': 'Selezione di UN ALTRO mercato'}
+```
+
+`market_type` e `market_name` dalla riga A, `selection_name` dalla riga B: una coppia che nel
+dizionario **non esiste**, scritta nel CSV come se esistesse. Chiuso in `_canonical_market`
+saltando le selezioni il cui `MarketName` normalizzato non è quello del mercato risolto.
+
+**Raggio d'azione, misurato invece che stimato:** il catalogo spedito ha 81 righe, 22 `MarketType`
+e 22 `MarketName` distinti, **0 collisioni** e **0 righe a rischio**. La correzione non cambia
+nulla sul dato vero: chiude il dizionario esteso o editato a mano. Suite storica invariata.
+
+**Residuo dichiarato** (trovato cercando i *consumatori*, non i siti): `parser_builder.
+selection_options` e `name_mapping_gui._selections_for` usano lo stesso `selections_for_market`
+per le tendine. Su un catalogo con collisioni possono ancora **offrire** una coppia che il runtime
+ora rifiuta → il segnale si perde invece di essere sbagliato. Direzione sicura, residuo scritto
+qui perché non venga riscoperto come bug. `config_agent` usa la stessa funzione ma passa sempre un
+`MarketType`: non toccato (area dichiarata sana, Regola 5).
+
+### B21 (#192 L13) — l'ordine di salvataggio decide la squadra · APERTO, serve una decisione
+
+Una riga del Dizionario nomi è considerata «distinguibile» da un'altra se differisce per
+`(sport, entity_type, language)`. Ma la firma **non sa se il chiamante ha davvero filtrato** su
+quelle dimensioni: un parser sport-agnostico passa `sport=None`, le due righe restano formalmente
+distinte, la guardia anti-ambiguità non scatta e la risoluzione ricade sulla **prima salvata**.
+Misurato sul codice attuale:
+
+```
+alias "Inter" -> "Inter Milano" (Calcio)  |  "Inter Miami" (Basket)
+ordine A -> 'Inter Milano'
+ordine B -> 'Inter Miami'      <-- la squadra dipende dall'ORDINE DI SALVATAGGIO
+```
+
+Il valore finisce nell'`EventName`, quindi nel mercato e nella selezione su cui si scommette.
+
+**Perché non è corretto in questa PR.** La patch esiste ed è verde sui suoi test, ma rompe **8
+test esistenti** che codificano di proposito il comportamento storico — fra cui l'end-to-end
+`test_source_language_wiring_5b.py::test_source_language_none_comportamento_legacy`, il cui
+commento dice: «Senza `source_language` (""), il filtro è inerte: si risolve col comportamento
+storico (prima riga alias combaciante nell'ordine salvato)». Con la patch quel percorso ritorna
+`MAPPING_MISSING`.
+
+Il baratto non è tecnico, è di prodotto:
+
+| Scelta | Costo |
+|---|---|
+| **fail-closed** (non risolvo se il chiamante non ha filtrato) | eventi oggi tradotti smettono di esserlo → **segnali persi** |
+| **ordine di salvataggio** (oggi) | ogni tanto si traduce la squadra sbagliata → **scommessa sbagliata** |
+
+Il piano #194 non copre questa scelta (non è fra D1/D2/D3) e CLAUDE.md Regola 5 prescrive di
+fermarsi e chiedere invece di procedere. Quindi B21 resta aperto, **in attesa della decisione del
+proprietario**.
+
+I test di B21 sono comunque scritti e committati, marcati `xfail(strict=True)` in
+`tests/unit/test_scope_ambiguo_pr_p.py`. `strict` è deliberato: quando la patch entrerà, quei test
+passeranno e l'`xfail` diventerà **rosso** — la correzione non può essere dimenticata, e chi la
+farà troverà i test già pronti (Regola 1 già soddisfatta). I controlli positivi — «chi filtra
+ottiene la sua riga», su tutte e tre le dimensioni — sono **separati e verdi**: sono la linea di
+base che la futura patch non deve spostare.

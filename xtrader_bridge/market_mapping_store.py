@@ -214,8 +214,23 @@ def _canonical_market(market_name: str, selection_name: str, rows=None):
             mn, len(matches), sorted(tipi))
         return None
     canon_market = matches[0]["MarketName"]
+    ncanon = dizionario.normalize(canon_market)
     for s in dizionario.selections_for_market(canon_market, rows):
         if s.get("dynamic") or not s.get("SelectionName"):
+            continue
+        # La selezione deve appartenere DAVVERO a questo mercato (B20 #194, audit #192 L16).
+        # `selections_for_market` combacia su `MarketType` **oppure** `MarketName` — utile per
+        # le tendine della GUI, pericoloso qui: se il `MarketName` risolto coincide col
+        # `MarketType` di un'ALTRA riga, la selezione arriva da quella riga e si accoppia col
+        # `market_type` di questa. Misurato su un catalogo sporco, prima della correzione:
+        #
+        #   {'market_type': 'MATCH_ODDS', 'market_name': 'Vincente',
+        #    'selection_name': 'Selezione di UN ALTRO mercato'}
+        #
+        # cioè una coppia mercato/selezione che nel dizionario **non esiste**, scritta nel CSV
+        # come se esistesse. Il catalogo spedito è pulito (22 tipi / 81 righe, 0 collisioni),
+        # quindi qui non cambia nulla: chiude il caso del dizionario esteso o editato a mano.
+        if dizionario.normalize(s.get("MarketName", "")) != ncanon:
             continue
         if dizionario.normalize(s["SelectionName"]) == nsn:
             mtype = dizionario.market_type_for_name(canon_market, rows) or ""
