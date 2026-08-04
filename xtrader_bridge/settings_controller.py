@@ -23,6 +23,7 @@ chiavi: ogni altra impostazione (token, chat, sorgenti, parser, ecc.) è preserv
 import copy
 
 from . import (autostart, bridge_mode, config_store, recognition, safety_guard,
+               validators,
                settings_validation, signal_queue, source_manager)
 
 # Default del timeout conferme: fonte unica = config_store.DEFAULTS.
@@ -116,11 +117,10 @@ def _coerce_int_display(value, default: int) -> int:
     NON tronca: un numero non intero (es. `1.5`) o `<= 0` ricade sul default invece
     di diventare un limite valido diverso (`1`), allineandosi a come il
     `DailyLimiter` runtime tratta i valori malformati (finding Codex P2)."""
-    if isinstance(value, bool):
-        return default
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
+    # `finite_or_none` rifiuta i bool e copre anche `OverflowError` (#194 PR-E): un intero
+    # enorme in config faceva esplodere il pannello impostazioni invece di mostrare il default.
+    f = validators.finite_or_none(value)
+    if f is None:
         return default
     if not f.is_integer() or f <= 0:
         return default

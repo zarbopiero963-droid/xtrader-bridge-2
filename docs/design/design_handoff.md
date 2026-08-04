@@ -784,6 +784,13 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   sull'accumulo **tra messaggi**; il blocco di un **singolo** messaggio multi-riga non viene mai
   spezzato da questo tetto (auto-raise, #192), quindi le righe attive possono superarlo per un
   blocco intero.
+  **Valore illeggibile → si mostra il default, mai «nessun tetto»** (#194 PR-E). Un
+  `config.json` con un valore malformato in quel campo fa comparire **2** (il default), e
+  l'indicatore «Righe attive: N/**M**» mostra quindi `M = 2`. È deliberato: prima un valore
+  illeggibile diventava `0`, che in questo campo significa *illimitato*, e l'indicatore
+  mostrava un tetto **disattivato** senza dirlo — un presidio di sicurezza che si spegne in
+  silenzio è la stessa classe di difetto della revoca invisibile (#235). Nessun cambiamento
+  visivo: cambia **quale numero** appare in un caso di configurazione corrotta.
 - Dropdown **"🧮 Modalità coda segnali"** (`queue_mode`): `OVERWRITE_LAST` / `APPEND_ACTIVE` / `QUEUE_UNTIL_CONFIRMED`
 
 **Tab ✅ Conferme XTrader** — 4 campi:

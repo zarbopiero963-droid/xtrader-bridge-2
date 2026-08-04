@@ -23,7 +23,7 @@ import argparse
 import json
 from datetime import datetime
 
-from . import config_store, event_journal, runtime_state
+from . import config_store, event_journal, runtime_state, validators
 
 
 def default_path() -> str:
@@ -34,9 +34,13 @@ def default_path() -> str:
 def _ts_value(event) -> float:
     """`ts` di un evento come float ordinabile; mancante/non-numerico → `-inf` (finisce
     in testa, così una riga con ts rotto è visibile e non maschera il resto)."""
+    # `OverflowError` (#194 PR-E): un `ts` intero-enorme nel diario faceva morire il
+    # visualizzatore — cioè lo strumento di diagnosi, proprio quando serve. La gemella
+    # `_ts_label` due funzioni più sotto lo catturava GIÀ: erano due sorelle divergenti
+    # nello stesso file, che è il difetto contro cui esiste la regola della fonte unica.
     try:
         return float(event.get("ts"))
-    except (TypeError, ValueError):
+    except validators.NUMERIC_ERRORS:
         return float("-inf")
 
 

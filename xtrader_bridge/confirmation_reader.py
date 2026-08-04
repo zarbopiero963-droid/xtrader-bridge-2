@@ -20,9 +20,10 @@ solo uno stato. L'aggancio al runtime (leggere la chat notifiche, confermare il
 segnale nella coda) è un passo successivo. Modulo puro, interamente testabile.
 """
 
-import math
 import re
 from dataclasses import dataclass
+
+from . import validators
 
 CONFIRMED = "CONFIRMED"
 REJECTED = "REJECTED"
@@ -299,11 +300,11 @@ def interpret(text: str, pending, *, confirm_keywords=None,
 def _require_finite(value, name: str) -> float:
     """`value` come float finito, altrimenti ValueError. Un `NaN`/`inf` (accettato
     da `json.load` su stato persistito) romperebbe i confronti temporali."""
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} non valido: {value!r}")
-    if not math.isfinite(f):
+    # `finite_or_none` non solleva e copre anche `OverflowError` (#194 PR-E): il docstring
+    # qui sopra promette «altrimenti ValueError», e un intero enorme dallo stato persistito
+    # rompeva quella promessa facendo passare una classe che i chiamanti non catturano.
+    f = validators.finite_or_none(value)
+    if f is None:
         raise ValueError(f"{name} deve essere un numero finito (ricevuto {value!r})")
     return f
 
