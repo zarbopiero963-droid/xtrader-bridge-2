@@ -342,3 +342,85 @@ def test_revoche_ILLEGGIBILI_non_fanno_sparire_il_pulsante(registro):
     assert esito["revoked"] is None, "«non lo so» non deve diventare «non revocata»"
     assert "non ho potuto leggere" in esito["message"].lower()
     assert _serials(registro) == ["LIC-AAA", "LIC-BBB", "LIC-CCC"], "ha eliminato senza conferma"
+
+
+# ── i due bloccanti di Fugu Ultra ───────────────────────────────────────────
+
+def test_i_byte_non_UTF8_di_un_ALTRO_serial_restano_IDENTICI(registro):
+    """Rilievo bloccante di Fugu Ultra, riprodotto prima della correzione.
+
+    La prima versione del filtro leggeva il file con `errors="replace"`: i byte non-UTF-8 di
+    una riga di un ALTRO serial diventavano `U+FFFD` in lettura e venivano **riscritti così**.
+    Misurato: `Nom\\xe8` → `Nom\\xef\\xbf\\xbd`. La correzione che doveva impedire la perdita di
+    righe altrui le corrompeva in un altro modo — e il registro contiene l'unica copia del token.
+
+    Il test precedente non lo prendeva perché usava JSON ASCII: la riga era «illeggibile» come
+    JSON ma perfettamente decodificabile come UTF-8.
+    """
+    percorso = registry.registry_path(registro)
+    riga_ostile = b'{"serial": "LIC-BYTE", "name": "Nom\xe8", "token": "t2"}\n'
+    with open(percorso, "ab") as f:
+        f.write(riga_ostile)
+
+    registry.remove_record("LIC-AAA", directory=registro)
+
+    with open(percorso, "rb") as f:
+        dopo = f.read()
+    assert riga_ostile.strip() in dopo, "i byte non-UTF-8 di un altro serial sono stati alterati"
+    assert b"\xef\xbf\xbd" not in dopo, "sostituito con U+FFFD: corruzione permanente"
+    assert b"LIC-AAA" not in dopo, "la riga richiesta non è stata eliminata"
+
+
+def test_un_append_CONCORRENTE_fa_RIFIUTARE_invece_di_perdere_il_record(registro, monkeypatch):
+    """Secondo bloccante di Fugu Ultra: `_WRITE_LOCK` serializza i thread, non i processi.
+
+    Per un **append** due istanze si interlacciano al peggio; per una riscrittura dell'INTERO
+    file un append concorrente andrebbe **perso del tutto** — un fallimento peggiore, introdotto
+    da questa funzione. Qui si simula l'altra istanza che registra una licenza mentre
+    l'eliminazione è in corso: deve **rifiutare**, non sovrascrivere.
+
+    Non è un lock inter-processo (quello è la #185): è un controllo di versione. Perdere una
+    licenza appena emessa in silenzio è il danno peggiore; rifiutare è rumoroso e reversibile.
+    """
+    vero_mkstemp = registry.tempfile.mkstemp
+
+    def mkstemp_con_intruso(*a, **k):
+        # L'«altra istanza» appende DOPO che remove_record ha già letto il file.
+        # Si scrive il file DIRETTAMENTE e non via `append_record`: quest'ultima prenderebbe
+        # lo stesso `_WRITE_LOCK` — non rientrante — che `remove_record` sta già tenendo, e il
+        # test andrebbe in deadlock invece di simulare alcunché. Un altro PROCESSO quel lock
+        # non ce l'ha: scrivere sul file è esattamente ciò che farebbe.
+        with open(registry.registry_path(registro), "a", encoding="utf-8") as f:
+            f.write(json.dumps(_record("LIC-INTRUSO")) + "\n")
+        return vero_mkstemp(*a, **k)
+
+    monkeypatch.setattr(registry.tempfile, "mkstemp", mkstemp_con_intruso)
+
+    with pytest.raises(registry.ConcurrentModification):
+        registry.remove_record("LIC-AAA", directory=registro)
+
+    serial = _serials(registro)
+    assert "LIC-INTRUSO" in serial, "il record dell'altra istanza è stato perso"
+    assert "LIC-AAA" in serial, "eliminata pur avendo rifiutato l'operazione"
+    residui = [n for n in os.listdir(registro) if n.startswith(".registry_")]
+    assert residui == [], f"temporaneo non rimosso dopo il rifiuto: {residui}"
+
+
+def test_la_GUI_riporta_il_rifiuto_invece_di_esplodere(registro, monkeypatch):
+    """Regola 2-bis: ho introdotto un'eccezione nuova, quindi vado a vedere CHI chiama.
+
+    `_evaluate_delete` catturava solo `OSError`, e `ConcurrentModification` è una `RuntimeError`:
+    sarebbe sfuggita fino a `_on_delete`, che non ha handler → il pulsante non avrebbe fatto
+    **nulla e senza messaggio**. Cioè avrei ricreato, con una classe diversa, il difetto che
+    CodeRabbit aveva appena fatto correggere due commit fa.
+    """
+    def rifiuta(*_a, **_k):
+        raise registry.ConcurrentModification("il registro è cambiato durante l'eliminazione")
+
+    monkeypatch.setattr(registry, "remove_record", rifiuta)
+
+    esito = _app(registro)._evaluate_delete("LIC-AAA", conferma=True)   # non deve sollevare
+
+    assert esito["accepted"] is False
+    assert "cambiato" in esito["message"]
+    assert _serials(registro) == ["LIC-AAA", "LIC-BBB", "LIC-CCC"]

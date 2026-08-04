@@ -393,6 +393,11 @@ class LicenseManagerApp(ctk.CTk):
                     "message": avviso}
         try:
             rimossi = registry.remove_record(ser, directory=self._key_dir)
+        except registry.ConcurrentModification as exc:
+            # Non è un errore di disco: è un rifiuto DELIBERATO perché il registro è cambiato
+            # sotto (altra istanza aperta). Va detto con parole proprie — «riprova» qui è un
+            # consiglio sensato, mentre su un errore di I/O non lo sarebbe.
+            return {"accepted": False, "needs_confirm": False, "message": str(exc)}
         except OSError as exc:
             return {"accepted": False, "needs_confirm": False,
                     "message": f"Eliminazione non riuscita ({type(exc).__name__}): registro invariato."}

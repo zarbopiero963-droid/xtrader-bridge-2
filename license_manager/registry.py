@@ -60,6 +60,19 @@ STATUS_EXPIRED = "SCADUTA"
 STATUS_REVOKED = "REVOCATA"
 
 
+class ConcurrentModification(RuntimeError):
+    """Il registro è cambiato fra la lettura e la riscrittura di `remove_record`.
+
+    Non è un errore di I/O: il file è perfettamente leggibile: è **qualcun altro** che ci ha
+    scritto nel frattempo — tipicamente una seconda istanza del License Manager che ha appena
+    emesso una licenza. Si solleva **prima** di `os.replace`, quindi il registro resta invariato
+    e il record appena aggiunto dall'altra istanza non viene perso.
+
+    Sottoclasse di `RuntimeError` e non di `OSError` di proposito: i chiamanti che catturano
+    `OSError` per gli errori di disco non devono confondere «non ho potuto scrivere» con «non
+    devo scrivere»."""
+
+
 def normalize_serial(value) -> str:
     """Serial normalizzato per il CONFRONTO: spazi ai bordi via, maiuscole.
 
@@ -189,8 +202,12 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
     riscritto. È la stessa forma usata per il file-chiave in `core.save_signing_key`, ed è
     obbligatoria qui: a differenza di un append, questa operazione riscrive TUTTO il file.
 
+    **Solleva `ConcurrentModification`** se il registro cambia fra la lettura e la riscrittura
+    (un'altra istanza ha appena registrato una licenza): il file resta **invariato** e nessun
+    record viene perso. Vedi sotto.
+
     Serial vuoto/non trovato → `0`, nessuna scrittura (non si riscrive un file per nulla).
-    Gli errori di I/O **propagano**, come in `append_record`."""
+    Gli altri errori di I/O **propagano**, come in `append_record`."""
     voluto = normalize_serial(serial)
     if not voluto:
         return 0
@@ -202,35 +219,58 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
         # di **altri** serial, che l'utente non ha chiesto di toccare. Su questo registro sarebbe
         # distruzione silenziosa: contiene l'unica copia del token di ogni licenza, e una riga
         # troncata da un crash è ancora recuperabile a mano finché resta sul disco.
+        #
+        # E si lavora in BINARIO, non in testo (rilievo bloccante di Fugu Ultra). La prima
+        # versione di questo filtro leggeva con `errors="replace"`: i byte non-UTF-8 di una riga
+        # di un ALTRO serial diventavano `U+FFFD` in lettura e venivano riscritti **mutilati**.
+        # Misurato: `Nom\xe8` → `Nom\xef\xbf\xbd`. Cioè la correzione che doveva impedire la
+        # perdita di righe altrui le corrompeva in un altro modo. In binario i byte passano
+        # identici: si decodifica solo per DECIDERE, mai per riscrivere.
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                righe = f.readlines()
+            with open(path, "rb") as f:
+                contenuto = f.read()
+            stato_letto = os.stat(path)
         except OSError:
             return 0
         tenute, rimossi = [], 0
-        for grezza in righe:
-            testo = grezza.strip()
-            if not testo:
+        for grezza in contenuto.split(b"\n"):
+            if not grezza.strip():
                 continue
             try:
-                obj = json.loads(testo)
-            except (json.JSONDecodeError, ValueError):
-                obj = None
+                obj = json.loads(grezza.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                obj = None      # non decodificabile → non è la riga cercata → si TIENE
             if isinstance(obj, dict) and normalize_serial(obj.get("serial")) == voluto:
                 rimossi += 1
                 continue
-            tenute.append(testo)      # illeggibile o di un altro serial → si TIENE
+            tenute.append(grezza)
         if not rimossi:
             return 0
-        payload = "".join(r + "\n" for r in tenute)
+        payload = b"".join(r + b"\n" for r in tenute)
         parent = os.path.dirname(path) or "."
         os.makedirs(parent, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=parent, prefix=".registry_", suffix=".tmp")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "wb") as f:
                 f.write(payload)
                 f.flush()
                 os.fsync(f.fileno())
+            # Guardia anti-race INTER-PROCESSO (rilievo bloccante di Fugu Ultra). `_WRITE_LOCK`
+            # serializza i thread, non i processi: due License Manager aperti insieme sono
+            # possibili, e per un APPEND il caso peggiore è un interlacciamento, mentre per una
+            # riscrittura dell'INTERO file un append concorrente andrebbe **perso del tutto** —
+            # un fallimento peggiore, e introdotto da questa funzione.
+            #
+            # Non è un lock inter-processo (quello è la #185, che ha il suo scope): è un
+            # controllo di versione. Se il file è cambiato fra la lettura e adesso, si RIFIUTA
+            # invece di sovrascrivere. Perdere una licenza appena emessa in silenzio è il
+            # danno peggiore; rifiutare e far ripetere l'operazione è rumoroso e reversibile.
+            stato_ora = os.stat(path)
+            if (stato_ora.st_mtime_ns, stato_ora.st_size) != (stato_letto.st_mtime_ns,
+                                                              stato_letto.st_size):
+                raise ConcurrentModification(
+                    "il registro è cambiato durante l'eliminazione (un'altra istanza del "
+                    "License Manager?): nessuna riga eliminata, riprova")
             os.replace(tmp, path)
         except BaseException:
             try:
