@@ -31,6 +31,7 @@ from . import (
     name_mapping_store,
     recognition,
     sports,
+    ui_cards,
     ui_theme,
     ui_widgets,
 )
