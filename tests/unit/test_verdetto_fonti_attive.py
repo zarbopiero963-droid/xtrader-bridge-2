@@ -400,3 +400,74 @@ def test_il_system_prompt_insegna_a_non_confondere_le_due_cause():
     assert pdg.CONDITIONS_NOT_MET in prompt
     assert pdg.NO_CONTENT_MATCH in prompt
     assert "delimitatori" in prompt.lower()
+
+
+def test_nessun_oggetto_condizione_finisce_nel_JSON_dell_assistente(monkeypatch):
+    """Rilievo GPT-5.5 sulla #249: `failed_conditions` ritorna oggetti `Condition`
+    interi — se uno finisse nell'output del tool, `json.dumps` solleverebbe e
+    l'assistente andrebbe in errore invece di rispondere.
+
+    Oggi non succede (la catena li riduce a una STRINGA dentro `diagnose`), ma la
+    riduzione è un dettaglio interno: questo test la rende un contratto, così un
+    domani nessuno passa la lista di condizioni a valle «per comodità»."""
+    import json
+
+    from xtrader_bridge import config_agent, parser_manager
+
+    defn = _builder(conditions=[cp.Condition(text="GOL ANNULLATO")]).to_def()
+    monkeypatch.setattr(parser_manager, "load_primary_parser", lambda *a, **k: defn)
+    dati = config_agent.build_message_preview({"provider": "TG"}, _MSG_BATCH)
+    testo = json.dumps(dati, ensure_ascii=False)     # solleverebbe su un Condition
+    assert "Condition(" not in testo, testo
+    assert pdg.CONDITIONS_NOT_MET in testo
+
+
+# ── 7. la diagnosi non può nominare condizioni diverse da quelle che bloccano ─
+_MSG_DIFF = "Match: Juventus v Inter\nSel: Over 2,5\nQuota: 1,85\nRIGORE non dato\n"
+
+
+def _combinazioni_condizioni():
+    """Set di condizioni che coprono presente/assente × contiene/NON contiene."""
+    testi = ["Juventus", "GOL ANNULLATO", "rigore", "  JUVENTUS  ", ""]
+    for modo in ("all", "any"):
+        for negate in (False, True):
+            for t in testi:
+                yield modo, [cp.Condition(text=t, negate=negate)]
+        # coppie miste: una soddisfatta e una no, in entrambi gli ordini
+        yield modo, [cp.Condition(text="Juventus"), cp.Condition(text="GOL ANNULLATO")]
+        yield modo, [cp.Condition(text="GOL ANNULLATO"), cp.Condition(text="Juventus")]
+        yield modo, [cp.Condition(text="Juventus", negate=True),
+                     cp.Condition(text="rigore")]
+
+
+def test_failed_conditions_e_conditions_pass_sono_lo_stesso_giudizio():
+    """Rilievo Fugu Ultra sulla #249: se `failed_conditions` e `conditions_pass`
+    non iterassero lo stesso set, la diagnosi nominerebbe condizioni diverse da
+    quelle che fermano davvero il gate — cioè manderebbe a correggere la riga
+    sbagliata, che è esattamente il difetto che questa PR chiude.
+
+    Differenziale su tutte le combinazioni modo × negate × testo presente/assente/
+    vuoto/con spazi: il gate cade **se e solo se** ci sono condizioni fallite, e
+    ogni condizione nominata deve appartenere ad `active_conditions()`."""
+    for modo, condizioni in _combinazioni_condizioni():
+        defn = _builder(conditions=condizioni, conditions_mode=modo).to_def()
+        passa = engine.conditions_pass(defn, _MSG_DIFF)
+        fallite = engine.failed_conditions(defn, _MSG_DIFF)
+        assert passa == (not fallite), (modo, [c.text for c in condizioni], passa, fallite)
+        attive = defn.active_conditions()
+        for c in fallite:
+            assert c in attive, (modo, c)
+
+
+def test_le_condizioni_a_testo_vuoto_non_vengono_mai_nominate():
+    """`active_conditions` le esclude (una «contiene ''» matcherebbe tutto): la
+    diagnosi non deve resuscitarle, o accuserebbe una riga che il gate ignora."""
+    defn = _builder(conditions=[cp.Condition(text="   "),
+                                cp.Condition(text="GOL ANNULLATO")]).to_def()
+    fallite = engine.failed_conditions(defn, _MSG_DIFF)
+    assert [c.text for c in fallite] == ["GOL ANNULLATO"]
+
+
+def test_gate_passante_non_nomina_nulla():
+    defn = _builder(conditions=[cp.Condition(text="Juventus")]).to_def()
+    assert engine.failed_conditions(defn, _MSG_DIFF) == []

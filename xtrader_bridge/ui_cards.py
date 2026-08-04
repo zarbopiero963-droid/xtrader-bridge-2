@@ -96,8 +96,16 @@ def collapse_when_empty(box) -> None:
 
     Nessun effetto quando le righe ci sono (la propagazione ignora l'opzione), e
     best-effort come il resto del modulo: doppi headless o widget già distrutti → no-op.
+
+    **Fail-safe sull'ambiguità** (rilievo Claude Fable 5, #249): `_best_effort` ritorna
+    ``None`` sia quando il metodo non esiste sia quando ha sollevato, e ``None`` NON
+    significa «nessun figlio» — significa «non lo so». Trattarlo come vuoto porterebbe a
+    ridimensionare un widget di cui non si sa nulla (tipicamente uno in distruzione).
+    Quando l'informazione manca non si tocca niente: la lista vuota VERA resta l'unico
+    caso che fa collassare.
     """
-    if _best_effort(box, "winfo_children"):
+    figli = _best_effort(box, "winfo_children")
+    if figli is None or figli:
         return
     _best_effort(box, "configure", height=0)
 

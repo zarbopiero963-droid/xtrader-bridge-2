@@ -349,3 +349,40 @@ def test_togliere_l_ultima_condizione_ricollassa_il_contenitore(gui):
     gui.CustomParserPanel._remove_condition_row(pannello, pannello._condition_rows[0])
     assert pannello._condition_rows == []
     assert pannello._conditions_box.configurato == {"height": 0}
+
+
+def test_non_collassa_quando_non_puo_SAPERE_se_e_vuoto():
+    """Rilievo bloccante di Claude Fable 5 sulla #249, accolto.
+
+    `_best_effort` ritorna `None` sia per «metodo assente» sia per «ha sollevato»:
+    trattare quel `None` come «nessun figlio» confonde *non lo so* con *è vuoto*, e
+    su un widget in distruzione si finiva a chiamare `configure` comunque. È il
+    contrario del fail-safe — quando l'informazione manca la cosa giusta è non
+    toccare nulla, non indovinare.
+
+    Il caso è benigno oggi (con figli la propagazione ignora `height`, e l'errore
+    verrebbe assorbito), ma la regola vale prima del prossimo chiamante, non dopo."""
+    chiamate = []
+
+    class _FigliIllegibili:
+        def winfo_children(self):
+            raise RuntimeError("widget in distruzione")
+
+        def configure(self, **kw):
+            chiamate.append(kw)
+
+    ui_cards.collapse_when_empty(_FigliIllegibili())
+    assert chiamate == [], (
+        "non si sapeva se fosse vuoto e lo si è ridimensionato lo stesso")
+
+
+def test_non_collassa_un_doppio_che_non_sa_dire_i_figli():
+    """Stessa ambiguità dall'altro lato: metodo del tutto assente."""
+    chiamate = []
+
+    class _SenzaFigli:
+        def configure(self, **kw):
+            chiamate.append(kw)
+
+    ui_cards.collapse_when_empty(_SenzaFigli())
+    assert chiamate == []
