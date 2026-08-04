@@ -252,33 +252,61 @@ def test_il_bypass_non_arriva_piu_nel_file_scritto(tmp_path):
     assert not out["Handicap"].startswith("'"), out["Handicap"]
 
 
-def test_i_control_char_interni_sopravvivono_al_giro_completo(tmp_path):
-    """P3-cw2 (#166) — comportamento **invariato**, ma misurato invece che presunto.
+def test_quote_all_regge_virgole_e_virgolette_interne(tmp_path):
+    """Guardia su `QUOTE_ALL`, invariata nello scopo — cambiato il campione (B11, D2 #194).
 
-    L'audit segnalava che i CR/LF *interni* a una cella non vengono neutralizzati (solo quelli
-    in testa lo sono). È vero, ed è deliberato: `QUOTE_ALL` mette ogni campo fra virgolette, e
-    un a-capo dentro un campo quotato è CSV **valido** secondo RFC-4180 — un parser conforme lo
-    rilegge come un singolo campo, non come due righe.
+    **Due asserzioni, due scopi diversi — e la distinzione è misurata.** Il round-trip da solo
+    NON è una guardia su `QUOTE_ALL`: sostituendolo con `QUOTE_MINIMAL` il writer quota
+    comunque i campi che contengono virgole o virgolette, quindi la rilettura tornerebbe
+    identica e il test resterebbe verde. (Vale anche per il vecchio campione col CR/LF: quella
+    guardia non ha mai davvero protetto `QUOTE_ALL`.) Perciò qui si asserisce **anche la forma
+    grezza** della riga: con `QUOTE_ALL` ogni campo è fra virgolette, comprese le celle vuote —
+    ed è quello che si rompe per primo se qualcuno cambia la policy di quoting.
 
-    Questo test lo dimostra facendo il giro completo scrittura → rilettura: se un domani la
-    scrittura smettesse di quotare, o qualcuno togliesse `QUOTE_ALL`, il valore tornerebbe
-    spezzato e questo test diventerebbe rosso. È la ragione per cui non serve neutralizzarli —
-    resa eseguibile, non lasciata in un commento.
+    Il round-trip resta perché difende una cosa diversa e concreta: che una virgola dentro una
+    cella non spezzi il campo facendo slittare tutte le colonne successive, con `BetType` che
+    finirebbe a leggere `MinPrice`.
 
-    Resta fuori dalla garanzia il caso in cui il parser di XTrader non sia conforme a
-    RFC-4180: non è verificabile senza XTrader, ed è annotato nella #166."""
+    **Perché non è più il CR/LF a esercitarla.** Fino alla B11 il campione era `"Inter\\r\\nMilan"`
+    e il test asseriva il round-trip *esatto* di quel valore. Quel comportamento era deliberato e
+    argomentato — un a-capo dentro un campo quotato è CSV valido secondo RFC-4180 — ma
+    presupponeva che il parser di XTrader fosse conforme, cosa **mai verificata**. La decisione
+    D2 ha scelto di non dipenderne: ora i CR/LF vengono neutralizzati in scrittura
+    (`csv_writer._sanitize_cell`), quindi non sono più un campione utilizzabile qui.
+
+    I due obiettivi non erano in conflitto: non si è rinunciato alla protezione di `QUOTE_ALL`,
+    si è cambiato il campione che la esercita. La virgola e la virgoletta incorporata la
+    esercitano meglio del CR/LF, perché sono i due caratteri che il quoting esiste per gestire.
+    Il TAB resta nel campione: non spezza righe, quindi non è toccato dalla sanificazione e il
+    suo round-trip è ancora esatto."""
     import csv as _csv
 
     row = dict.fromkeys(CONTRACT_HEADER, "")
-    row.update({"EventName": "Inter\r\nMilan", "MarketName": "Esito\tFinale"})
+    row.update({
+        "EventName": "Inter, Milan",            # virgola: senza quoting diventerebbe 2 campi
+        "SelectionName": 'Il "Derby" d\'Italia',  # virgolette: vanno raddoppiate e ricomposte
+        "MarketName": "Esito\tFinale",           # TAB: non spezza righe, round-trip esatto
+    })
     path = str(tmp_path / "segnali.csv")
     csv_writer.write_rows([row], path)
+
+    # (1) QUOTE_ALL: la riga GREZZA ha ogni campo fra virgolette, celle vuote comprese.
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        grezza = [ln.rstrip("\r\n") for ln in f][1]
+    attesa = ",".join('"' + row[c].replace('"', '""') + '"' for c in CONTRACT_HEADER)
+    assert grezza == attesa, (
+        "la riga grezza non è interamente quotata: la policy di quoting è cambiata.\n"
+        f"attesa: {attesa!r}\nletta:  {grezza!r}"
+    )
+
+    # (2) Round-trip: una virgola interna non fa slittare le colonne.
     with open(path, newline="", encoding="utf-8-sig") as f:
         righe = list(_csv.reader(f))
-
-    assert len(righe) == 2, "il CR/LF interno non deve produrre righe extra"
+    assert len(righe) == 2, "una virgola interna non deve produrre righe o campi extra"
+    assert len(righe[1]) == len(CONTRACT_HEADER), "le colonne sono slittate: quoting perso"
     out = dict(zip(CONTRACT_HEADER, righe[1]))
-    assert out["EventName"] == "Inter\r\nMilan"    # round-trip esatto
+    assert out["EventName"] == "Inter, Milan"              # round-trip esatto
+    assert out["SelectionName"] == 'Il "Derby" d\'Italia'
     assert out["MarketName"] == "Esito\tFinale"
 
 
