@@ -480,7 +480,8 @@ jobs:
           commit_count = len(compared.get("commits") or [])
 
           # Gate costo: questo reviewer forte è caro. Chiama il modello SOLO se il
-          # push tocca file CORE del bridge (main.py, xtrader_bridge/**, dipendenze)
+          # push tocca file CORE del bridge (main.py, xtrader_bridge/**,
+          # license_manager/**, dipendenze)
           # oppure se è un trigger a label (gate finale pre-merge). Su push che
           # toccano solo workflow/docs/test il job parte ma NON spende — i reviewer
           # automatici GPT-5.5/GLM coprono comunque ogni push.

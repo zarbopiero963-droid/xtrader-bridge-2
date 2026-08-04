@@ -184,7 +184,8 @@ Due reviewer AI forti e costosi (Claude Fable 5, Fugu Ultra) **non** girano a
 ogni push come GPT-5.5/GLM. Spendono (chiamano il modello) **solo** in due casi:
 
 1. **automaticamente** su un push che tocca **file core del bridge** (`main.py`,
-   `xtrader_bridge/**`, dipendenze `requirements*`/`pyproject.toml`/`poetry.lock`)
+   `xtrader_bridge/**`, `license_manager/**`, dipendenze
+   `requirements*`/`pyproject.toml`/`poetry.lock`)
    — analizzano il push-range;
 2. **oppure** quando l'agente aggiunge la label finale (gate pre-merge sull'**intera
    PR**):
@@ -331,7 +332,8 @@ review con API key nei Secret del repo** — **GPT-5.5**, **GLM 5.2**, **Claude 
 5**, **OpenRouter Fugu Ultra** — più **CodeRabbit**. Questa è la situazione di
 default su OGNI PR: dai sempre per scontato che la copertura sia questa. GPT-5.5/GLM
 girano a ogni push; Fable/Fugu partono da soli solo su push che toccano **file core**
-(`main.py`, `xtrader_bridge/**`, dipendenze) o con le label finali (vedi «FINAL AI
+(`main.py`, `xtrader_bridge/**`, `license_manager/**`, dipendenze) o con le label
+finali (vedi «FINAL AI
 REVIEW»); CodeRabbit rivede l'intera PR dal suo base.
 
 **Codex e Sourcery NON sono un gate — non aspettarli:**

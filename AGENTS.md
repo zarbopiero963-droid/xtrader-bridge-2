@@ -736,7 +736,8 @@ Two strong, costly AI reviewers (Claude Fable 5, Fugu Ultra) do **not** run on
 every push like GPT-5.5/GLM. They spend (call the model) **only** in two cases:
 
 1. **automatically** on a push that touches **bridge core files** (`main.py`,
-   `xtrader_bridge/**`, deps `requirements*`/`pyproject.toml`/`poetry.lock`) —
+   `xtrader_bridge/**`, `license_manager/**`, deps
+   `requirements*`/`pyproject.toml`/`poetry.lock`) —
    they analyze the push-range;
 2. **or** when the agent adds the final label (pre-merge gate over the **whole
    PR**):
@@ -889,7 +890,8 @@ workflows driven by API keys in the repo Secrets** — **GPT-5.5**, **GLM 5.2**,
 **Claude Fable 5**, **OpenRouter Fugu Ultra** — plus **CodeRabbit**. These are the
 default situation on every PR: the agent should always assume this is the coverage
 in place. GPT-5.5/GLM run on every push; Fable/Fugu run automatically only on
-pushes touching **core files** (`main.py`, `xtrader_bridge/**`, deps) or when the
+pushes touching **core files** (`main.py`, `xtrader_bridge/**`, `license_manager/**`,
+deps) or when the
 final-review labels are added (see «Final AI review»); CodeRabbit reviews the whole
 PR from its base.
 
