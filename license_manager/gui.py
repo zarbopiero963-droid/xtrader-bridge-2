@@ -26,7 +26,7 @@ import time as _time
 
 import customtkinter as ctk
 
-from xtrader_bridge import ui_theme
+from xtrader_bridge import ui_cards, ui_theme
 
 from license_manager import backup as backup_mod
 from license_manager import core, log_safe, publish_store, publisher, registry
@@ -964,6 +964,7 @@ class LicenseManagerApp(ctk.CTk):
         rimpicciolita o lo scaling di Windows al 125% perché una scheda torni a tagliare. Qui il
         contenuto eccedente diventa **scorribile** invece che invisibile."""
         area = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        ui_cards.tune_scrolling(area)   # scroll fluido, come ogni scrollable del bridge
         area.pack(fill="both", expand=True)
         return area
 

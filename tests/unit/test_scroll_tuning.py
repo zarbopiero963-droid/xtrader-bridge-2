@@ -21,6 +21,10 @@ import re
 from xtrader_bridge import ui_cards
 
 PKG = pathlib.Path(ui_cards.__file__).parent
+# Anche l'app License Manager (separata) ha GUI scrollabili: la guardia copre
+# entrambe (segnalazione proprietario 2026-08-04: «controlla anche le altre
+# parti dove ho lo scroll» — l'audit runtime ha trovato il suo pannello nudo).
+PACKAGES = (PKG, PKG.parent / "license_manager")
 
 
 class _CanvasDoppio:
@@ -77,7 +81,7 @@ def test_ogni_scrollable_del_package_viene_accordata():
     deve avere la sua `ui_cards.tune_scrolling(...)` nello stesso modulo — una
     costruzione senza accordatura è una scrollable che torna a 20px/scatto."""
     rotti = []
-    for path in sorted(PKG.rglob("*.py")):
+    for path in sorted(p for pkg in PACKAGES for p in pkg.rglob("*.py")):
         if path.name == "ui_cards.py":
             continue
         src = path.read_text(encoding="utf-8")
