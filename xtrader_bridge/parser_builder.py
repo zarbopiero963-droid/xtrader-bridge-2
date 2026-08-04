@@ -581,7 +581,7 @@ class ParserBuilder:
     def test_verdict(errors: list, preview_rows: list, *, diag_placeable: bool,
                      diag_status: str, res_row: dict, res_missing_required: list,
                      res_detail, content_ok: bool = True, res_warnings=(),
-                     res_hint: str = "") -> str:
+                     res_hint: str = "", missing_reasons: dict = None) -> str:
         """Verdetto sintetico di «Prova messaggio» (single + multi-riga). Logica pura, CI.
 
         Precedenza (Codex #19):
@@ -646,7 +646,18 @@ class ParserBuilder:
         if (not missing and diag_status == validator.INVALID_MISSING_FIELDS
                 and isinstance(res_detail, (list, tuple))):
             missing = [str(x) for x in res_detail]
-        extra = f" · mancanti: {', '.join(missing)}" if missing else ""
+        # Motivo azionabile accanto al campo (ordine proprietario 2026-08-04): «mancanti:
+        # SelectionName» non distingue fra delimitatore sbagliato, trasformazione che non
+        # sa leggere il testo e value-map senza alias — tre correzioni diverse. Con i
+        # motivi la riga dice CHI ha svuotato il campo e COSA aveva letto.
+        # `missing_reasons` è OPZIONALE: i chiamanti che non lo passano (report batch,
+        # test storici) vedono esattamente la riga di prima.
+        motivi = missing_reasons or {}
+        if missing:
+            voci = [f"{c} ({motivi[c]})" if c in motivi else c for c in missing]
+            extra = f" · mancanti: {', '.join(voci)}"
+        else:
+            extra = ""
         return f"⛔ Non pronto ({diag_status}){extra}" + warn
 
     @staticmethod
