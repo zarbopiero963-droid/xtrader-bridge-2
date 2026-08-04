@@ -5087,6 +5087,34 @@ ordine B -> 'Inter Miami'      <-- la squadra dipende dall'ORDINE DI SALVATAGGIO
 
 Il valore finisce nell'`EventName`, quindi nel mercato e nella selezione su cui si scommette.
 
+**È vivo sul percorso di produzione, e su quali dimensioni** (misurato in review sulla #253, dopo
+il rilievo di Fugu Ultra). L'unico call site reale è `custom_pipeline` → `resolve_event_name` →
+`resolve_team`, e passa **sempre** `entity_type=PARTICIPANT_ENTITY_TYPES`, ma
+`sport=getattr(defn, "sport", "")` e `language=source_language` possono essere **vuoti**. Con
+quella firma esatta:
+
+```
+entity_type filtrato (produzione), sport vuoto:
+   ordine A -> 'Inter Milano'
+   ordine B -> 'Inter Miami'
+```
+
+Quindi le dimensioni scoperte sono **`sport` e `language`**, non `entity_type`: quella è sempre
+filtrata e infatti risolve in modo deterministico (riga `competition` esclusa dal filtro, non
+indovinata). Il difetto è più stretto di come lo descriveva la prima stesura, e comunque **reale**.
+
+**Perché non è stata aggiunta una mitigazione ad avvisi** (richiesta da Fugu Ultra: «serve guardia
+fail-closed temporanea o decisione esplicita, non solo test in attesa»). L'idea era estendere
+`ambiguous_alias_warnings` — che oggi raggruppa per `_scope_signature` **completa** e quindi su
+questo caso **tace**. Non è stato fatto, e la ragione è nel docstring della funzione stessa: «un
+avviso che diverge è peggio di nessun avviso, perché o tace su un conflitto vivo o accusa una
+configurazione sana». `ambiguous_alias_warnings(cfg)` vede **solo il dizionario**, non se il parser
+attivo valorizza `sport`: per l'utente che lo valorizza le righe *sono* distinguibili e l'avviso
+sarebbe un falso positivo a ogni avvio, su una configurazione corretta e intenzionale — quella che
+`test_scope_diverso_non_e_ambiguo_scope_uguale_si` protegge di proposito. Una mitigazione accurata
+dovrebbe leggere il parser attivo, e la sua forma dipende comunque dalla decisione qui sotto.
+Perciò: nessun avviso approssimativo, la misura al suo posto.
+
 **Perché non è corretto in questa PR.** La patch esiste ed è verde sui suoi test, ma rompe **8
 test esistenti** che codificano di proposito il comportamento storico — fra cui l'end-to-end
 `test_source_language_wiring_5b.py::test_source_language_none_comportamento_legacy`, il cui

@@ -116,6 +116,46 @@ def test_b21_il_filtro_esplicito_risolve_su_tutte_e_tre_le_dimensioni(
     )
 
 
+@_B21_APERTO
+def test_b21_e_vivo_sul_PERCORSO_DI_PRODUZIONE_non_solo_in_astratto():
+    """La forma **esatta** della chiamata reale, non una agnostica di comodo.
+
+    `custom_pipeline` chiama `resolve_event_name` → `resolve_team` passando sempre
+    `entity_type=PARTICIPANT_ENTITY_TYPES`, ma `sport=getattr(defn, "sport", "")` e
+    `language=source_language` possono essere **vuoti** (parser senza sport, nessuna
+    lingua-fonte). Misurato con quella firma:
+
+        ordine A -> 'Inter Milano'
+        ordine B -> 'Inter Miami'
+
+    Quindi B21 non è teorico: le dimensioni che restano scoperte sul percorso vero sono
+    `sport` e `language`. È il test che dice al proprietario che la decisione è su un rischio
+    **vivo**, non su un caso di laboratorio."""
+    righe = [_riga_nome("Inter", "Inter Milano", sport="Calcio", entity_type="team"),
+             _riga_nome("Inter", "Inter Miami", sport="Basket", entity_type="team")]
+    et = nms.PARTICIPANT_ENTITY_TYPES
+    diretto = nms.resolve_team("Inter", [righe], sport="", entity_type=et, language="")
+    invertito = nms.resolve_team("Inter", [list(reversed(righe))], sport="",
+                                 entity_type=et, language="")
+    assert diretto == invertito, "la squadra dipende dall'ordine di salvataggio"
+
+
+def test_b21_entity_type_e_SEMPRE_filtrato_dal_chiamante_di_produzione():
+    """Il rovescio, e non è un dettaglio: la dimensione `entity_type` **non** è fra quelle
+    scoperte, perché `custom_pipeline` passa sempre `PARTICIPANT_ENTITY_TYPES`.
+
+    Due righe distinte solo per `entity_type` si risolvono correttamente e in modo
+    deterministico: la riga `competition` viene esclusa dal filtro, non «indovinata». Verde
+    oggi e dopo l'eventuale patch di B21 — serve a non far sembrare il difetto più largo di
+    quello che è."""
+    righe = [_riga_nome("Inter", "Inter Milano", entity_type="team"),
+             _riga_nome("Inter", "Inter Miami", entity_type="competition")]
+    et = nms.PARTICIPANT_ENTITY_TYPES
+    assert nms.resolve_team("Inter", [righe], sport="", entity_type=et, language="") == "Inter Milano"
+    assert nms.resolve_team("Inter", [list(reversed(righe))], sport="",
+                            entity_type=et, language="") == "Inter Milano"
+
+
 def test_b21_controllo_positivo_una_riga_sola_risolve_sempre():
     """La guardia non deve trasformarsi in «non risolvo mai»: senza conflitto si traduce."""
     righe = [_riga_nome("Inter", "Inter Milano", sport="Calcio")]
@@ -186,6 +226,58 @@ def test_b20_controllo_positivo_la_coppia_giusta_risolve():
 
 def test_b20_controllo_positivo_regge_col_catalogo_spedito():
     """Il dizionario **realmente spedito** non deve regredire: una coppia nota continua a
-    risolversi. È il controllo che dice se la patch è troppo stretta sul dato vero."""
-    esito = mms._canonical_market("Esito Finale", "Pareggio")
-    assert esito is None or esito["selection_name"] == "Pareggio"
+    risolversi. È il controllo che dice se la patch è troppo stretta sul dato vero.
+
+    La prima stesura diceva `esito is None or esito[...] == "Pareggio"` — un test che non
+    poteva fallire, perché il ramo `None` è proprio la regressione da intercettare (rilievo
+    CodeRabbit sulla #253, corretto). La coppia esiste nel catalogo spedito, quindi si
+    pretende la tupla intera."""
+    assert mms._canonical_market("Esito Finale", "Pareggio") == {
+        "market_type": "MATCH_ODDS", "market_name": "Esito Finale",
+        "selection_name": "Pareggio"}
+
+
+def test_b20_una_riga_senza_MarketName_appartiene_a_un_ALTRO_mercato():
+    """Rilievo di Fable 5 e GPT-5.5 sulla #253: e se una riga combaciata per `MarketType`
+    avesse `MarketName` vuoto — il nuovo `continue` la scarterebbe per sbaglio?
+
+    No, e il motivo è strutturale. `matches` pretende
+    `normalize(MarketName) == nmn` con `nmn` **non vuoto** (guardia a inizio funzione),
+    quindi una riga senza `MarketName` non può mai essere quella che fornisce il mercato
+    canonico. Se le sue selezioni arrivano nel ciclo è **solo** perché il suo `MarketType`
+    coincide col nome di un mercato **diverso** — cioè esattamente B20. Scartarla è la
+    correzione, non un danno collaterale."""
+    righe = [
+        _riga_dizionario("MATCH_ODDS", "Vincente", "Pareggio"),
+        _riga_dizionario("Vincente", "", "Selezione senza MarketName"),
+    ]
+    assert mms._canonical_market("Vincente", "Selezione senza MarketName", righe) is None
+    # E la riga sana dello stesso catalogo continua a risolversi: la guardia non è un veto.
+    assert mms._canonical_market("Vincente", "Pareggio", righe) == {
+        "market_type": "MATCH_ODDS", "market_name": "Vincente", "selection_name": "Pareggio"}
+
+
+def test_b20_il_catalogo_spedito_non_perde_NEMMENO_UNA_selezione():
+    """La misura che risponde davvero al rilievo: quante selezioni il nuovo `continue`
+    scarta sul catalogo **realmente spedito**?
+
+    Zero. Il controllo gira sull'intero catalogo invece che su un mercato scelto a mano,
+    così resta valido anche quando il catalogo verrà esteso: se un domani una riga arrivasse
+    con `MarketName` vuoto o incoerente, questo test diventerebbe rosso **prima** che l'utente
+    scopra un `MARKET_MAPPING_MISSING` inspiegabile."""
+    from xtrader_bridge import dizionario
+
+    assert [r for r in dizionario._rows(None)], "catalogo spedito vuoto: il test non misura nulla"
+    scartate = []
+    for m in dizionario.market_catalog(None):
+        if m["dynamic"]:
+            continue
+        ncanon = dizionario.normalize(m["MarketName"])
+        for s in dizionario.selections_for_market(m["MarketName"], None):
+            if s.get("dynamic") or not s.get("SelectionName"):
+                continue
+            if dizionario.normalize(s.get("MarketName", "")) != ncanon:
+                scartate.append((m["MarketName"], s.get("MarketName"), s["SelectionName"]))
+    assert scartate == [], (
+        f"il guard B20 scarta {len(scartate)} selezioni del catalogo spedito: {scartate[:5]}"
+    )
