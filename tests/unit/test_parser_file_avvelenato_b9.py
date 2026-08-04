@@ -21,6 +21,7 @@ parser sano sia ancora lì. La sola assenza di eccezione passerebbe anche su un'
 restituisce una lista vuota — cioè sul difetto travestito.
 """
 
+import json
 import os
 
 import pytest
@@ -238,6 +239,55 @@ def test_un_json_semplicemente_rotto_resta_gestito_come_prima(cartella):
     _scrivi_veleno(cartella, '{"name": "Rotto", "rules": [', nome="z_rotto.json")
 
     assert parser_manager.available_parser_names(cartella) == ["Sano"]
+
+
+def test_fuzz_strutturale_nessuna_classe_inattesa(cartella):
+    """Corruzione **strutturale**: JSON sintatticamente validi, con tipi sbagliati.
+
+    Nasce da un rilievo di GPT-5.5 sulla PR #240: il docstring di `load_parser` prometteva
+    «nessun'altra classe esce da qui», ma la tupla normalizza solo le due classi misurate;
+    un JSON valido con campi del tipo sbagliato potrebbe far uscire un `TypeError` dagli
+    stessi chiamanti che catturano solo ``(OSError, ValueError)``.
+
+    Il rilievo non si riproduce — `from_dict` è difensivo alla fonte, ogni campo è
+    validato o coercito — ma «non si riproduce oggi» non è una garanzia finché non c'è un
+    test che lo ri-misura. Questo lo ri-misura a ogni CI: se un campo NUOVO introdurrà un
+    percorso non difeso, qui diventa rosso, e la frase nel docstring va riscritta.
+
+    Copre esattamente i casi che il rilievo nominava — `version` lista/stringa non
+    numerica, `rules` non lista, regole con campi di tipo errato — più tutto il resto
+    dello schema.
+    """
+    valori = [None, True, False, 0, -1, 1.5, float("nan"), "", "x", [], [1], {}, {"a": 1},
+              [[]], [{"target": []}], 12345678901234567890]
+    chiavi = ["name", "description", "version", "mode", "rules", "name_mapping_profiles",
+              "team_separator", "market_mapping_profiles", "sport", "source_language",
+              "multi_market_enabled", "multi_selection_enabled", "multi_markets",
+              "multi_selections", "conditions", "conditions_mode"]
+    percorso = os.path.join(cartella, "fuzz.json")
+
+    def _casi():
+        for chiave in chiavi:
+            for valore in valori:
+                yield {"name": "F", "rules": [{"target": "EventName"}], chiave: valore}
+        for campo in ("target", "start_after", "required", "transform", "value_map"):
+            for valore in valori:
+                yield {"name": "F", "rules": [{"target": "EventName", campo: valore}]}
+
+    sfuggite, provati = [], 0
+    for documento in _casi():
+        with open(percorso, "w", encoding="utf-8") as f:
+            json.dump(documento, f)
+        provati += 1
+        try:
+            cp.load_parser(percorso)
+        except (OSError, ValueError):
+            pass                                # il contratto dichiarato: va bene
+        except Exception as exc:                # noqa: BLE001 — è ciò che si sta misurando
+            sfuggite.append((type(exc).__name__, str(documento)[:80]))
+
+    assert provati >= 300, f"il fuzz si è ridotto a {provati} casi: non copre più lo schema"
+    assert not sfuggite, f"classi fuori da (OSError, ValueError): {sfuggite[:5]}"
 
 
 def test_il_veleno_e_davvero_veleno(cartella):

@@ -612,9 +612,18 @@ CORRUPT_FILE_ERRORS = (RecursionError, OverflowError)
 def load_parser(path: str) -> CustomParserDef:
     """Carica un parser da file JSON.
 
-    **Contratto di errore** (B9): un file **corrotto o ostile** solleva sempre
-    ``ValueError``; un problema di **accesso** al file resta ``OSError``. Nessuna altra
-    classe esce da qui.
+    **Contratto di errore** (B9): un file **corrotto o ostile** solleva ``ValueError``;
+    un problema di **accesso** al file resta ``OSError``.
+
+    Fin dove arriva la garanzia, detto con precisione (rilievo GPT-5.5 sulla PR #240).
+    Le classi di `CORRUPT_FILE_ERRORS` sono normalizzate **per costruzione**. Gli errori
+    di **schema/tipo** (un JSON sintatticamente valido con campi del tipo sbagliato) non
+    hanno bisogno di normalizzazione perché `from_dict` è difensivo alla fonte — ogni
+    campo è validato o coercito, mai assunto — ed è **misurato**, non promesso:
+    `test_fuzz_strutturale_nessuna_classe_inattesa` lancia 336 combinazioni di
+    tipo/valore su ogni chiave dello schema e pretende zero fughe. Se un campo nuovo
+    introdurrà un percorso non difeso, quel test diventa rosso e questa frase va
+    riscritta — invece di restare una promessa assoluta che nessuno può dimostrare.
 
     Perché la normalizzazione sta QUI e non nei chiamanti: i nove siti che leggono un
     parser da disco catturavano tutti ``(OSError, ValueError)``, quindi un file che ne
