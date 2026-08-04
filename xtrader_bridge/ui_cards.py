@@ -78,6 +78,30 @@ def _best_effort(widget, method, *args, **kwargs):
         return None
 
 
+def collapse_when_empty(box) -> None:
+    """Toglie l'altezza a un contenitore di righe che al momento non ne ha nessuna
+    (segnalazione proprietario 2026-08-04: buchi verticali nella scheda «Parser»).
+
+    Un `CTkFrame` senza figli chiede l'altezza di DEFAULT di CustomTkinter — 200px —
+    anche se non contiene nulla; con dei figli è la propagazione del pack a decidere
+    (una riga ≈ 32px). Misurato su CustomTkinter reale sotto Xvfb::
+
+        vuoto            → 200px      vuoto con height=0 → 1px
+        con una riga     →  32px      (la propagazione vince sull'opzione)
+
+    Nell'app vera erano OTTO i contenitori così: da soli valevano più di uno schermo
+    di scorrimento a vuoto. Va chiamata alla costruzione **e dopo ogni mutazione delle
+    righe**: svuotare un contenitore non lo riabbassa da solo — l'altezza richiesta
+    resta quella dell'ultimo contenuto finché non si rimette `height`.
+
+    Nessun effetto quando le righe ci sono (la propagazione ignora l'opzione), e
+    best-effort come il resto del modulo: doppi headless o widget già distrutti → no-op.
+    """
+    if _best_effort(box, "winfo_children"):
+        return
+    _best_effort(box, "configure", height=0)
+
+
 def card(ctk, parent, title="", *, pad=(10, 6), fill="x", expand=False):
     """Crea una CARD di sezione (frame con superficie, bordo e raggio dei token) e, se
     ``title`` non è vuoto, il titolo piccolo in grassetto in testa — la composizione delle

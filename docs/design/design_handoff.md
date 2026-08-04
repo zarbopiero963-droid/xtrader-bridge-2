@@ -976,6 +976,22 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > `ui_cards.tune_scrolling()` (increment 3px → ~60px per scatto, un terzo dei ridisegni);
 > un test sorgente impone che ogni scrollable nuova venga accordata — copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non richiedono accordatura).
 
+> **Le sezioni vuote non riservano spazio (segnalazione proprietario 2026-08-04).** Un
+> `CTkFrame` senza figli chiede l'altezza di **default** di CustomTkinter — **200px** — anche
+> quando non contiene nulla. Nell'editor del Parser erano **otto** i contenitori di righe fatti
+> così: a riposo ne sprecavano **1000px**, cioè più di uno schermo intero di scorrimento a
+> vuoto (misura Xvfb: contenuto della scheda **2602px → 1607px**, −38%). Ora ogni contenitore
+> di righe dinamiche passa da `ui_cards.collapse_when_empty()` — alla costruzione **e dopo ogni
+> rimozione**, perché svuotare un contenitore non lo riabbassa da solo. **Conseguenza visiva
+> per il design:** «Output multi-riga» e «Condizioni di gate» sono alte quanto i loro controlli
+> finché non ci sono righe, e **crescono di ~32px per riga** man mano che se ne aggiungono;
+> lo stesso vale per le due tabelle sotto «🧪 Prova messaggio», che restano ridotte al titolo
+> finché non si preme il pulsante. Nessuna sezione viene **nascosta**: il titolo, gli
+> interruttori e i pulsanti «➕ Aggiungi…» restano sempre visibili — sparisce solo il buco.
+> Un test sorgente impone che ogni contenitore di righe nuovo venga collassato. Le
+> `CTkScrollableFrame` sono **escluse per contratto**: sono visori, non contenitori di righe,
+> e collassarle cancellerebbe l'area di scorrimento.
+
 L'hub **"🧰 Strumenti"** è una finestra a tab caricata su richiesta, **raggruppate per flusso
 ①..④** (vedi §5). I pannelli (§7.1–7.10; **7.6 «Betfair Sync» rimossa**, **7.7 «📖 Dizionario»
 attualmente nascosta ma ritenuta**, come «🧹 Nomi squadra» dalla #182 PR N → 7 schede mostrate):
@@ -1094,6 +1110,9 @@ Sezioni (colonna destra, dall'alto):
   «N - N»; solo mercati CORRECT_SCORE / HALF_TIME_SCORE).»* Le righe **MultiMarket NON hanno**
   questi campi (invariante di sicurezza: sui mercati i delimitatori sarebbero solo una
   misconfigurazione che il runtime ignora). Nessun altro cambiamento di layout/palette.
+  Le due liste di righe (mercati e selezioni) sono **collassate finché sono vuote**: senza righe
+  la sezione è alta quanto i suoi due interruttori e i due pulsanti «➕», e cresce di una riga
+  alla volta (vedi il riquadro sulle sezioni vuote in testa al §7).
 
   Sotto la sezione c'è un **banner avvisi ⚠** (label arancione `#ffa726`, una riga per avviso,
   prefisso `⚠ `). Oltre agli avvisi storici (entrambi gli interruttori attivi → «righe SEPARATE…»;
@@ -1125,7 +1144,9 @@ Sezioni (colonna destra, dall'alto):
   soddisfa il gate viene **scartato** (`NO_CONTENT_MATCH`, nessuna riga CSV). Le righe a testo vuoto
   sono scartate al salvataggio (non generano errori di validazione). Serve a far agire un parser
   **solo sui messaggi pertinenti** (es. «un mercato diverso per scenario»). Nessun cambiamento di
-  palette; riquadro nello stile delle altre sezioni.
+  palette; riquadro nello stile delle altre sezioni. Come per la sezione multi-riga, la lista
+  delle condizioni è **collassata finché è vuota**: senza condizioni la sezione è alta quanto la
+  sua barra «Soddisfa:» più l'hint.
 - **Densità (#293 «densità parser»):** sopra la griglia c'è un toggle **"⚙️ Avanzate
   (Trasformazione · Value-map)"** (checkbox). **Di default è SPENTO**: la griglia mostra solo le
   colonne **essenziali** (Colonna · Inizia dopo · Finisce prima · Valore fisso · Obblig.), più
@@ -1200,6 +1221,11 @@ Sezioni (colonna destra, dall'alto):
   file**: l'operatore vede in anteprima esattamente ciò che XTrader leggerà.
 - **Diagnostica per colonna:** tabella `Colonna · Stato (OK/MANCANTE) · Motivo · Inizia
   dopo · Finisce prima · Valore estratto`.
+
+Entrambe le tabelle nascono **vuote e collassate**: prima del primo «🧪 Prova messaggio» si
+vedono solo le due etichette («Anteprima righe generate (#192):» e «Diagnostica (una riga per
+colonna):»), senza il riquadro vuoto che prima riservava 200px a testa. Alla prima prova
+compaiono intestazione e righe.
 
 > Questa è la schermata che più beneficerebbe di un redesign: è densa, tabellare, con molte
 > colonne e concetti (delimitatori, trasformazioni, value-map, mapping, multi-riga). Vedi §14.
@@ -1472,6 +1498,9 @@ stessa logica pura della CLI `journal_view`.
   cartella che contiene il ledger).
 - **Riga conteggi** (sopra la tabella): `Diario: N eventi totali (mostrati M).`; su errore di
   lettura **"⚠️ Errore lettura diario: &lt;Tipo&gt;"** (fail-safe, nessun crash della finestra).
+  In quel caso l'**intestazione di colonna resta vuota** (il refresh la svuota prima di leggere
+  il ledger e poi esce): è collassata, quindi sotto l'avviso non compare un riquadro vuoto —
+  si vede l'errore e basta.
 - **Tabella** (griglia di label in `CTkScrollableFrame`): colonne **Quando** (`ts` reso
   leggibile locale) · **Tipo** · **Dati (redatti)** (JSON compatto, chiavi ordinate).
 - **Invariante di sicurezza:** la vista mostra i valori **esattamente come sono sul file** —
