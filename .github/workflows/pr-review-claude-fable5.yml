@@ -3,7 +3,7 @@ name: PR Review Claude Fable 5
 # Review AI FORTE con Claude Fable 5 (Anthropic Messages API). Costa, quindi
 # chiama il modello SOLO quando serve davvero:
 # - automaticamente su un push che tocca file CORE del bridge (main.py,
-#   xtrader_bridge/**, dipendenze) → analizza il push-range;
+#   xtrader_bridge/**, license_manager/**, dipendenze) → analizza il push-range;
 # - oppure quando viene aggiunta la label `final-fable-review` (gate finale
 #   pre-merge) → analizza l'intera PR (base...head).
 # Su push che toccano solo workflow/docs/test il job parte ma NON spende (gate
@@ -488,6 +488,10 @@ jobs:
           CORE_TRIGGER_PATTERNS = [
               re.compile(r"(^|/)main\.py$"),
               re.compile(r"(^|/)xtrader_bridge/"),
+              # #247: il tool che FIRMA le licenze ed emette la lista di revoca. Era fuori
+              # dal set core, quindi su una PR che lo toccava questo reviewer usciva senza
+              # chiamare il modello — e il check verde era indistinguibile da un'approvazione.
+              re.compile(r"(^|/)license_manager/"),
               re.compile(r"(^|/)requirements[^/]*\.(txt|in|lock)$"),
               re.compile(r"(^|/)pyproject\.toml$"),
               re.compile(r"(^|/)poetry\.lock$"),

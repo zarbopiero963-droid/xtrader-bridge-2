@@ -744,6 +744,31 @@ def test_pr_review_trigger_split():
             )
 
 
+def test_gate_costo_copre_anche_il_license_manager():
+    """#247 ①: `license_manager/` DEVE stare nel set core dei due reviewer forti.
+
+    Il gate costo fa uscire Fable 5 e Fugu Ultra **senza chiamare il modello** quando il
+    push non tocca file core — e il job conclude `success` in 2–3 secondi. Finché
+    `license_manager/` restava fuori da quel set, una PR sul tool che **firma le licenze
+    ed emette la lista di revoca** vedeva i due reviewer più forti tacere, con un check
+    verde indistinguibile da un'approvazione.
+
+    Non è teorico: sulla PR #246 i due forti hanno parlato solo perché le label finali sono
+    state rimosse e riaggiunte a mano, e hanno poi trovato **quattro bloccanti reali di
+    perdita dati** sul registro licenze — cioè esattamente ciò che sarebbe passato
+    inosservato. Il costo in più (una review forte su ogni push a `license_manager/`) è
+    deliberato: è il prezzo di non avere reviewer muti sull'area che firma.
+    """
+    for name, meta in _AI_WORKFLOWS.items():
+        if meta["kind"] != "pr_review" or meta["trigger"] != "label":
+            continue
+        src = _compiled_heredoc(name)
+        assert 'r"(^|/)license_manager/"' in src, (
+            f"{name}: `license_manager/` non è nel set core → i reviewer forti resterebbero "
+            "muti (check verde) sulle PR che toccano la firma delle licenze"
+        )
+
+
 def test_pr_review_redige_output_del_modello():
     """Codex P2: l'OUTPUT del modello va redatto prima della pubblicazione.
 

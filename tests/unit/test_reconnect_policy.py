@@ -135,19 +135,62 @@ def test_isinstance_sui_tipi_reali_evita_falso_positivo_per_nome(monkeypatch):
 
 
 def test_real_transient_types_non_solleva_ed_e_cache(monkeypatch):
-    # La risoluzione dei tipi reali non deve mai sollevare e va cache-ata (stesso oggetto
-    # al secondo accesso). Senza `telegram` (CI headless) la tupla è vuota → fallback.
+    """La risoluzione dei tipi reali non deve mai sollevare e va cache-ata (stesso oggetto
+    al secondo accesso). Senza `telegram.error` (CI headless) la tupla è vuota → fallback.
+
+    Sonda (#247). La precondizione si misura su **`telegram.error`**, cioè esattamente ciò
+    che `_real_transient_types` importa, e NON su `import telegram`. Le due cose divergono:
+    `telegram/__init__.py` importa `error` prima di `request`, quindi se manca una dipendenza
+    transitiva (`httpx`/`idna` — che vivono nella user-site, cioè in una cartella che dipende
+    da `HOME`) il pacchetto non è importabile ma `sys.modules['telegram.error']` resta
+    popolato e reale. Con la vecchia sonda questo test pretendeva la tupla vuota mentre la
+    funzione restituiva — correttamente — le classi reali: un rosso che dipendeva da `HOME`
+    invece che dal codice."""
     monkeypatch.setattr(rp, "_TRANSIENT_TYPES_CACHE", None)   # forza una nuova risoluzione
     first = rp._real_transient_types()
     assert isinstance(first, tuple)
     assert rp._real_transient_types() is first               # cache-ato
     try:
-        import telegram  # noqa: F401
-        telegram_disponibile = True
+        from telegram.error import NetworkError as _NE, RetryAfter as _RA, TimedOut as _TO
+        classi_reali = (_NE, _TO, _RA)
     except Exception:
-        telegram_disponibile = False
-    if not telegram_disponibile:
-        assert first == ()                                   # assenza telegram → fallback
+        classi_reali = None
+    if classi_reali is None:
+        assert first == ()                                   # assenza telegram.error → fallback
+    else:
+        assert first == classi_reali                         # presenza → classi REALI, non nomi
+
+
+def test_import_parziale_di_telegram_risolve_comunque_le_classi_reali(monkeypatch):
+    """#247: `telegram.error` importabile MA pacchetto `telegram` no → si usano le reali.
+
+    Non è uno scenario di laboratorio, è quello che succede davvero quando manca una
+    dipendenza transitiva (`httpx`/`idna`): `telegram/__init__.py` importa `error` prima di
+    `request`, l'import del pacchetto fallisce, e `sys.modules['telegram.error']` resta
+    popolato. Qui lo si ricrea in modo deterministico — `telegram` RIMOSSO da `sys.modules`,
+    `telegram.error` presente — e si pretende che la risoluzione usi comunque le classi reali
+    del sottomodulo, perché sono più precise del match per nome.
+
+    Il test fallirebbe se qualcuno "semplificasse" `_real_transient_types` in un
+    `import telegram` seguito da `telegram.error`: in quello stato solleverebbe → tupla vuota
+    → fallback per nome, cioè proprio il falso positivo che l'audit C6 aveva chiuso."""
+    import sys
+    import types
+
+    finto = types.ModuleType("telegram.error")
+    finto.NetworkError = type("NetworkError", (Exception,), {})
+    finto.TimedOut = type("TimedOut", (finto.NetworkError,), {})
+    finto.RetryAfter = type("RetryAfter", (Exception,), {})
+    monkeypatch.setitem(sys.modules, "telegram.error", finto)
+    monkeypatch.delitem(sys.modules, "telegram", raising=False)   # pacchetto NON importato
+    monkeypatch.setattr(rp, "_TRANSIENT_TYPES_CACHE", None)
+
+    risolte = rp._real_transient_types()
+    assert risolte == (finto.NetworkError, finto.TimedOut, finto.RetryAfter)
+
+    # E la classificazione usa quelle classi: un omonimo dinamico NON è transitorio.
+    assert rp.is_transient_error(finto.TimedOut("timeout")) is True
+    assert rp.is_transient_error(type("TimedOut", (Exception,), {})("impostore")) is False
 
 
 # ── decisione finale del supervisor ──────────────────────────────────────────

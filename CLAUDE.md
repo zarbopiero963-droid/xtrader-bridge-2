@@ -214,9 +214,9 @@ gh pr edit "$PR_NUMBER" --remove-label final-fugu-review || true
 
 sleep 2
 
-gh pr edit "$PR_NUMBER" \
-  --add-label final-fable-review \
-  --add-label final-fugu-review
+# UNA ALLA VOLTA, non in una sola chiamata (vedi sotto).
+gh pr edit "$PR_NUMBER" --add-label final-fable-review
+gh pr edit "$PR_NUMBER" --add-label final-fugu-review
 ```
 
 Se in questo ambiente **non** hai `gh` (usi i tool MCP GitHub), l'equivalente è
@@ -224,6 +224,27 @@ rimuovere e riaggiungere le due label alla PR via API GitHub
 (`issues/{n}/labels`). Le due label devono già esistere nel repo
 (`final-fable-review`, `final-fugu-review`); crearle è un'azione una-tantum del
 proprietario.
+
+**Le label vanno aggiunte UNA ALLA VOLTA** (#247 ①-bis). Aggiungerne più d'una in
+una sola chiamata API emette un evento `labeled` **per ciascuna**, e i due job
+gatano su `github.event.label.name`:
+
+```yaml
+if: ( github.event.action != 'labeled' || github.event.label.name == 'final-fable-review' )
+```
+
+L'evento di una label che non è la propria viene **rifiutato** dalla condizione;
+con il gruppo di concorrenza della PR, i job buoni finiscono `skipped`. Il sintomo
+è «ho messo le label e i reviewer non partono», e non è deducibile dai log: il job
+risulta semplicemente saltato. Aggiungerle in due chiamate separate funziona.
+
+**Nota sul gate costo (#247 ①).** I due reviewer forti chiamano il modello solo se
+il push tocca file core. Da #247 il set core include anche **`license_manager/`**:
+prima ne era fuori, quindi su una PR al tool che *firma le licenze* i due uscivano
+in 2 s con `success` — e un reviewer che **tace** è indistinguibile da uno che
+**approva**. Se un domani nasce un'altra area che firma, cifra o pubblica qualcosa,
+va aggiunta a `CORE_TRIGGER_PATTERNS` nei due workflow (c'è un test in
+`tests/safety/test_ai_audit_workflows.py` che lo pretende).
 
 Poi **aspetta** i workflow `PR Review Claude Fable 5` e `PR Review OpenRouter
 Fugu Ultra` (rientrano nel CHECK COMPLETION GATE e nella finestra di review). Se
