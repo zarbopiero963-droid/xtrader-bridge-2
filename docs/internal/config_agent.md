@@ -446,6 +446,25 @@ CSV?», per spiegare colonne/delimitatori, o come **tester** mentre l'utente sis
 - **Conservativo (fail-closed), come il wizard.** **Non** passa `id_resolver` (dizionario Betfair):
   un parser `ID_ONLY` che risolve gli ID dal dizionario può apparire «non pronto» anche se a runtime,
   col dizionario, verrebbe scritto — mai il contrario. La nota è esplicitata nell'output.
+- **Il `verdict` dice il MOTIVO di ogni fonte attiva, non solo dei campi** (2026-08-04). Il verdetto
+  arriva da `ParserBuilder._single_report`, che passa a `test_verdict` gli **stessi** argomenti del
+  «Prova messaggio» singolo — `missing_reasons`, `status_reason`, `multi_warnings`, `content_status`.
+  Non è un dettaglio implementativo: senza quel passaggio l'assistente spiegherebbe **meno** della
+  GUI sulla stessa identica cosa, ed è l'assistente che l'utente interroga proprio quando la GUI non
+  gli è bastata. In particolare le **condizioni di gate** hanno un codice loro,
+  `parser_diagnostics.CONDITIONS_NOT_MET`, col motivo che le **nomina**: prima ricadevano in
+  `NO_CONTENT_MATCH` («non ho estratto niente»), che lì è falso e mandava l'assistente a suggerire
+  la correzione dei delimitatori invece della condizione. **Chi estende il tester deve mantenere
+  questo allineamento**: è presidiato da un test che confronta il verdetto del batch con quello del
+  singolo, e un altro che verifica che il motivo arrivi fino al JSON restituito da
+  `build_message_preview`.
+- **Solo diagnosi, il gate non cambia.** `parser_diagnostics.diagnose` è usata **esclusivamente**
+  dai percorsi di anteprima (GUI `_test`, `batch_report` e quindi questo tool), **mai** dal runtime:
+  il bridge scarta esattamente gli stessi messaggi di prima. `CONDITIONS_NOT_MET` non compare nel
+  diario eventi — lì lo scarto per condizioni resta `NO_CONTENT_MATCH`, quindi `why_discarded`
+  (che legge il diario) continua a mostrare quel codice. Se un utente chiede «perché non è arrivato
+  al CSV?» e il diario dice `NO_CONTENT_MATCH`, il modo per distinguere le due cause è **riprovare
+  il messaggio con `test_message`**.
 - **Sicurezza/robustezza.** Tool **`READ_ONLY`** (offerto anche senza `allow_writes`), **nessun**
   write-path: verificato da test che il CSV **non** viene creato/toccato. Input capato a
   `MAX_TESTER_CHARS` (fail-safe anti-paste); multi-messaggio sul separatore `---` con `skipped`;
@@ -453,7 +472,9 @@ CSV?», per spiegare colonne/delimitatori, o come **tester** mentre l'utente sis
 
 Test hard: `tests/safety/test_config_agent_41.py` (riconosciuto → riga CSV con colonne/valori attesi
 e decimale IT/EN corretto; non riconosciuto → nessuna riga piazzabile; parser assente / vuoto /
-troppo lungo; multi-messaggio; **read-only che non scrive il CSV**; nessun segreto nell'output).
+troppo lungo; multi-messaggio; **read-only che non scrive il CSV**; nessun segreto nell'output) e
+`tests/unit/test_verdetto_fonti_attive.py` (il `verdict` dell'assistente porta il motivo — con la
+condizione di gate nominata — e il batch dice le stesse cose del singolo).
 
 ## Consulta dizionario — `lookup_dictionary` (PR-9 Blocco C)
 

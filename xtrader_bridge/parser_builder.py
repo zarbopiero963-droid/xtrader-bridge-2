@@ -860,10 +860,19 @@ class ParserBuilder:
                                  name_mapping_profiles=name_mapping_profiles,
                                  market_mapping_profiles=market_mapping_profiles,
                                  id_resolver=id_resolver, source_language=source_language)
+        # STESSI argomenti del singolo «Prova messaggio» (il docstring di `batch_report` lo
+        # promette, e da qui passa anche il tool `test_message` dell'assistente): senza, il
+        # tester multiplo tornerebbe alla sigla nuda e — sulle condizioni di gate — al motivo
+        # sbagliato, spiegando MENO della GUI sulla stessa identica cosa.
         verdict = ParserBuilder.test_verdict(
             errors, rows, diag_placeable=diag.placeable, diag_status=diag.status,
             res_row=res.row, res_missing_required=res.missing_required,
-            res_detail=res.detail, content_ok=not diag.message_error)
+            res_detail=res.detail, content_ok=not diag.message_error,
+            res_warnings=getattr(res, "warnings", ()),
+            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag),
+            status_reason=parser_diagnostics.motivo_stato(diag),
+            multi_warnings=self.multi_warnings(),
+            content_status=diag.message_error)
         first = (msg.splitlines() or [""])[0][:80]
         return BatchMessageReport(index=i, first_line=first,
                                   ok=verdict.startswith("✅"), verdict=verdict, rows=rows)

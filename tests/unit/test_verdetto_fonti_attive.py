@@ -327,3 +327,76 @@ def test_content_status_assente_conserva_il_codice_storico():
         [], righe, diag_placeable=True, diag_status="VALID", res_row={},
         res_missing_required=[], res_detail=None, content_ok=False)
     assert pdg.NO_CONTENT_MATCH in testo, testo
+
+
+# ── 6. il tester MULTIPLO e l'assistente devono dire le stesse cose ──────────
+# Il tester multiplo fa `strip()` su ogni messaggio (`split_messages`): l'ULTIMO campo
+# perde l'a-capo, e con `end_before="\n"` non si estrarrebbe più. È un comportamento
+# preesistente del batch, non di questa patch: qui si usa un messaggio con una riga in
+# coda, così sotto test resta il verdetto e non quell'artefatto.
+_MSG_BATCH = _MSG + "fine\n"
+def test_il_verdetto_del_tester_multiplo_e_quello_del_singolo():
+    """`batch_report` promette nel suo docstring «è lo stesso `test_verdict` del
+    singolo «Prova messaggio»». Aggiungendo i motivi al solo percorso singolo quella
+    promessa si rompe in silenzio: il tester multiplo — e l'assistente, che passa di
+    qui — tornerebbero alla sigla nuda, e per le condizioni al motivo SBAGLIATO.
+
+    Rilievo del proprietario (2026-08-04): «anche le docs dell'assistente devono
+    essere sincronizzate al codice» — e prima ancora il codice a sé stesso."""
+    b = _builder(conditions=[cp.Condition(text="GOL ANNULLATO")])
+    reports, _skipped = b.batch_report(_MSG_BATCH, provider="TG", mode="NAME_ONLY",
+                                       require_price=True)
+    assert len(reports) == 1
+    verdetto = reports[0].verdict
+    assert pdg.CONDITIONS_NOT_MET in verdetto, verdetto
+    assert "GOL ANNULLATO" in verdetto, verdetto
+    assert "nessun contenuto estratto" not in verdetto, verdetto
+
+
+def test_il_tester_multiplo_spiega_anche_gli_stati_di_riga():
+    b = _builder(name_mapping_profiles=["squadre"])
+    reports, _ = b.batch_report(_MSG_BATCH, provider="TG", mode="NAME_ONLY",
+                                require_price=True, name_mapping_profiles=[])
+    verdetto = reports[0].verdict
+    assert pdg.MAPPING_MISSING in verdetto and "non traducibile" in verdetto, verdetto
+
+
+def test_il_tester_multiplo_porta_gli_avvisi_multi():
+    b = _builder(multi_market_enabled=True)
+    reports, _ = b.batch_report(_MSG_BATCH, provider="TG", mode="NAME_ONLY", require_price=True)
+    verdetto = reports[0].verdict
+    assert verdetto.startswith("✅ Pronto"), verdetto
+    assert "MultiMarket" in verdetto, verdetto
+
+
+def test_anteprima_dell_assistente_riporta_il_verdetto_col_motivo(monkeypatch):
+    """Il tool sola-lettura `test_message` dell'assistente costruisce la sua anteprima
+    da `batch_report`: il motivo deve arrivare fino al JSON che il modello legge,
+    altrimenti l'assistente spiega MENO di quanto mostra la GUI sulla stessa cosa —
+    ed è l'assistente che l'utente interroga quando la GUI non gli basta.
+
+    Si stuba solo il CARICAMENTO del parser (seam iniettabile): sotto test è la
+    propagazione del verdetto, non la risoluzione del parser attivo per la chat."""
+    from xtrader_bridge import config_agent, parser_manager
+
+    defn = _builder(conditions=[cp.Condition(text="GOL ANNULLATO")]).to_def()
+    monkeypatch.setattr(parser_manager, "load_primary_parser",
+                        lambda *a, **k: defn)
+    dati = config_agent.build_message_preview({"provider": "TG"}, _MSG_BATCH)
+    verdetti = [r["verdict"] for r in dati.get("reports", [])]
+    assert verdetti, dati
+    assert any(pdg.CONDITIONS_NOT_MET in v and "GOL ANNULLATO" in v for v in verdetti), verdetti
+
+
+def test_il_system_prompt_insegna_a_non_confondere_le_due_cause():
+    """La riga del prompt che dice al modello QUANDO e COME usare il tool fa parte
+    del contratto (disciplina di estensione dell'assistente): il verdetto ora
+    distingue due cause opposte — condizione di gate contro nulla di estratto — e
+    l'assistente deve saperlo, o le confonderà a parole dopo che il codice le ha
+    separate, suggerendo di correggere i delimitatori al posto della condizione."""
+    from xtrader_bridge import config_agent
+
+    prompt = config_agent.build_system_prompt("IT")
+    assert pdg.CONDITIONS_NOT_MET in prompt
+    assert pdg.NO_CONTENT_MATCH in prompt
+    assert "delimitatori" in prompt.lower()
