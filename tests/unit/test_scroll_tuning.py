@@ -63,12 +63,21 @@ def test_tune_scrolling_best_effort_su_doppio_senza_canvas():
     ui_cards.tune_scrolling(_SfRotto())        # configure che solleva → assorbito
 
 
+def test_la_scansione_copre_anche_i_sottopackage():
+    """Rilievo CodeRabbit #241: `glob` vedeva solo i figli diretti — una scrollable
+    aggiunta in un sottopackage (es. `betfair/`) avrebbe bypassato la guardia.
+    Il contratto è ricorsivo: la scansione deve includere i moduli annidati."""
+    annidati = [p for p in PKG.rglob("*.py") if p.parent != PKG]
+    assert annidati, "il package ha sottomoduli: se spariscono, rivedere la guardia"
+    assert set(PKG.rglob("*.py")) >= set(annidati)
+
+
 def test_ogni_scrollable_del_package_viene_accordata():
     """La classe, non il sito: OGNI `ctk.CTkScrollableFrame(` costruita nel package
     deve avere la sua `ui_cards.tune_scrolling(...)` nello stesso modulo — una
     costruzione senza accordatura è una scrollable che torna a 20px/scatto."""
     rotti = []
-    for path in sorted(PKG.glob("*.py")):
+    for path in sorted(PKG.rglob("*.py")):
         if path.name == "ui_cards.py":
             continue
         src = path.read_text(encoding="utf-8")
