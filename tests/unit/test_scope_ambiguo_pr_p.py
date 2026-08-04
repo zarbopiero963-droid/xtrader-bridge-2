@@ -276,3 +276,77 @@ def test_b20_il_catalogo_spedito_non_perde_NEMMENO_UNA_selezione():
     assert scartate == [], (
         f"il guard B20 scarta {len(scartate)} selezioni del catalogo spedito: {scartate[:5]}"
     )
+
+
+# ── B21-bis · l'avviso deve valere per OGNI chiamante, non solo per l'agnostico ──
+
+def _cfg_nomi(righe):
+    return {"name_mappings": {"P": list(righe)}}
+
+
+def test_b21bis_conflitto_dentro_uno_sport_con_ripiego_agnostico_va_AVVISATO():
+    """Bloccante di Fable 5 sulla #253, misurato e confermato.
+
+    Due righe in conflitto **dentro** `Calcio`, più una riga agnostica di ripiego. Il chiamante
+    agnostico se la cava (vince l'agnostica), quindi la prima stesura dell'avviso — che sondava
+    **solo** il chiamante agnostico — taceva. Ma un parser che dichiara `sport=Calcio` fail-closa
+    a runtime, e allo START non vedeva **nessun ⚠️**: segnali persi e non diagnosticabili.
+
+    Misurato prima della correzione:
+
+        chiamante agnostico      -> 'Inter generico'
+        chiamante sport=Calcio   -> None          (segnale perso)
+        AVVISI                   -> NESSUNO       (l'utente non sa perché)
+    """
+    cfg = _cfg_nomi([
+        {"betfair": "Inter Milano", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter Miami", "provider": "Inter", "sport": "Calcio"},
+        {"betfair": "Inter generico", "provider": "Inter"},
+    ])
+    profs = nms.entries_for_profiles(cfg, ["P"])
+    assert nms.resolve_team("Inter", profs) == "Inter generico"        # l'agnostico se la cava
+    assert nms.resolve_team("Inter", profs, sport="Calcio") is None    # chi filtra NO
+    assert nms.ambiguous_alias_warnings(cfg), (
+        "un chiamante reale perde ogni segnale e allo START non c'è alcun avviso"
+    )
+
+
+def test_b21bis_avviso_e_runtime_coerenti_su_OGNI_scope_del_dizionario():
+    """La generalizzazione del caso di sopra: l'equivalenza «avviso ⇔ fail-closed» non vale
+    solo per il chiamante agnostico, ma per **ogni** scope che il dizionario stesso contiene.
+
+    Se per un qualsiasi (sport, tipo, lingua) presente nelle righe il runtime fail-closa, allora
+    l'avviso deve esserci; e se nessuno fail-closa, non deve esserci. È la stessa invariante di
+    `test_avviso_e_runtime_dicono_la_STESSA_cosa`, estesa ai chiamanti che filtrano."""
+    casi = [
+        # conflitto dentro uno sport, con e senza ripiego agnostico
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "B", "provider": "X", "sport": "Calcio"},
+          {"betfair": "AGN", "provider": "X"}], True),
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "B", "provider": "X", "sport": "Calcio"}], True),
+        # conflitto dentro una lingua, con ripiego agnostico
+        ([{"betfair": "A", "provider": "X", "language": "IT"},
+          {"betfair": "B", "provider": "X", "language": "IT"},
+          {"betfair": "AGN", "provider": "X"}], True),
+        # scope diversi: ambiguo per l'agnostico, risolvibile per chi filtra → avviso
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "B", "provider": "X", "sport": "Tennis"}], True),
+        # nessun conflitto per nessuno
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "A", "provider": "X", "sport": "Tennis"}], False),
+        ([{"betfair": "A", "provider": "X"}], False),
+        ([{"betfair": "A", "provider": "X", "sport": "Calcio"},
+          {"betfair": "AGN", "provider": "X"}], False),
+    ]
+    for righe, atteso in casi:
+        cfg = _cfg_nomi(righe)
+        profs = nms.entries_for_profiles(cfg, ["P"])
+        scope = {(e.get("sport", ""), e.get("entity_type", ""), e.get("language", ""))
+                 for e in nms.entries_for_profiles(cfg, ["P"])[0]} | {("", "", "")}
+        perso = any(nms.resolve_team("X", profs, sport=s or None,
+                                     entity_type=t or None, language=l or None) is None
+                    for s, t, l in scope)
+        avvisato = bool(nms.ambiguous_alias_warnings(cfg))
+        assert avvisato == atteso, f"avviso sbagliato per {righe}"
+        assert perso == atteso, f"runtime sbagliato per {righe}"

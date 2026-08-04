@@ -5155,4 +5155,44 @@ salvataggio; ognuno continua a difendere la garanzia per cui era stato scritto:
 | `test_scope_diverso_non_e_ambiguo_scope_uguale_si` | che sport diversi non fossero un falso positivo | l'assunto era sbagliato — `custom_pipeline` passa `sport` **vuoto** per un parser senza sport; rinominato `test_scope_diverso_e_ambiguo_SE_il_chiamante_non_filtra` |
 | `test_avviso_e_runtime_dicono_la_STESSA_cosa` | equivalenza avviso ↔ runtime | equivalenza **invariata**; tre righe della matrice passano da `False` a `True`, perché il ciclo interroga `resolve_team` **senza scope** — la stessa cosa che fa la pipeline |
 
-Suite completa dopo la correzione: **5071 passed, 1 skipped**, zero `xfail` residui.
+### Il giro di review: l'avviso sbagliava due volte, e sempre per la stessa causa
+
+`ambiguous_alias_warnings` **simulava** il runtime invece di chiamarlo, e Fable 5 e Fugu Ultra
+hanno trovato indipendentemente i due modi in cui questo divergeva.
+
+**Taceva su un conflitto vivo** (Fable 5). Due righe in conflitto *dentro* `sport=Calcio` più una
+riga agnostica di ripiego: il sondaggio — che interrogava il solo chiamante **agnostico** —
+risolveva sull'agnostica, quindi nessun avviso. Ma un parser che dichiara `Calcio` fail-closa.
+Misurato prima della correzione:
+
+```
+chiamante agnostico      -> 'Inter generico'
+chiamante sport=Calcio   -> None          (ogni segnale perso)
+AVVISI                   -> NESSUNO       (l'utente non sa perché)
+```
+
+Il caso peggiore possibile per una diagnostica: il difetto colpisce **solo** chi ha configurato
+tutto per bene, e proprio a lui non dice niente.
+
+**Ignorava i tier** (Fugu Ultra). Il runtime scorre i gruppi di `_scoped_entry_groups` dal tier
+più specifico all'agnostico e si ferma al primo esito; l'avviso passava le righe **piatte** a
+`_resolve_in_tier`, dove quella precedenza non esiste — quindi poteva anche accusare una config
+che il runtime risolve.
+
+**Una causa sola, una correzione sola.** Il cuore della risoluzione è stato estratto in
+`_resolve_scoped` (nome, profili, scope → nome Betfair · `_AMBIGUOUS` · `None`), e ora
+`resolve_team` ci aggiunge solo la normalizzazione e il log, mentre l'avviso **chiede alla stessa
+funzione** se un dato chiamante fail-closa — provando l'agnostico più ogni combinazione di scope
+che il dizionario stesso contiene (insieme finito: quello delle righe). La divergenza non è
+«improbabile», è impossibile: non ci sono due implementazioni da tenere allineate.
+
+Il commento della stesura precedente prometteva già che la divergenza fosse «strutturalmente
+impossibile». Non lo era: chiamava `_resolve_in_tier`, cioè un **pezzo** del runtime, non il
+runtime. È la differenza fra riusare una funzione e riusare *la decisione*.
+
+**Regola 2, la classe:** i due `malformed_entry_warnings` (nomi e mercati) condividono già il
+predicato `_malformed_fields` col resolver — sono cioè già scritti nella forma giusta.
+`source_manager.duplicate_name_warnings` non rispecchia alcuna decisione di runtime (il routing
+usa il `chat_id`). `ambiguous_alias_warnings` era l'unico sito fuori regola.
+
+Suite completa dopo la correzione: **5073 passed, 1 skipped**, zero `xfail` residui.

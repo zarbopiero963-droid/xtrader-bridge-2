@@ -272,27 +272,39 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
                 if not nt:
                     continue
                 voce = conflitti.setdefault(
-                    (key, nt, _scope_signature(e)),
-                    {"nome": str(e.get(key, "")).strip(), "betfair": []})
+                    (key, nt), {"nome": str(e.get(key, "")).strip(), "betfair": []})
                 if e["betfair"] not in voce["betfair"]:
                     voce["betfair"].append(e["betfair"])
-        for (key, _nt, _sig), voce in conflitti.items():
+        # I chiamanti da provare: l'AGNOSTICO più ogni combinazione di scope che il dizionario
+        # stesso contiene. Sono i soli scope per cui un parser dell'utente può fail-closare su
+        # queste righe, e sono in numero finito — quello delle righe.
+        chiamanti = {("", None, "")} | {(e.get("sport", "") or "",
+                                        (e.get("entity_type", "") or None),
+                                        e.get("language", "") or "") for e in righe}
+        for (key, _nt), voce in conflitti.items():
             if len(voce["betfair"]) < 2:
                 continue                       # una sola destinazione = nessun conflitto
-            # L'avviso NON ricalcola l'ambiguità: la CHIEDE al runtime (B21 #194). Prima la
-            # rifaceva raggruppando per `_scope_signature`, e appena il runtime è diventato
-            # più stretto le due detection sono divergute — con l'avviso che dichiarava sana
-            # una configurazione su cui il resolver ormai fail-closava. Chiedendolo a
-            # `_resolve_in_tier` la divergenza è strutturalmente impossibile.
+            # L'avviso NON ricalcola l'ambiguità: la CHIEDE al runtime, con la STESSA funzione
+            # (`_resolve_scoped`) e per OGNI chiamante plausibile (B21 #194). Le due stesure
+            # precedenti sbagliavano proprio qui, e i due difetti sono stati trovati in review
+            # sulla #253 da Fable 5 e Fugu Ultra indipendentemente: sondare il solo chiamante
+            # agnostico taceva su un conflitto interno a uno sport con ripiego agnostico
+            # (parser che dichiara lo sport → ogni segnale perso, nessun ⚠️), e passare le
+            # righe PIATTE ignorava i tier di `_scoped_entry_groups`, quindi poteva accusare
+            # una config che il runtime risolve.
             nt = normalize(voce["nome"])
-            agnostico = _resolve_in_tier(nt, righe, key, ()) is _AMBIGUOUS
-            if not agnostico:
+            ambigui = [c for c in chiamanti
+                       if _resolve_scoped(nt, [righe], *c) is _AMBIGUOUS]
+            if not ambigui:
                 continue
             fase = "alias" if key == "provider" else "nome canonico"
             dove = ", ".join(f"«{b}»" for b in voce["betfair"])
-            # Due diagnosi diverse, perché richiedono due azioni diverse dall'utente.
-            distinguibile = _resolve_in_tier(nt, righe, key, _SCOPE_DIMENSIONS) is not _AMBIGUOUS
-            if distinguibile:
+            # Due diagnosi diverse, perché richiedono due azioni diverse dall'utente. Se
+            # fail-closa anche un chiamante che FILTRA, il conflitto è dentro uno scope e
+            # nessun parser può schivarlo: va corretto il dizionario. Se fail-closa solo
+            # l'agnostico, le righe sono distinguibili e basta dichiarare lo scope.
+            solo_agnostico = ambigui == [("", None, "")]
+            if solo_agnostico:
                 warnings.append(
                     f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
                     f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}), distinguibili "
@@ -504,35 +516,64 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
     nt = normalize(team)
     if not nt:
         return None
-    want = sports.normalize_sport(sport)
-    # Quali dimensioni di scope il chiamante ha DAVVERO filtrato (B21 #194). Solo queste
-    # possono rendere «distinguibili» due righe in conflitto: una dimensione su cui non si è
-    # filtrato non è una scelta di nessuno, è solo un dato che sta nel file — e usarla per
-    # separare due righe significa risolvere in base all'ordine di salvataggio. Si usano i
-    # valori NORMALIZZATI (come il filtro stesso), così uno sport ignoto — che non filtra
-    # nulla — non conta come filtro attivo.
+    esito = _resolve_scoped(nt, profiles, sport, entity_type, language)
+    if esito is _AMBIGUOUS:
+        _LOG.warning(
+            "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "
+            "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
+            "Correggi il Dizionario nomi.")
+        return None
+    return esito
+
+
+def _dimensioni_filtrate(sport, entity_type, language) -> set:
+    """Quali dimensioni di scope il chiamante ha **davvero** filtrato (B21 #194).
+
+    Solo queste possono rendere «distinguibili» due righe in conflitto: una dimensione su cui
+    non si è filtrato non è una scelta di nessuno, è solo un dato che sta nel file — e usarla
+    per separare due righe significa risolvere in base all'ordine di salvataggio. Si usano i
+    valori NORMALIZZATI (come i filtri stessi), così uno sport ignoto — che non filtra nulla —
+    non conta come filtro attivo."""
     filtrate = set()
-    if want:
+    if sports.normalize_sport(sport):
         filtrate.add("sport")
     if _entity_filter(entity_type) is not None:
         filtrate.add("entity_type")
     if recognition.normalize_source_language(language):
         filtrate.add("language")
+    return filtrate
+
+
+def _resolve_scoped(nt, profiles, sport, entity_type, language):
+    """Il **cuore** della risoluzione: ritorna il nome Betfair, `_AMBIGUOUS`, oppure ``None``.
+
+    Fonte unica (Regola 3). `resolve_team` ci aggiunge solo la normalizzazione del nome e il
+    log; `ambiguous_alias_warnings` la interroga per sapere se un dato chiamante fail-closa.
+    Prima l'avviso *simulava* il runtime passando le righe piatte a `_resolve_in_tier`, e le
+    due detection potevano divergere in due modi, entrambi trovati in review sulla #253
+    (Fable 5 e Fugu Ultra, indipendentemente):
+
+    - **taceva su un conflitto vivo**: due righe in conflitto dentro `sport=Calcio` più una
+      riga agnostica di ripiego: il sondaggio agnostico risolveva sull'agnostica, quindi
+      nessun avviso — ma un parser che dichiara `Calcio` perdeva OGNI segnale, senza un ⚠️;
+    - **ignorava i tier**: il runtime scorre i gruppi di `_scoped_entry_groups` dal più
+      specifico all'agnostico e si ferma al primo esito; su righe piatte quella precedenza
+      non esiste, quindi l'avviso poteva accusare una config che il runtime risolve.
+
+    Chiamando la stessa funzione la divergenza non è «improbabile»: è impossibile."""
+    filtrate = _dimensioni_filtrate(sport, entity_type, language)
+    want = sports.normalize_sport(sport)
     for entries in profiles:
         # Si esaurisce un TIER di priorità (alias, poi canonico) PRIMA di scendere al tier
         # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
         # stesso nome (Codex P2 #174). Dentro il tier resta alias→canonico (l'alias del
         # provider ha precedenza sul nome canonico). Un alias/canonico ambiguo nel tier
-        # (≥2 betfair diversi) fa fail-closed (None), non si indovina (audit #137).
+        # (≥2 betfair diversi) fa fail-closed, non si indovina (audit #137).
         for group in _scoped_entry_groups(entries, want, entity_type, language):
             for key in ("provider", "betfair"):   # alias PRIMA del canonico (precedenza invariata)
                 hit = _resolve_in_tier(nt, group, key, filtrate)
                 if hit is _AMBIGUOUS:
-                    _LOG.warning(
-                        "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "
-                        "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
-                        "Correggi il Dizionario nomi.")
-                    return None
+                    return _AMBIGUOUS
                 if hit is not None:
                     return hit
     return None
