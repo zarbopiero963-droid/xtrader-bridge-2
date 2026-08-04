@@ -593,10 +593,45 @@ def save_parser(defn: CustomParserDef, dir_path: str = None) -> str:
     return path
 
 
+# B9 (#194 PR-H · #192 M5) — FONTE UNICA (regola 3) delle classi che un file parser
+# OSTILE può sollevare FUORI da `ValueError`. Non è un elenco teorico: entrambe sono
+# misurate su questo repo, e il corpus che le riproduce vive in
+# `tests/unit/test_parser_file_avvelenato_b9.py` con una guardia che diventa rossa se
+# CPython smette di sollevarle (un test che ha smesso di mordere deve dirlo).
+#
+#   RecursionError -> `json` decodifica ricorsivamente: un array annidato migliaia di
+#                     livelli esaurisce lo stack;
+#   OverflowError  -> `json.loads` accetta il letterale `Infinity` per default, e
+#                     `int(float("inf"))` in `from_dict` esplode.
+#
+# `MemoryError` NON è qui di proposito: un processo senza memoria non è in uno stato in
+# cui «saltare il file» sia una risposta onesta — meglio che risalga.
+CORRUPT_FILE_ERRORS = (RecursionError, OverflowError)
+
+
 def load_parser(path: str) -> CustomParserDef:
-    """Carica un parser da file JSON."""
+    """Carica un parser da file JSON.
+
+    **Contratto di errore** (B9): un file **corrotto o ostile** solleva sempre
+    ``ValueError``; un problema di **accesso** al file resta ``OSError``. Nessuna altra
+    classe esce da qui.
+
+    Perché la normalizzazione sta QUI e non nei chiamanti: i nove siti che leggono un
+    parser da disco catturavano tutti ``(OSError, ValueError)``, quindi un file che ne
+    sollevava una terza (vedi `CORRUPT_FILE_ERRORS`) **uccideva l'intero elenco** invece
+    di essere saltato — un solo file rotto nascondeva tutti i parser sani. Allargare la
+    tupla in nove punti avrebbe creato nove copie destinate a divergere: la correzione va
+    dove la classe nasce, così i chiamanti — inclusa la GUI, che avvolge
+    `ParserBuilder.load` in ``except (OSError, ValueError)`` — restano corretti senza
+    sapere nulla di questa faccenda."""
     with open(path, encoding="utf-8") as f:
-        return CustomParserDef.from_json(f.read())
+        text = f.read()
+    try:
+        return CustomParserDef.from_json(text)
+    except CORRUPT_FILE_ERRORS as exc:
+        raise ValueError(
+            f"parser JSON non leggibile ({type(exc).__name__}): {os.path.basename(path)}"
+        ) from exc
 
 
 def list_parser_files(dir_path: str = None) -> list:

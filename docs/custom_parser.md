@@ -900,6 +900,14 @@ responsabilità dell'utente).
   La duplica chiede un nuovo nome e **rifiuta** un nome già esistente (non
   sovrascrive); l'eliminazione rimuove il file per nome (anti path-traversal). Un
   file corrotto compare in lista col nome del file, senza nascondere gli altri.
+  Questa promessa vale ora anche per i file **ostili**, non solo per il JSON troncato
+  (B9 · #194 PR-H): `custom_parser.load_parser` normalizza a `ValueError` le classi che
+  un file avvelenato solleva fuori da quella — `RecursionError` (array annidato migliaia
+  di livelli) e `OverflowError` (`{"version": Infinity}`, che `json` accetta di default).
+  Prima **un solo** file simile faceva fallire l'intero elenco e nascondeva i parser sani;
+  il contratto è ora scritto nel docstring di `load_parser` — corrotto → `ValueError`,
+  accesso al file → `OSError`, nient'altro — così i nove siti che leggono un parser da
+  disco (e la GUI che apre un parser) restano corretti senza duplicare la tupla.
   L'**attivazione** resta nella finestra "📡 Chat sorgenti" (parser globale o
   per-chat); la finestra builder serve a creare/modificare/gestire le definizioni.
 - **Adattamento allo schermo:** la finestra builder è interamente **scrollabile**
