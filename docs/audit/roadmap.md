@@ -3729,7 +3729,11 @@ repository stesso dichiarava fuori garanzia due righe più in là.
 Il PoC della #192 (M7) ha poi misurato la scommessa sbagliata che qui si escludeva: con
 `end_before="Quota:"`, una configurazione del tutto ordinaria, un messaggio con CR/LF interni
 deposita una riga fisica i cui primi 14 campi sono scelti dall'attaccante — **`BANCA` al posto di
-`PUNTA`**, quota `1.01`. Chiuso sanificando `[\r\n]+` → uno spazio in `_sanitize_cell`
+`PUNTA`**, quota `1.01`. Chiuso in `_sanitize_cell` neutralizzando gli a-capo in **due fasi**:
+quelli ai **bordi** vengono rimossi, le sequenze **interne** diventano un solo spazio. La
+distinzione non è estetica — collassare anche i bordi lasciava `"1.85\r\n"` come `"1.85 "`, che
+non è più un numero per `_NUMERIC_RE` e XTrader leggerebbe come testo (bloccante Fable 5,
+confermato da Fugu Ultra sulla #250)
 (vedi `docs/xtrader_csv_contract.md`).
 
 ---

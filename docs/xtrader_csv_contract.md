@@ -205,9 +205,19 @@ un parser custom può estrarre testo arbitrario):
   dei control-char iniziali resta invece sul primo carattere *grezzo*, perché TAB/CR/LF **sono**
   spazio bianco e `strip()` li nasconderebbe.
 - **A-capo interni: neutralizzati (B11 #194, decisione D2 — ⚠️ cambio di comportamento).**
-  Ogni `CR`/`LF` dentro una cella — in testa, in mezzo o in coda — viene collassato in **un
-  singolo spazio** prima della scrittura. `"Inter\r\nMilan"` finisce nel file come
-  `"Inter Milan"`.
+  Nessun `CR`/`LF` sopravvive in una cella. La neutralizzazione avviene prima della scrittura,
+  in **due fasi**, perché bordi e interni non vanno trattati allo stesso modo:
+
+  | valore estratto | finisce nel file come | |
+  |---|---|---|
+  | `"Inter\r\nMilan"` | `"Inter Milan"` | a-capo **interno** → un solo spazio |
+  | `"1.85\r\n"` | `"1.85"` | a-capo **in coda** → rimosso |
+  | `"\r\n1.85"` | `"1.85"` | a-capo **in testa** → rimosso |
+
+  Ai bordi si **rimuove** invece di sostituire perché uno spazio residuo romperebbe il
+  contratto numerico: `"1.85 "` non è più un numero per il riconoscitore del progetto, e
+  XTrader lo leggerebbe come **testo**. `"\r\n=1+1"` diventa `"'=1+1"`: l'a-capo sparisce e
+  la protezione anti-formula resta.
 
   *Cosa è cambiato e perché.* Fino alla B11 i control-char interni erano lasciati intatti
   **deliberatamente**: dentro un campo quotato un a-capo è CSV valido per RFC-4180, e un

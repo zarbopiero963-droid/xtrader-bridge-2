@@ -403,8 +403,14 @@ def _sanitize_cell(value):
     toglierebbe e non li vedrebbe più. Sono due domande diverse — «questa cella inizia con un
     control-char?» e «il suo contenuto è una formula?» — e vanno poste su viste diverse.
 
-    **A-capo interni (B11 #194, decisione D2 del proprietario).** Ogni `\\r`/`\\n` — in testa,
-    in mezzo o in coda — viene collassato in un singolo spazio, PRIMA di ogni altro controllo.
+    **A-capo interni (B11 #194, decisione D2 del proprietario).** Nessun `\\r`/`\\n` sopravvive
+    in una cella, e la neutralizzazione avviene PRIMA di ogni altro controllo. In **due fasi**,
+    perché bordi e interni non vanno trattati allo stesso modo:
+
+        "Inter\\r\\nMilan"  ->  "Inter Milan"   (interno: un solo spazio)
+        "1.85\\r\\n"        ->  "1.85"          (coda: RIMOSSO, niente spazio residuo)
+        "\\r\\n=1+1"        ->  "'=1+1"         (testa: rimosso, la formula resta apostrofata)
+
     Si smette così di dipendere dalla conformità RFC-4180 del parser di XTrader, che **non è
     verificata**: con `QUOTE_ALL` un a-capo dentro un campo quotato è CSV valido e un parser
     conforme lo rilegge come un campo solo, ma un lettore riga-orientata vede una **riga
