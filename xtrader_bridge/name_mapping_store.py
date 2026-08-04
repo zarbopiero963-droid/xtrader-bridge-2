@@ -276,6 +276,26 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
                 if e["betfair"] not in voce["betfair"]:
                     voce["betfair"].append(e["betfair"])
         chiamanti = _chiamanti_plausibili(righe)
+        # Le righe indicizzate per nome normalizzato (alias E canonico). Senza questo, sondare
+        # ogni chiamante per ogni nome in conflitto significa rieseguire `_resolve_scoped`
+        # sull'INTERO profilo: misurato su un dizionario worst-case realistico (2000 righe,
+        # tutti gli sport/tipi/lingue, 200 alias in conflitto → 168 chiamanti) il costo era di
+        # **48,7 secondi**, e questa funzione gira allo START: l'app si sarebbe piantata per
+        # quasi un minuto (rischio sollevato da GPT-5.5 sulla #253 e confermato misurando).
+        #
+        # È equivalente, non un'approssimazione: una riga il cui nome non combacia con `nt` non
+        # produce mai un hit in `_resolve_in_tier` e non concorre mai all'ambiguità, e toglierla
+        # non altera né il rango né l'ordine delle righe che restano — quindi i gruppi di
+        # `_scoped_entry_groups` sono esattamente il sottoinsieme combaciante di quelli pieni.
+        # L'equivalenza è verificata su 26.235 dizionari dal test esaustivo.
+        per_nome = {}
+        for e in righe:
+            # `dict.fromkeys` deduplica i due nomi: se alias e canonico normalizzano uguale, la
+            # riga va inserita UNA volta sola, altrimenti comparirebbe due volte nel gruppo e
+            # falserebbe il conteggio delle destinazioni.
+            for n in dict.fromkeys(normalize(e.get(k, "")) for k in ("provider", "betfair")):
+                if n:
+                    per_nome.setdefault(n, []).append(e)
         for (key, _nt), voce in conflitti.items():
             if len(voce["betfair"]) < 2:
                 continue                       # una sola destinazione = nessun conflitto
@@ -288,8 +308,9 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             # righe PIATTE ignorava i tier di `_scoped_entry_groups`, quindi poteva accusare
             # una config che il runtime risolve.
             nt = normalize(voce["nome"])
+            candidate = per_nome.get(nt, [])
             ambigui = [c for c in chiamanti
-                       if _resolve_scoped(nt, [righe], *c) is _AMBIGUOUS]
+                       if _resolve_scoped(nt, [candidate], *c) is _AMBIGUOUS]
             if not ambigui:
                 continue
             fase = "alias" if key == "provider" else "nome canonico"

@@ -446,3 +446,34 @@ def test_b21bis_avviso_e_runtime_ESAUSTIVO_su_tutti_i_dizionari_piccoli():
     assert esaminati > 5000, f"la ricerca copre troppo poco ({esaminati} dizionari)"
     assert buchi == [], f"{len(buchi)} dizionari perdono segnali senza avviso, es. {buchi[0]}"
     assert falsi == [], f"{len(falsi)} dizionari sani vengono accusati, es. {falsi[0]}"
+
+
+def test_b21bis_avvisi_non_bloccano_lo_START_su_un_dizionario_grande():
+    """Regressione prestazionale, non microbenchmark: questa funzione gira allo **START**.
+
+    Sondare ogni chiamante plausibile per ogni nome in conflitto, rieseguendo `_resolve_scoped`
+    sull'INTERO profilo, costava **48,7 secondi** su un dizionario worst-case realistico (2000
+    righe, tutti gli sport/tipi/lingue, 200 alias in conflitto → 168 chiamanti): l'app si
+    sarebbe piantata per quasi un minuto all'avvio. Col profilo indicizzato per nome
+    normalizzato: **0,177 s**, e gli stessi 200 avvisi — nessuna diagnosi persa.
+
+    La soglia è larga di proposito (runner Windows, macchine lente): serve a intercettare il
+    ritorno del comportamento quadratico, non a misurare i millisecondi. Senza indice questo
+    dizionario impiega alcuni secondi, con indice qualche decimo."""
+    import time
+
+    from xtrader_bridge import sports
+
+    lista_sport = list(sports.SPORTS)
+    tipi = list(nms.ENTITY_TYPES)
+    righe = [{"provider": f"Alias{i % 120}", "betfair": f"BF{i}",
+              "sport": lista_sport[i % len(lista_sport)],
+              "entity_type": tipi[i % len(tipi)],
+              "language": ["IT", "EN", "ES"][i % 3]}
+             for i in range(1200)]
+    cfg = _cfg_nomi(righe)
+    inizio = time.perf_counter()
+    avvisi = nms.ambiguous_alias_warnings(cfg)
+    durata = time.perf_counter() - inizio
+    assert len(avvisi) == 120, f"attesi 120 alias in conflitto, trovati {len(avvisi)}"
+    assert durata < 2.0, f"gli avvisi al load hanno impiegato {durata:.2f}s: START bloccato"

@@ -5225,4 +5225,23 @@ chiamanti chiamando `_chiamanti_plausibili`, cioè la funzione di produzione: sa
 anche l'oracolo e il confronto restava vero. Ora il prodotto cartesiano se lo calcola il test.
 Scoperto provando a rompere il test, non leggendolo.
 
-Suite completa dopo la correzione: **5076 passed, 1 skipped**, zero `xfail` residui.
+**Quarto giro: la diagnostica corretta bloccava l'avvio per 48 secondi.** GPT-5.5 ha chiesto di
+verificare il costo al load su un file nomi realistico. Misurato su un worst-case (2000 righe,
+tutti gli sport/tipi/lingue, 200 alias in conflitto → 168 chiamanti sondati): **48,7 secondi**. E
+`ambiguous_alias_warnings` gira allo **START**, quindi l'app si sarebbe piantata per quasi un
+minuto — una diagnostica giusta pagata con una regressione peggiore del difetto che diagnostica.
+Fable 5 nello stesso giro aveva escluso il rischio prestazionale: era un'opinione, la misura dice
+il contrario.
+
+Causa: per ogni nome in conflitto e per ogni chiamante si rieseguiva `_resolve_scoped` sull'INTERO
+profilo. Il profilo è ora **indicizzato per nome normalizzato**, così ogni sondaggio vede solo le
+righe che possono combaciare: **0,177 s**, con gli **stessi 200 avvisi** — nessuna diagnosi persa.
+
+L'indice è **equivalente, non un'approssimazione**: una riga il cui nome non combacia non produce
+mai un hit in `_resolve_in_tier` e non concorre all'ambiguità, e toglierla non altera né il rango
+né l'ordine delle righe che restano — i gruppi di `_scoped_entry_groups` sono esattamente il
+sottoinsieme combaciante di quelli pieni. L'equivalenza è verificata dal test esaustivo sui 26.235
+dizionari, che resta verde. La regressione prestazionale è a sua volta un test, verificato per
+sabotaggio: togliendo l'indice diventa rosso.
+
+Suite completa dopo la correzione: **5077 passed, 1 skipped**, zero `xfail` residui.
