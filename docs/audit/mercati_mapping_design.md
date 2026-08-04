@@ -123,6 +123,14 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    diversi in cui le due detection divergevano. E come lì si provano **più chiamanti** (senza
    filtro-lingua, più ogni lingua presente nelle voci): due voci di lingue diverse non sono un
    conflitto per chi dichiara la lingua, ma lo sono per chi non la dichiara.
+
+   **Tetto dichiarato.** Il controllo chiede al runtime una volta per voce (e per lingua), e
+   `_phrase_in_text` compila un regex per frase: oltre ~512 pattern distinti la cache di `re`
+   va in thrashing e il costo esplode. Misurato allo START: 100 voci 0,09 s · 300 voci 0,70 s ·
+   400 voci 1,2 s · **800 voci 54 s**. Oltre **300 voci per profilo** il controllo si ferma e
+   **lo dice nel log**: un minuto di finestra bloccata sarebbe un danno peggiore del difetto
+   diagnosticato, e un cap che tace si leggerebbe come «nessun conflitto». Le frasi ambigue
+   restano comunque fail-closed a runtime — cambia solo che non vengono elencate.
 3bis. **Niente ID stantii quando il dizionario vince.** La mappatura mercati è *name-based*
    (`resolve_market` non risolve `MarketId`/`SelectionId`: non sono nel Catalogo). Se le
    regole-colonna hanno estratto una coppia ID e poi il dizionario vince, lasciare quegli ID

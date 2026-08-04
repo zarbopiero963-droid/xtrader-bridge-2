@@ -143,3 +143,77 @@ def test_254_il_conflitto_si_rileva_come_lo_rileva_il_RUNTIME(frase):
     prof = mms.entries_for_profiles(cfg, ["M"])
     assert mms.resolve_market("Mercato: gg\n", prof).status == "ambiguous"
     assert mms.ambiguous_phrase_warnings(cfg), f"frase {frase!r}: il runtime scarta, l'avviso tace"
+
+
+# ── Il reporting deve dire il vero quanto la detection ──────────────────────
+#
+# Rilievo di GPT-5.5 e Fable 5, indipendentemente, sulla #255: la detection chiedeva al
+# runtime, ma l'elenco dei mercati in conflitto lo ricostruiva confrontando le frasi come
+# STRINGHE. Due difetti opposti dalla stessa causa — ed è la classe corretta quattro volte
+# sulla #253, reintrodotta proprio nella PR che ne documenta la lezione.
+
+def test_255_frasi_equivalenti_per_CASE_devono_comparire_ENTRAMBE():
+    """Il runtime combacia case-insensitive, il reporting confrontava `==` dopo `strip()`.
+
+    Misurato prima della correzione, con voci «GG» e «gg» verso mercati diversi:
+
+        «...frase «GG»: combacia con 1 mercati diversi («Entrambe le squadre a segno»)...»
+
+    Un mercato solo, e un «1 mercati diversi» che non significa niente: l'avviso manda
+    l'operatore alla riga sbagliata proprio nel conflitto che dovrebbe spiegare."""
+    cfg = _cfg([_voce("GG", "Entrambe le squadre a segno", "Sì"),
+                _voce("gg", "1º tempo - Totale goal 0,5", "Over 0,5 goal")])
+    assert mms.resolve_market("Mercato: gg\n", mms.entries_for_profiles(cfg, ["M"])).status == "ambiguous"
+    [avviso] = mms.ambiguous_phrase_warnings(cfg)
+    assert "Entrambe le squadre a segno" in avviso, avviso
+    assert "1º tempo - Totale goal 0,5" in avviso, avviso
+    assert "1 mercati" not in avviso, avviso
+
+
+def test_255_una_voce_SANA_con_altri_delimitatori_non_va_elencata_come_contendente():
+    """L'altra metà dello stesso difetto (Fable 5): due voci in conflitto sulla frase «gg»,
+    più una terza con la STESSA frase ma delimitatori diversi — che con loro non combacia mai.
+
+    Elencarla fra i contendenti accuserebbe una riga sana, mandando a «correggere» ciò che
+    funziona. Il reporting deve chiedere al runtime **quali voci hanno davvero combaciato con
+    questa sonda**, non quali condividono il testo della frase."""
+    cfg = _cfg([_voce("gg", "Entrambe le squadre a segno", "Sì"),
+                _voce("gg", "1º tempo - Totale goal 0,5", "Over 0,5 goal"),
+                _voce("gg", "Over/Under 2,5 gol", "Over 2,5 goal",
+                      start_after="Extra:", end_before="\n")])
+    avvisi = mms.ambiguous_phrase_warnings(cfg)
+    assert avvisi, "il conflitto vero c'è ancora"
+    testo = " ".join(avvisi)
+    assert "Entrambe le squadre a segno" in testo and "1º tempo - Totale goal 0,5" in testo, testo
+    assert "Over/Under 2,5 gol" not in testo, f"accusa una voce sana: {testo}"
+
+
+def test_255_oltre_il_tetto_il_controllo_si_FERMA_e_lo_dice():
+    """Il costo cresce col quadrato delle voci, e oltre ~512 frasi distinte la cache dei regex
+    compilati di `_phrase_in_text` va in thrashing. Misurato allo START:
+
+        100 voci 0,09 s · 300 voci 0,70 s · 400 voci 1,2 s · **800 voci 54 s**
+
+    Un minuto di finestra bloccata all'avvio sarebbe un danno peggiore del difetto che questo
+    avviso diagnostica — è la stessa trappola della #253, dove la diagnostica corretta costava
+    48 s allo START.
+
+    Il tetto **non è silenzioso**: un cap che tace si legge come «nessun conflitto», che è
+    esattamente la bugia da evitare in una diagnostica di sicurezza."""
+    import time
+
+    def _molte(n):
+        return [_voce(f"frase{i}", "Entrambe le squadre a segno", "Sì") for i in range(n)]
+
+    sotto = _cfg(_molte(mms._MAX_VOCI_CONTROLLO_AMBIGUITA))
+    inizio = time.perf_counter()
+    assert mms.ambiguous_phrase_warnings(sotto) == []      # sotto il tetto: controllo eseguito
+    durata = time.perf_counter() - inizio
+    assert durata < 5.0, f"al tetto il controllo impiega {durata:.2f}s: START bloccato"
+
+    sopra = _cfg(_molte(mms._MAX_VOCI_CONTROLLO_AMBIGUITA + 1))
+    inizio = time.perf_counter()
+    [avviso] = mms.ambiguous_phrase_warnings(sopra)
+    assert time.perf_counter() - inizio < 1.0, "oltre il tetto deve essere immediato"
+    assert "oltre il tetto" in avviso and "NON eseguito" in avviso, avviso
+    assert str(mms._MAX_VOCI_CONTROLLO_AMBIGUITA) in avviso, avviso
