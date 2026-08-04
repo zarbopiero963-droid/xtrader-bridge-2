@@ -97,6 +97,23 @@ def test_ogni_valore_malformato_ricade_sul_default_non_su_illimitato(malformato)
     assert signal_queue.SignalQueue._validate_max_active(malformato) == 2
 
 
+def test_default_max_active_allineato_al_config_store():
+    """`DEFAULT_MAX_ACTIVE` è una copia deliberata di `config_store.DEFAULTS`, tenuta in
+    lockstep — stesso presidio dell'AC-B43 su `DEFAULT_TIMEOUT`/`MAX_TIMEOUT`.
+
+    Rilievo di Fable 5 sulla PR #243, giusto e per la ragione precisa che indicava: senza
+    questo test la copia diverge alla prima modifica del default, e la divergenza
+    sposterebbe **il tetto anti-overbetting** senza che nessuno se ne accorga. Il valore è
+    duplicato per non legare un modulo puro al layer di configurazione; duplicare è
+    accettabile solo se qualcosa fallisce quando le due copie si separano.
+    """
+    from xtrader_bridge import config_store
+
+    assert signal_queue.DEFAULT_MAX_ACTIVE == config_store.DEFAULTS["max_active_signals"], (
+        "DEFAULT_MAX_ACTIVE e config_store.DEFAULTS['max_active_signals'] sono divergenti: "
+        "un valore malformato ricadrebbe su un tetto diverso da quello di default")
+
+
 def test_lo_zero_ESPLICITO_resta_illimitato():
     """Contro-guardia: la correzione NON deve cambiare il significato di `0`.
 

@@ -45,10 +45,20 @@ DEFAULT_TIMEOUT = 90        # secondi di vita di un segnale se non confermato/so
 # `settings_validation.MAX_TIMEOUT` (uguaglianza verificata da un test dedicato, AC-B43).
 MAX_TIMEOUT = 86400
 
-# Tetto righe attive su cui ricade un `max_active_signals` MALFORMATO (#194 PR-E).
-# Allineato a `config_store.DEFAULTS['max_active_signals']`: e' il tetto che l'utente
-# avrebbe senza toccare nulla. Importato pigramente nel modulo per non creare un ciclo
-# (config_store non dipende da signal_queue, ma la direzione inversa e' gia' usata).
+# Tetto righe attive su cui ricade un `max_active_signals` MALFORMATO (#194 PR-E): è il
+# tetto che l'utente avrebbe senza toccare nulla.
+#
+# È una copia DELIBERATA di `config_store.DEFAULTS["max_active_signals"]`, non un valore
+# scelto qui: questo modulo è puro per contratto (vedi docstring in testa) e importare
+# `config_store` lo legherebbe al layer di configurazione. Stessa scelta già fatta per
+# `DEFAULT_TIMEOUT`/`MAX_TIMEOUT` rispetto a `settings_validation`.
+#
+# Una copia va tenuta in lockstep, altrimenti diverge in silenzio — e qui la divergenza
+# sposterebbe il tetto ANTI-OVERBETTING senza che nessuno se ne accorga. Il presidio è lo
+# stesso del precedente AC-B43: `test_default_max_active_allineato_al_config_store` fallisce
+# se una delle due copie cambia senza l'altra (rilievo Fable 5 sulla PR #243: il commento
+# precedente diceva «importato pigramente», che era semplicemente FALSO — il valore è
+# scritto qui a mano, e dirlo storto è la stessa classe di difetto che questa PR corregge).
 DEFAULT_MAX_ACTIVE = 2
 
 
