@@ -125,3 +125,76 @@ def test_la_colonna_resta_una_label_non_modificabile(gui):
     assert editabili == [], (
         f"la colonna è diventata editabile ({editabili}): la whitelist va RICALCOLATA "
         "al cambio target, non solo alla creazione della riga")
+
+
+class _WidgetFinto:
+    """Widget doppio: accetta qualsiasi costruzione e qualsiasi metodo (pack/grid/…)."""
+
+    def __init__(self, *a, **k):
+        self.kwargs = k
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: None
+
+
+class _CtkEseguibile(types.ModuleType):
+    """Stub CTk *eseguibile*: a differenza di `_FakeCtkModule` (che serve solo a
+    importare il modulo), i suoi widget si possono costruire e impaccare — così
+    `_add_row` gira davvero headless."""
+
+    def __getattr__(self, name):
+        setattr(self, name, _WidgetFinto)
+        return _WidgetFinto
+
+
+@pytest.fixture()
+def gui_eseguibile(monkeypatch):
+    monkeypatch.setitem(sys.modules, "customtkinter", _CtkEseguibile("customtkinter"))
+    monkeypatch.delitem(sys.modules, "xtrader_bridge.custom_parser_gui", raising=False)
+    mod = importlib.import_module("xtrader_bridge.custom_parser_gui")
+    yield mod
+    sys.modules.pop("xtrader_bridge.custom_parser_gui", None)
+
+
+def _esegui_add_row(mod, target, transform="", value_map="", fisso=""):
+    """Esegue DAVVERO `_add_row` in modalità Avanzate su una riga, con un `self`
+    minimo: ritorna i `refs` prodotti."""
+    from xtrader_bridge import custom_parser as cp
+
+    finto = types.SimpleNamespace(
+        _rows_frame=_WidgetFinto(), _providers=["TG"], _transforms=["", "score_to_over"],
+        _value_maps=["", "bettype"], _show_advanced=True, _rows=[],
+        _term_values=lambda _t: [], _gate_fixed_value=lambda _r: False,
+        _segui_valore_fisso=lambda _r: None)
+    regola = cp.FieldRule(target=target, transform=transform, value_map=value_map,
+                          fixed_value=fisso)
+    mod.CustomParserPanel._add_row(finto, regola)
+    return finto._rows[-1]
+
+
+def test_add_row_fuori_whitelist_non_crea_i_menu_e_non_solleva(gui_eseguibile):
+    """Rilievo Fugu #244: il flusso REALE (non solo la funzione pura) su una colonna
+    fuori whitelist in modalità Avanzate — deve girare senza KeyError e senza menu."""
+    refs = _esegui_add_row(gui_eseguibile, "EventId")
+    assert "transform_menu" not in refs and "value_map_menu" not in refs
+    # le StringVar ci sono COMUNQUE: il salvataggio legge quelle, non i menu
+    assert "transform" in refs and "value_map" in refs
+
+
+def test_add_row_in_whitelist_crea_i_menu(gui_eseguibile):
+    refs = _esegui_add_row(gui_eseguibile, "SelectionName")
+    assert "transform_menu" in refs and "value_map_menu" in refs
+
+
+def test_add_row_via_di_fuga_regola_legacy_mostra_il_menu(gui_eseguibile):
+    """Parser salvato con transform su colonna fuori lista: il menu DEVE esserci
+    (riparabilità), la value-map no."""
+    refs = _esegui_add_row(gui_eseguibile, "EventId", transform="score_to_over")
+    assert "transform_menu" in refs
+    assert "value_map_menu" not in refs
+
+
+def test_add_row_bettype_solo_value_map(gui_eseguibile):
+    refs = _esegui_add_row(gui_eseguibile, "BetType")
+    assert "transform_menu" not in refs
+    assert "value_map_menu" in refs
