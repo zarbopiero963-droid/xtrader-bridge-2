@@ -1,7 +1,7 @@
 """License Manager — **registro delle licenze emesse** (issue #140, opzione A).
 
 Oggi l'emissione di una licenza è **stateless**: il tool produce un token e non registra nulla.
-Questo modulo aggiunge un **registro locale** append-only sul PC del proprietario — `licenses.jsonl`
+Questo modulo aggiunge un **registro locale** sul PC del proprietario — `licenses.jsonl`
 nella cartella del License Manager (`%APPDATA%\\XTraderLicenseManager`, la stessa del seed privato,
 mai nel repo/EXE) — così il proprietario può **ritrovare** chi ha ricevuto cosa, con che scadenza, e
 (in una fase successiva) **rinnovare/revocare** da un elenco.
@@ -13,6 +13,9 @@ Logica **pura e fail-safe**, senza GUI:
   **stesso** identificatore, senza aggiungere campi al formato token (nessuna migrazione);
 - il record si costruisce **dal payload del token** (`record_from_token`), così il registro combacia
   sempre con la licenza realmente firmata (nome/hardware/scadenza autoritativi);
+- la scrittura e' **append-only** con UNA sola eccezione dichiarata: `remove_record`, che elimina
+  una riga riscrivendo il file in modo atomico. Non tocca `revoked.jsonl`, quindi **non riattiva**
+  un revocato; ma ne fa sparire la riga dalla vista — vedi il suo docstring;
 - append-only robusto (stesso idiom di `xtrader_bridge.event_journal`: guardia sulla riga troncata +
   `flush`/`fsync`, lettura tollerante che salta le righe malformate);
 - **nessun segreto**: il registro contiene il **token di attivazione** (che il proprietario dà
@@ -24,6 +27,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import tempfile
 import threading
 
 # Serial deterministico condiviso: vive in `xtrader_bridge.licensing.license` (pacchetto condiviso) così
@@ -162,6 +166,58 @@ def append_record(record: dict, *, directory: "str | None" = None) -> dict:
             f.flush()
             os.fsync(f.fileno())
     return record
+
+
+def remove_record(serial, *, directory: "str | None" = None) -> int:
+    """**Elimina** dal registro tutti i record con quel `serial`. Ritorna quanti ne ha rimossi.
+
+    È l'**unica** operazione non-append di questo modulo, e va letta sapendo cosa NON fa.
+
+    **Non revoca e non de-revoca.** La revoca vive in `revoked.jsonl`, uno store separato: questa
+    funzione non lo tocca. Eliminare la riga di un revocato **non lo riattiva** — la lista firmata
+    che i bridge scaricano si costruisce da `revoked.jsonl` (`revocation_entries`), non da qui.
+    È la trappola che ha già rischiato di far tornare attivi tutti i revocati nella PR-C (#194),
+    e per questo è verificata da un test dedicato invece che lasciata al ragionamento.
+
+    **Ma fa sparire quel serial dalla VISTA.** `view_rows` costruisce l'elenco dai record del
+    registro e vi *sovrappone* i serial revocati: senza record non c'è riga, quindi una revoca
+    ancora attiva diventa **invisibile** nel Registro. Chi chiama deve dirlo all'utente prima di
+    procedere — la GUI lo fa con una conferma esplicita.
+
+    **Riscrittura atomica**: si scrive un temporaneo nella stessa cartella e si fa `os.replace`,
+    quindi un crash a metà lascia il registro **precedente intatto** invece di un file mezzo
+    riscritto. È la stessa forma usata per il file-chiave in `core.save_signing_key`, ed è
+    obbligatoria qui: a differenza di un append, questa operazione riscrive TUTTO il file.
+
+    Serial vuoto/non trovato → `0`, nessuna scrittura (non si riscrive un file per nulla).
+    Gli errori di I/O **propagano**, come in `append_record`."""
+    voluto = normalize_serial(serial)
+    if not voluto:
+        return 0
+    path = registry_path(directory)
+    with _WRITE_LOCK:
+        records = read_records(path=path)
+        tenuti = [r for r in records if normalize_serial(r.get("serial")) != voluto]
+        rimossi = len(records) - len(tenuti)
+        if not rimossi:
+            return 0
+        payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in tenuti)
+        parent = os.path.dirname(path) or "."
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=parent, prefix=".registry_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+    return rimossi
 
 
 def read_records(*, directory: "str | None" = None, path: "str | None" = None) -> list:

@@ -339,6 +339,53 @@ class LicenseManagerApp(ctk.CTk):
         return {"found": True, "token": token,
                 "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}). Rinvialo all'utente."}
 
+    def _evaluate_delete(self, serial, *, conferma: bool = False) -> dict:
+        """**Elimina la riga** del registro per `serial`. Non revoca e non de-revoca nulla.
+
+        Ritorna ``{"accepted", "message", "needs_confirm"}``. La conferma la chiede l'handler GUI
+        (`_on_delete`) — questo metodo resta puro e testabile headless, come gli altri `_evaluate_*`.
+
+        Due esiti che vale la pena distinguere:
+
+        - serial **non nel registro** → nessuna scrittura, messaggio. Non si riscrive il file per nulla.
+        - serial **revocato** → `needs_confirm`. La revoca resta attiva (vive in `revoked.jsonl`, che
+          non tocchiamo: il cliente NON torna operativo), ma la riga sparisce dalla vista, quindi
+          quella revoca diventa **invisibile** nel Registro. È l'unico modo per perdere di vista una
+          revoca ancora in vigore, e l'utente deve saperlo PRIMA, non scoprirlo dopo.
+
+        Il token del record va perso con la riga: dopo l'eliminazione «📋 Ri-mostra token» non potrà
+        più ripescarlo. Detto nel messaggio di conferma, perché è la conseguenza che si dimentica."""
+        rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
+        if rec is None:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        nome, ser = rec.get("name", ""), rec.get("serial", "")
+        revocato = registry.is_serial_revoked(
+            self._read_revocations(directory=self._key_dir), ser)
+        # NIENTE si elimina senza `conferma=True`. Il gate è qui, non nell'handler: così anche un
+        # chiamante futuro che dimenticasse di chiedere non può cancellare per sbaglio — e la
+        # domanda non può essere «in anteprima» su un metodo che ha già scritto su disco.
+        if not conferma:
+            avviso = (f"⚠️ La licenza {ser} ({nome}) è REVOCATA. Eliminarne la riga NON la riattiva "
+                      "— la revoca resta in vigore sui bridge — ma la fa sparire da questo elenco, "
+                      "quindi non la vedrai più."
+                      if revocato else
+                      f"Eliminare la riga {ser} ({nome})? L'operazione è irreversibile e il token "
+                      "va perso: «📋 Ri-mostra token» non potrà più ripescarlo.")
+            return {"accepted": False, "needs_confirm": True, "revoked": revocato,
+                    "message": avviso}
+        try:
+            rimossi = registry.remove_record(ser, directory=self._key_dir)
+        except OSError as exc:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Eliminazione non riuscita ({type(exc).__name__}): registro invariato."}
+        if not rimossi:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Nessuna riga eliminata per {ser}."}
+        self._auto_backup_safe()        # #183: il registro è cambiato
+        return {"accepted": True, "needs_confirm": False,
+                "message": f"Riga eliminata: {ser} ({nome}). La revoca, se c'era, resta in vigore."}
+
     def _evaluate_revoke(self, serial) -> dict:
         """**Revoca** (R3b) la licenza identificata dal `serial`: la registra nello store revoche, così
         la lista firmata prodotta con «📤 Esporta lista revoche» la bloccherà sul bridge.
@@ -1067,6 +1114,13 @@ class LicenseManagerApp(ctk.CTk):
         # Revoca in DANGER: è l'azione distruttiva di questa scheda e dev'essere distinguibile
         # a colpo d'occhio dalle altre due (semantica di sicurezza, §13 dell'handoff).
         ctk.CTkButton(bottoni, text="🚫 Revoca licenza", command=self._on_revoke,
+                      fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(
+            side="left", padx=(0, 6))
+        # «Elimina riga» è distruttiva quanto la revoca ma in modo DIVERSO, e la differenza
+        # dev'essere leggibile senza aprire il manuale: revocare TOGLIE l'accesso al cliente,
+        # eliminare toglie la RIGA a te. Stesso rosso (entrambe irreversibili), etichetta che
+        # nomina l'oggetto giusto — «riga», non «licenza» — così non si scambiano.
+        ctk.CTkButton(bottoni, text="🗑 Elimina riga", command=self._on_delete,
                       fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(side="left")
 
         azioni = ctk.CTkFrame(tab, fg_color="transparent")
@@ -1407,6 +1461,23 @@ class LicenseManagerApp(ctk.CTk):
             dest = ""
         result = self._evaluate_export(dest)
         self._set_msg(result["message"])
+
+    def _on_delete(self) -> None:
+        """Elimina la riga del serial indicato, con conferma esplicita (azione irreversibile).
+
+        La conferma è SEMPRE richiesta, non solo per i revocati: eliminare una riga perde il token,
+        e `_conferma` è fail-closed (headless → «no»), quindi nel dubbio non si cancella nulla."""
+        serial = self._read(self._renew_serial_entry)
+        domanda = self._evaluate_delete(serial)          # non scrive nulla: chiede soltanto
+        if not domanda.get("needs_confirm"):             # serial inesistente / errore
+            self._set_msg(domanda["message"])
+            return
+        if not self._conferma(f"{domanda['message']}\n\nEliminare la riga?"):
+            self._set_msg("Eliminazione annullata: registro invariato.")
+            return
+        risultato = self._evaluate_delete(serial, conferma=True)
+        self._set_msg(risultato["message"])
+        self._on_registry_refresh()
 
     def _on_revoke(self) -> None:
         """Revoca (R3b) la licenza del serial indicato (stesso campo di rinnovo/ri-mostra), poi
