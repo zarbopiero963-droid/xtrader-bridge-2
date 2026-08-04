@@ -2061,6 +2061,11 @@ class App(ctk.CTk):
             row=0, column=0, columnspan=len(dashboard_stats.COUNTERS),
             sticky="w", padx=12, pady=(8, 2))
         self._stat_lbls = {}
+        for col in range(len(dashboard_stats.COUNTERS)):
+            # peso uniforme: le tile si spartiscono la larghezza in parti uguali
+            # (rilievo convergente Fable/Fugu su #239: senza weight, sticky="nsew"
+            # non allarga le card e le tile restano diseguali)
+            tab_dash.grid_columnconfigure(col, weight=1, uniform="stat")
         for col, (name, label) in enumerate(dashboard_stats.COUNTERS):
             cell = ctk.CTkFrame(tab_dash, **ui_cards.card_style())
             cell.grid(row=1, column=col, padx=6, pady=(0, 8), sticky="nsew")
