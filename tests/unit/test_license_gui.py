@@ -288,3 +288,158 @@ def test_refresh_non_inghiotte_errori_del_gate(license_gui):
     fake._on_status_change = lambda _st: (_ for _ in ()).throw(RuntimeError("gate boom"))
     with pytest.raises(RuntimeError):
         license_gui.LicensePanel.refresh_options(fake)
+
+
+# ── REVOCA VISIBILE NEL PANNELLO (incidente del collaudo 2026-08-03/04 (notte)) ──────────────────────────────────────
+#
+# Collaudo reale del proprietario: licenza revocata dal fornitore, revoca RILEVATA (il log lo
+# prova) e bridge effettivamente bloccato — ma la scheda «🔑 Licenza» continuava a mostrare in
+# VERDE «✅ Licenza attiva — … · scade tra 2 giorni». Causa strutturale: `compute_status()` riceve
+# solo (token, hardware_id, now, last_seen, public_key_hex) e NON sa nulla della revoca; la scheda
+# Licenza è per giunta esclusa apposta dal lock, quindi resta viva e verde.
+#
+# Conseguenza: l'indicatore principale di un controllo di SICUREZZA diceva l'opposto della verità,
+# e il proprietario ne ha ragionevolmente concluso che la revoca non funzionasse.
+
+
+class _LblSpia:
+    """Etichetta che registra l'ultimo `configure()` (testo + colore)."""
+
+    def __init__(self):
+        self.text = None
+        self.color = None
+
+    def configure(self, **kw):
+        if "text" in kw:
+            self.text = kw["text"]
+        if "text_color" in kw:
+            self.color = kw["text_color"]
+
+
+def _fake_panel_render(license_gui, *, revoked_provider=None, exp=_NOW + 15 * _DAY):
+    """`self` finto con una LICENZA VALIDA e le etichette spiate, per esercitare `refresh_options`."""
+    fake = types.SimpleNamespace(
+        _hardware_id_provider=lambda: _HW, _now_provider=lambda: _NOW,
+        _load_state=lambda: (_valid_token(exp=exp), None), _save_state=lambda *a: None,
+        _on_status_change=None, _hw_value=_LblSpia(), _status_lbl=_LblSpia(),
+        _revoked_provider=revoked_provider)
+    fake.current_status = lambda: license_gui.LicensePanel.current_status(fake)
+    # Il predicato REALE con il fake come `self` (stesso pattern di `current_status` qui sopra):
+    # il test esercita il metodo del prodotto, non una sua imitazione.
+    fake._revoca_nega = lambda st: license_gui.LicensePanel._revoca_nega(fake, st)
+    return fake
+
+
+def test_il_pannello_NON_dice_attiva_se_la_revoca_nega(license_gui):
+    """FAIL-FIRST — il difetto del collaudo 2026-08-03/04 (notte).
+
+    Licenza di per sé valida (firma buona, non scaduta) ma NEGATA dal gate revoca: la scheda non
+    deve dire «Licenza attiva». Prima della patch diceva esattamente quello, in verde."""
+    fake = _fake_panel_render(license_gui, revoked_provider=lambda: True)
+    license_gui.LicensePanel.refresh_options(fake)
+
+    assert "Licenza attiva" not in (fake._status_lbl.text or ""), (
+        f"la scheda dice ancora attiva a un REVOCATO: {fake._status_lbl.text!r}")
+    assert "REVOCATA" in (fake._status_lbl.text or "").upper(), fake._status_lbl.text
+    assert fake._status_lbl.color == license_gui._SEVERITY_COLOR["error"], (
+        "un revocato non deve vedere il colore di uno stato sano")
+
+
+def test_il_pannello_dice_al_revocato_COSA_FARE(license_gui):
+    """Uno scarto muto manderebbe l'utente a «riattivare» nella scheda sbagliata: la sua chiave È
+    valida, è il fornitore ad averla bloccata. Il rimedio va nominato."""
+    fake = _fake_panel_render(license_gui, revoked_provider=lambda: True)
+    license_gui.LicensePanel.refresh_options(fake)
+    assert "fornitore" in (fake._status_lbl.text or "").lower(), fake._status_lbl.text
+
+
+def test_licenza_valida_e_NON_revocata_resta_verde(license_gui):
+    """CONTRO-GUARDIA: il caso sano non deve cambiare. Un pannello che gridasse «revocata» a chi
+    non lo è sarebbe peggio del difetto che sto correggendo."""
+    fake = _fake_panel_render(license_gui, revoked_provider=lambda: False)
+    license_gui.LicensePanel.refresh_options(fake)
+    assert "Licenza attiva" in (fake._status_lbl.text or "")
+    assert fake._status_lbl.color == license_gui._SEVERITY_COLOR["ok"]
+
+
+def test_nessun_provider_revoca_si_comporta_come_prima(license_gui):
+    """Retro-compatibilità: un `LicensePanel` costruito senza il seam (test esistenti, altri
+    chiamanti) non deve cambiare comportamento."""
+    fake = _fake_panel_render(license_gui, revoked_provider=None)
+    license_gui.LicensePanel.refresh_options(fake)
+    assert "Licenza attiva" in (fake._status_lbl.text or "")
+
+
+def test_provider_revoca_difettoso_NON_accusa_di_revoca(license_gui):
+    """FAIL-SAFE, stessa politica di `_license_bloccata_da_revoca`: in dubbio non si accusa.
+
+    Un provider che solleva non deve né rompere il render né produrre un'accusa di revoca non
+    dimostrata — l'unico blocco legittimo è quello provato da una lista firmata."""
+    def _boom():
+        raise RuntimeError("gate revoca in errore (simulato)")
+
+    fake = _fake_panel_render(license_gui, revoked_provider=_boom)
+    license_gui.LicensePanel.refresh_options(fake)          # non deve sollevare
+    assert "REVOCATA" not in (fake._status_lbl.text or "").upper(), (
+        f"accusa di revoca NON dimostrata: {fake._status_lbl.text!r}")
+
+
+def test_licenza_gia_invalida_non_viene_mascherata_dalla_revoca(license_gui):
+    """Se la licenza è scaduta di suo, il messaggio resta quello della scadenza: la revoca è una
+    sovrapposizione su una licenza ALTRIMENTI valida, non un rimpiazzo di ogni diagnosi."""
+    fake = _fake_panel_render(license_gui, revoked_provider=lambda: True, exp=_NOW - _DAY)
+    license_gui.LicensePanel.refresh_options(fake)
+    assert "REVOCATA" not in (fake._status_lbl.text or "").upper(), fake._status_lbl.text
+    # …e si asserisce la diagnosi ATTESA, non solo l'assenza dell'altra (rilievo CodeRabbit
+    # #235): col solo `not in` il test passerebbe anche se la scadenza fosse sostituita da un
+    # testo qualunque — verificherebbe «non dice revocata» invece di «dice scaduta».
+    atteso = license_status.status_message(
+        license_status.LicenseStatus(valid=False, reason=license_status.EXPIRED, name=None,
+                                     issued=None, expiry=None, days_left=0))
+    assert fake._status_lbl.text == atteso, (fake._status_lbl.text, atteso)
+    assert fake._status_lbl.color == license_gui._SEVERITY_COLOR["error"]
+
+
+def test_init_REALE_memorizza_il_seam_e_refresh_lo_usa(license_gui, monkeypatch):
+    """Chiude l'ultimo anello non coperto (rilievo CodeRabbit sulla PR #235).
+
+    Le altre prove coprono le due metà separate: che l'App **passi** `revoked_provider`
+    (`test_license_tab_wiring.py`) e che il pannello lo **consumi** (i test qui sopra, che però
+    impostano `_revoked_provider` su un `self` finto). Restava scoperto l'anello in mezzo:
+    **`__init__` che memorizza il kwarg**. Se quell'assegnazione sparisse, ogni altro test
+    resterebbe VERDE e la revoca tornerebbe invisibile — il difetto originale, di nuovo.
+
+    Qui si esegue il CORPO REALE di `__init__`, lasciando reali anche `_revoca_nega` e
+    `refresh_options`. Si neutralizzano solo le due parti che richiedono un display:
+
+    - `_build_ui` — pura costruzione di widget;
+    - il `super().__init__` di `CTkFrame`.
+
+    **Il secondo non era neutralizzato nella prima stesura e ha fatto ROSSA la CI** (`unit` e
+    `merge-simulation` su `fae13a6`: `TclError: no display name and no $DISPLAY`). La fixture
+    `license_gui` inietta il finto `customtkinter` **solo se quello vero manca**: in questo
+    ambiente manca perfino `tkinter`, quindi il test girava sempre sul fake ed era verde; sulla
+    CI, dove `customtkinter` è installato, `super().__init__` costruiva un `CTkFrame` VERO →
+    `Tk()` → nessun display. Patchando la base il test è indipendente da quale dei due è
+    presente, che è la proprietà che serve davvero."""
+    monkeypatch.setattr(license_gui.LicensePanel, "_build_ui", lambda self: None)
+    monkeypatch.setattr(license_gui.ctk.CTkFrame, "__init__",
+                        lambda self, *a, **k: None, raising=False)
+    chiamate = []
+
+    panel = license_gui.LicensePanel(
+        master=None,
+        hardware_id_provider=lambda: _HW,
+        now_provider=lambda: _NOW,
+        load_state=lambda: (_valid_token(), None),
+        save_state=lambda *_a: None,
+        revoked_provider=lambda: chiamate.append(1) or True)
+
+    assert panel._revoked_provider is not None, (
+        "`__init__` non memorizza il seam: la scheda tornerebbe verde a un revocato")
+
+    panel._hw_value, panel._status_lbl = _LblSpia(), _LblSpia()
+    panel.refresh_options()
+
+    assert chiamate, "il seam è memorizzato ma `refresh_options` non lo chiama mai"
+    assert "REVOCATA" in (panel._status_lbl.text or "").upper(), panel._status_lbl.text

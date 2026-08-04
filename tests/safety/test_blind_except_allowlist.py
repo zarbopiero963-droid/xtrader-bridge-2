@@ -33,7 +33,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (49, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
+    "app.py": (53, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
                    "gate revoca (#159): la traccia diagnostica del ramo fail-open è essa stessa "
                    "protetta — `_dbg` può sollevare (GUI non costruita, istanza parziale) e "
                    "l'eccezione USCIREBBE dal gate, che `_license_is_valid` non assorbe: una riga "
@@ -42,6 +42,13 @@ _ALLOWLIST = {
                    "diagnosi revoca (#212): `_license_bloccata_da_revoca` sceglie solo il MESSAGGIO "
                    "e su errore ritorna False → testo generico, mai un'accusa di revoca non "
                    "dimostrata, e mai un'eccezione che rompa il lock; "
+                   "incidente 2026-08-04 (revoca invisibile + Strumenti fail-open), 4 handler: "
+                   "`_revoca_nega` fail-safe su False — in dubbio NON si accusa di revoca, l'unico "
+                   "blocco legittimo e' quello dimostrato da una lista firmata; "
+                   "`_chiudi_strumenti_per_lock` gira a OGNI giro da bloccato e deve tollerare una "
+                   "finestra gia' distrutta: un errore qui romperebbe il lock che deve proteggere; "
+                   "`_mostra_license_banner` e `_set_license_banner` sono render Tk best-effort — un "
+                   "widget distrutto non puo' impedire il BLOCCO, che resta applicato comunque; "
                    "worker probe csv_writable async (follow-up #76, nota Fable PR #94): sonda Salute "
                    "best-effort come _refresh_health — probe che solleva su share instabile non "
                    "uccide il worker, sblocca il flag inflight e si riprova al giro dopo; "
@@ -242,19 +249,26 @@ _ALLOWLIST = {
     "licensing/revocation_client.py": (1, "client bridge revoca online (#140 R3c) FAIL-CLOSED in "
                                           "fetch_signed: qualunque errore di scarico dell'URL (rete, "
                                           "DNS, HTTP, timeout, TLS, decodifica, lista troppo grande) → "
-                                          "None; nessuna lista fresca verificata → il gate no-grace "
-                                          "blocca (il bridge deve raggiungere+verificare l'URL per "
-                                          "operare), mai sbloccare per un errore di rete"),
+                                          "None: mai una lista non verificata trattata come buona. "
+                                          "NB la CONSEGUENZA a valle è cambiata il 2026-07-30 e la "
+                                          "motivazione era rimasta stantia (rilievo CodeRabbit #235): "
+                                          "nessuna lista fresca NON blocca più (gate fail-open, "
+                                          "`gate_allows`) — si ferma la propagazione delle revoche, "
+                                          "non il bridge. Fail-closed resta il PARSING qui: un errore "
+                                          "di rete/formato non produce mai una lista valida"),
     "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),
-    "license_gui.py": (6, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
+    "license_gui.py": (7, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
                           "campo in teardown/headless, (3) render Tk best-effort — non rompono la scheda; "
                           "(4) save all'ATTIVAZIONE FAIL-CHIUSA (persistenza fallita = attivazione non "
                           "riuscita, stato precedente intatto, CodeRabbit #144); (5) provider difettoso in "
                           "current_status degrada a stato neutro senza rompere il chiamante (Fable #144); "
                           "(6) heartbeat anti-rollback: tollera i fallimenti transitori, FAIL-CHIUSO sui "
-                          "PERSISTENTI (≥ _HEARTBEAT_FAIL_LIMIT consecutivi) — review GPT/Fable #144"),
+                          "PERSISTENTI (≥ _HEARTBEAT_FAIL_LIMIT consecutivi) — review GPT/Fable #144; "
+                          "(7) `_revoca_nega` (incidente 2026-08-04): seam revoca difettoso → False, "
+                          "cioè NESSUNA accusa di revoca non dimostrata. Un utente in regola mandato "
+                          "dal fornitore per un bug nostro chiederebbe una licenza che ha già"),
 }
 
 

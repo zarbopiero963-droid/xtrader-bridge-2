@@ -800,6 +800,13 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   `⛔ … formato errato` · `⛔ Orologio spostato indietro: licenza sospesa` · `⛔ Impossibile
   aggiornare lo stato licenza su disco (permessi?)` — solo se la scrittura dell'heartbeat fallisce
   in modo **persistente** (rosso).
+  **Sovrapposizione REVOCA (dal 2026-08-03/04 (notte), rosso):** se la licenza è di per sé valida ma il
+  fornitore l'ha **revocata**, la riga NON dice più «Licenza attiva» — dice
+  `⛔ Licenza REVOCATA dal fornitore — per tornare operativo serve una nuova licenza dal fornitore.`
+  Il rimedio nominato è **il fornitore**, non «riattiva»: la chiave del revocato è valida, e
+  mandarlo a reincollarla lo terrebbe in un ciclo senza uscita. Una licenza **già** invalida di suo
+  (scaduta, hardware diverso…) conserva il proprio messaggio: la revoca è una sovrapposizione su
+  una licenza *altrimenti sana*, non un rimpiazzo di ogni diagnosi.
 - **Campo «Incolla qui la chiave di attivazione»** + pulsante **"✅ Attiva"** (blu `ACCENT`); l'esito
   appare sotto (verde/rosso). L'attivazione **verifica** (firma + hardware + scadenza, fail-closed) e
   solo se valida **persiste** in `%APPDATA%\XTraderBridge\license_state.json`.
@@ -812,6 +819,13 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   ID + Copia + campo chiave + Attiva) e il pulsante **■ STOP** (così una sessione eventualmente in
   corso resta interrompibile). Lo **switcher dei tab** resta navigabile (l'utente deve poter
   raggiungere la scheda Licenza).
+  **Finestre figlie già aperte (dal 2026-08-03/04 (notte)).** Il blocco **chiude** l'hub **🧰 Strumenti** e il
+  **🧙 Wizard** se erano aperti: i pulsanti che li aprono sono grigi, ma una finestra già viva
+  restava pienamente operativa e permetteva di continuare a **configurare** (parser, chat sorgenti,
+  provider, dizionari; il Wizard scrive anche token e filtro chat) con licenza negata. *Costo
+  accettato e dichiarato:* una modifica non salvata in quelle finestre va persa — il motivo compare
+  nel log e nel banner, così la chiusura non sembra un crash. Il **selettore lingua** del primo
+  avvio è escluso di proposito: non è una superficie operativa.
 - **Fail-closed e dinamico.** Il gate è la **sola validità** della licenza (`_license_is_valid`):
   qualunque errore/assenza/stato non determinabile → **bloccato** (mai aperto per errore). La finestra
   si **apre già bloccata** se la licenza non è valida; **AVVIA** e l'**auto-start** sono bloccati a
@@ -825,10 +839,29 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 - 🚫 **REVOCA ONLINE (#140 R3c, dimensione aggiuntiva del gate).** Oltre alla validità della licenza, il
   lock si attiva **solo** quando la licenza risulta **esplicitamente revocata** dal proprietario in una
   lista firmata e verificata. Un supervisore in background scarica periodicamente la lista, la verifica
-  (firma Ed25519 + anti-replay) e il gate `_license_is_valid` la legge sincrono. **Visivamente il lock è
-  identico** a quello per licenza non valida (stessi controlli grigi, stessa scheda 🔑 Licenza + ■ STOP
-  sempre attivi) e usa **gli stessi messaggi di transizione** nel **📋 Log** (`🔒 GUI bloccata…` /
-  `🔓 …`).
+  (firma Ed25519 + anti-replay) e il gate `_license_is_valid` la legge sincrono. Il lock **disabilita
+  gli stessi controlli** (stessa scheda 🔑 Licenza + ■ STOP sempre attivi), ma **dal 2026-08-03/04 (notte) non è
+  più visivamente indistinguibile**: la riga di stato dice «REVOCATA» e il banner rosso qui sotto
+  nomina la causa.
+
+  🟥 **BANNER ROSSO DI BLOCCO LICENZA (dal 2026-08-03/04 (notte))** — persistente, larghezza piena, sopra i tab
+  (stesso slot e stessa palette `DANGER_BANNER` del banner MODALITÀ REALE), con due testi:
+
+  | causa | testo del banner |
+  |---|---|
+  | revocata dal fornitore | `⛔ Licenza REVOCATA dal fornitore — per tornare operativo serve una nuova licenza dal fornitore.` |
+  | licenza non valida | `🔒 Licenza non valida: bridge bloccato. Attiva una licenza nella scheda «🔑 Licenza».` |
+
+  > **Perché esiste.** Collaudo del proprietario del 2026-08-03/04 (notte): revoca applicata, bridge
+  > effettivamente bloccato — ma la scheda Licenza mostrava **verde** «✅ Licenza attiva · scade tra
+  > 2 giorni» e l'unico segnale del blocco era **una riga di log**, che scorre via. L'indicatore
+  > principale di un controllo di sicurezza diceva l'opposto della verità. Chi disegna la UI **non
+  > deve** rendere questo banner richiudibile o temporaneo: sparisce solo quando il blocco cessa.
+  >
+  > **Il banner segue la CAUSA, non solo il blocco.** Se da bloccati la causa cambia — tipicamente
+  > incollando una chiave **firmata valida ma revocata** mentre si è fermi per licenza assente — il
+  > lock resta identico ma il testo passa da «licenza non valida» a «REVOCATA», perché cambia il
+  > rimedio. Il **log** invece resta una riga per transizione: è cronologia, non stato corrente.
 
   > ⚖️ **Fail-OPEN — invariante di sicurezza, decisione proprietario 2026-07-30.** Lista non
   > raggiungibile, hosting giù, lista stantia, cache assente, errore imprevisto nel gate: **nessuno di

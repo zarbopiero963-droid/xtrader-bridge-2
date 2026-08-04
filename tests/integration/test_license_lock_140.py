@@ -400,3 +400,278 @@ def test_diagnosi_revoca_che_ESPLODE_fail_safe_sul_messaggio_generico(app_mod, A
     assert "attiva una licenza valida" in testo
     assert "REVOCATA" not in testo, (
         "diagnosi rotta ma il log accusa una revoca: il fail-safe non sta reggendo")
+
+
+# ── INCIDENTE 2026-08-04: il lock non raggiungeva la finestra STRUMENTI già aperta ────────────
+#
+# Collaudo reale del proprietario: revoca applicata con l'hub «🧰 Strumenti» APERTO. Il pulsante
+# «🧰 Strumenti» è lockable (quindi non riapribile), ma la finestra GIÀ VIVA continuava a
+# funzionare finché non veniva chiusa a mano — `_apply_license_lock`/`_set_operational_lock` non
+# toccano mai `_tools_win`.
+#
+# Portata onesta: da Strumenti NON si scommette (nessun pannello scrive il CSV operativo,
+# l'anteprima è read-only, `_start` è gated). Quello che restava possibile è CONFIGURARE
+# (parser, chat sorgenti, provider, dizionari) con licenza negata: superficie fail-open su un
+# gate di licenza, da chiudere.
+
+
+class _FinestraSpia:
+    """Toplevel finta: registra `destroy()` e sa dire se esiste ancora (come `winfo_exists`)."""
+
+    def __init__(self, exists=True):
+        self.destroyed = 0
+        self._exists = exists
+
+    def winfo_exists(self):
+        return self._exists
+
+    def destroy(self):
+        self.destroyed += 1
+        self._exists = False
+
+
+def test_revoca_CHIUDE_la_finestra_strumenti_gia_aperta(App, app_mod):
+    """FAIL-FIRST — il fail-open del collaudo 2026-08-03/04 (notte).
+
+    Licenza negata mentre l'hub Strumenti è aperto: la finestra deve essere chiusa dal lock. Prima
+    della patch restava viva e pienamente operativa."""
+    app = _fake_app(app_mod, valid=False)
+    win = _FinestraSpia()
+    app._tools_win = win
+
+    app._apply_license_lock()
+
+    # Si trattiene il riferimento e si esige `destroy()`: asserire solo `_tools_win is None`
+    # passerebbe anche su un'implementazione che AZZERA il riferimento lasciando la finestra
+    # Tk aperta sullo schermo — cioè il fail-open che questo test dovrebbe impedire
+    # (rilievo CodeRabbit sulla PR #235).
+    assert win.destroyed == 1, "la finestra Strumenti non è stata distrutta (fail-open)"
+    assert app._tools_win is None
+
+
+def test_revoca_CHIUDE_anche_il_WIZARD_gia_aperto(App, app_mod):
+    """FAIL-FIRST — secondo sito della STESSA classe, trovato dal grep della Regola 2.
+
+    Il collaudo ha esposto `_tools_win`, ma `_wizard_win` è tenuto dall'App allo stesso modo e non
+    era toccato dal lock. Il Wizard è pure PEGGIO di Strumenti: scrive config, incluso il filtro
+    chat. Correggere solo il sito segnalato avrebbe lasciato aperto il gemello — è esattamente
+    l'omissione che sulla #16 ha generato tre bug nuovi."""
+    app = _fake_app(app_mod, valid=False)
+    win = _FinestraSpia()
+    app._wizard_win = win
+
+    app._apply_license_lock()
+
+    assert win.destroyed == 1, "il Wizard non è stato distrutto (fail-open, secondo sito)"
+    assert app._wizard_win is None
+
+
+def test_wizard_resta_aperto_con_licenza_valida(App, app_mod):
+    """CONTRO-GUARDIA sul secondo sito."""
+    app = _fake_app(app_mod, valid=True)
+    win = _FinestraSpia()
+    app._wizard_win = win
+    app._apply_license_lock()
+    assert win.destroyed == 0
+
+
+def test_entrambe_le_finestre_chiuse_in_un_solo_giro(App, app_mod):
+    """Le due finestre possono essere aperte insieme: il lock deve chiuderle ENTRAMBE, non
+    fermarsi alla prima."""
+    app = _fake_app(app_mod, valid=False)
+    tools, wizard = _FinestraSpia(), _FinestraSpia()
+    app._tools_win, app._wizard_win = tools, wizard
+    app._apply_license_lock()
+    assert tools.destroyed == 1 and wizard.destroyed == 1, (
+        f"chiusure: tools={tools.destroyed} wizard={wizard.destroyed}")
+    assert app._tools_win is None and app._wizard_win is None
+
+
+def test_strumenti_resta_aperta_con_licenza_valida(App, app_mod):
+    """CONTRO-GUARDIA: il lock non deve chiudere Strumenti a chi ha la licenza in regola.
+    Chiudere la finestra sotto le mani di un utente legittimo sarebbe un danno, non una tutela."""
+    app = _fake_app(app_mod, valid=True)
+    win = _FinestraSpia()
+    app._tools_win = win
+
+    app._apply_license_lock()
+
+    assert win.destroyed == 0, "Strumenti chiusa con licenza VALIDA"
+    assert win.winfo_exists()
+
+
+def test_chiusura_strumenti_tollera_finestra_gia_distrutta(App, app_mod):
+    """Il lock gira anche sul tick (ogni 60 s) e si ri-applica SEMPRE da bloccato: una finestra
+    già distrutta non deve far sollevare il lock, o il fail-closed si romperebbe da solo."""
+    app = _fake_app(app_mod, valid=False)
+    app._tools_win = _FinestraSpia(exists=False)
+
+    app._apply_license_lock()          # non deve sollevare
+    app._apply_license_lock()          # idempotente sul tick successivo
+
+
+def test_chiusura_wizard_tollera_finestra_gia_distrutta(App, app_mod):
+    """Simmetrico del caso Strumenti: il lock gira a ogni tick e non deve mai sollevare."""
+    app = _fake_app(app_mod, valid=False)
+    win = _FinestraSpia(exists=False)
+    app._wizard_win = win
+    app._apply_license_lock()
+    app._apply_license_lock()
+    assert win.destroyed == 0, "distrutta una finestra che non esisteva più"
+
+
+def test_lock_senza_finestra_strumenti_non_solleva(App, app_mod):
+    """Caso normale: nessun hub aperto. L'attributo può proprio non esistere."""
+    app = _fake_app(app_mod, valid=False)
+    app._apply_license_lock()          # non deve sollevare
+
+
+# ── BANNER: il blocco dev'essere VISIBILE, non solo una riga di log che scorre via ────────────
+
+
+def _app_con_banner(app_mod, *, valid, revocata=False):
+    app = _fake_app(app_mod, valid=valid)
+    app._license_banner = _RecWidget()
+    app._license_banner.packed = None
+    app._license_banner.text = None
+
+    def _configure(**kw):
+        if "text" in kw:
+            app._license_banner.text = kw["text"]
+    app._license_banner.configure = _configure
+    app._license_banner.pack = lambda **kw: setattr(app._license_banner, "packed", True)
+    app._license_banner.pack_forget = lambda: setattr(app._license_banner, "packed", False)
+    app._tabs = object()
+    app._revocation_enabled = lambda: revocata
+    app._revocation_gate_ok = lambda: not revocata
+    return app
+
+
+def test_banner_licenza_MOSTRATO_quando_bloccata(App, app_mod):
+    """FAIL-FIRST: nel collaudo l'unico segnale era una riga di log, che scorre via."""
+    app = _app_con_banner(app_mod, valid=False)
+    app._apply_license_lock()
+    assert app._license_banner.packed is True, "nessun banner: il blocco resta invisibile"
+    assert app._license_banner.text, "banner vuoto"
+
+
+def test_banner_dice_REVOCATA_quando_la_causa_e_la_revoca(App, app_mod):
+    """Il testo deve distinguere «revocata dal fornitore» da «licenza non valida»: i rimedi sono
+    opposti (chiamare il fornitore contro riattivare nella scheda Licenza)."""
+    app = _app_con_banner(app_mod, valid=True, revocata=True)
+    app._apply_license_lock()
+    assert app._license_banner.packed is True
+    assert "REVOCATA" in (app._license_banner.text or "").upper(), app._license_banner.text
+
+
+def test_banner_NASCOSTO_con_licenza_valida(App, app_mod):
+    """CONTRO-GUARDIA: nessun allarme permanente a chi è in regola."""
+    app = _app_con_banner(app_mod, valid=True)
+    app._license_locked = True          # transizione bloccata → valida
+    app._apply_license_lock()
+    assert app._license_banner.packed is False
+
+
+def test_banner_AGGIORNATO_se_cambia_la_CAUSA_restando_bloccati(App, app_mod):
+    """FAIL-FIRST — rilievo di Fable 5 e Fugu Ultra (indipendenti) sulla PR #235.
+
+    Scenario reale: bridge già bloccato per licenza ASSENTE (banner «non valida»); l'utente incolla
+    una chiave **firmata valida ma REVOCATA**. Il lock resta `True` → **nessuna transizione** →
+    prima della fix il banner continuava a dire «attiva una licenza nella scheda Licenza», cioè il
+    rimedio SBAGLIATO: la chiave del revocato è valida, e reincollarla non lo sblocca mai.
+
+    È lo stesso difetto che questa PR esiste per eliminare, un livello più in là."""
+    app = _app_con_banner(app_mod, valid=False)          # nessuna licenza
+    app._apply_license_lock()
+    assert "REVOCATA" not in (app._license_banner.text or "").upper()
+    assert app._license_locked is True
+
+    # ora il pannello riporta una licenza VALIDA, ma la revoca la nega
+    app._license_panel = types.SimpleNamespace(current_status=lambda: _status(True))
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    app._on_license_status()                              # è il percorso reale dell'attivazione
+
+    assert app._license_locked is True, "il lock non doveva sbloccarsi: la licenza è revocata"
+    assert "REVOCATA" in (app._license_banner.text or "").upper(), (
+        f"banner con la causa VECCHIA a lock invariato: {app._license_banner.text!r}")
+
+
+def test_banner_aggiornato_anche_dal_SUPERVISORE_revoca(App, app_mod):
+    """L'altra metà del meccanismo (rilievo GPT-5.5 sulla PR #235, «Test minimi»).
+
+    Il marcatore `_license_cause_dirty` ha DUE scritture: `_on_license_status` (attivazione, già
+    coperta) e il **supervisore revoca**, quando la lista appena scaricata cambia il verdetto su una
+    GUI già bloccata per un'altra causa. Senza questo test metà del percorso restava non esercitata.
+
+    Ordine verificato nel supervisore: `_rev_state` è assegnato PRIMA del marcatore e di
+    `_safe_after`, quindi quando la callback Tk consuma il flag lo stato è già quello nuovo."""
+    app = _app_con_banner(app_mod, valid=False)          # bloccata: nessuna licenza
+    app._apply_license_lock()
+    assert "REVOCATA" not in (app._license_banner.text or "").upper()
+
+    # ora la licenza risulta valida ma la lista appena scaricata la revoca: è il supervisore a
+    # marcare la causa, non il pannello (nessun `_on_license_status` di mezzo).
+    app._license_panel = types.SimpleNamespace(current_status=lambda: _status(True))
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    app._license_cause_dirty = True                      # ciò che scrive `_revocation_loop`
+    app._apply_license_lock()                            # ciò che esegue `_safe_after`
+
+    assert app._license_locked is True
+    assert "REVOCATA" in (app._license_banner.text or "").upper(), (
+        f"il verdetto del supervisore non ha aggiornato il banner: {app._license_banner.text!r}")
+
+
+def test_il_LOG_non_si_ripete_a_ogni_cambio_causa(App, app_mod):
+    """Contro-guardia della fix qui sopra: il banner è uno stato CORRENTE e va rinfrescato, il log
+    è una CRONOLOGIA e resta una riga per transizione — non una raffica a ogni rivalutazione."""
+    app = _app_con_banner(app_mod, valid=False)
+    app._apply_license_lock()
+    righe_dopo_transizione = len(app.logs)
+
+    app._license_cause_dirty = True
+    app._apply_license_lock()                             # stesso lock, causa marcata
+    assert len(app.logs) == righe_dopo_transizione, f"log duplicato: {app.logs}"
+
+
+def test_causa_non_riletta_se_nessun_evento_la_ha_cambiata(App, app_mod):
+    """La diagnosi resta PIGRA: leggerla significa `load_license()` da disco sul thread Tk, e il
+    lock si ri-applica a ogni tick (~60 s). Senza un evento che possa aver cambiato la causa, la
+    rilettura non deve avvenire."""
+    app = _app_con_banner(app_mod, valid=False)
+    app._apply_license_lock()
+
+    letture = []
+    app._license_bloccata_da_revoca = lambda: letture.append(1) or False
+    app._apply_license_lock()                             # tick muto: nessun marcatore
+    assert letture == [], "causa riletta da disco su un tick senza eventi"
+
+
+# ── FONTE UNICA: una sola definizione di «la revoca nega» (Regola 3) ──────────────────────────
+
+
+def test_revoca_nega_e_la_fonte_unica_del_pannello_e_del_lock(App, app_mod):
+    """`_revoca_nega` dev'essere il solo posto che decide «la revoca sta negando»: lo usano sia la
+    diagnosi del lock sia l'etichetta della scheda Licenza. Due copie oggi = due copie divergenti
+    domani (Regola 3)."""
+    app = _fake_app(app_mod, valid=True)
+    app._revocation_enabled = lambda: True
+    app._revocation_gate_ok = lambda: False
+    assert app._revoca_nega() is True
+    assert app._license_bloccata_da_revoca() is True
+
+    app._revocation_gate_ok = lambda: True
+    assert app._revoca_nega() is False
+    assert app._license_bloccata_da_revoca() is False
+
+
+def test_revoca_nega_fail_safe_se_il_gate_solleva(App, app_mod):
+    """In dubbio NON si accusa di revoca: l'unico blocco legittimo è quello provato da una lista
+    firmata (stessa politica del `_license_bloccata_da_revoca` storico)."""
+    app = _fake_app(app_mod, valid=True)
+
+    def _boom():
+        raise RuntimeError("gate in errore (simulato)")
+    app._revocation_enabled = _boom
+    assert app._revoca_nega() is False
