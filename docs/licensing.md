@@ -646,6 +646,35 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   su una licenza altrimenti valida, e una licenza già invalida di suo conserva il proprio
   messaggio. Tutti i percorsi fail-safe: un seam difettoso → **nessuna** accusa di revoca.
 
+- **Visibilità del blocco** (incidente del collaudo 2026-08-03/04 (notte)). Il blocco funzionava ma era **invisibile**: la
+  scheda «🔑 Licenza» mostrava **verde** «✅ Licenza attiva · scade tra N giorni» a un utente
+  **revocato**, e l'unico segnale era una riga di log. Causa strutturale:
+  `license_status.compute_status()` riceve solo `(token, hardware_id, now, last_seen,
+  public_key_hex)` e non ha **alcun** input sulla revoca, mentre la scheda Licenza è esclusa
+  apposta dal lock (deve restare usabile). Due livelli che si contraddicevano, e quello che
+  l'utente guarda era quello sbagliato. Correzioni:
+  - **fonte unica** `app._revoca_nega()` — «la revoca sta negando» ha ora **una sola** definizione,
+    usata dalla diagnosi del lock, dal banner e — cablata come seam `revoked_provider` — dalla
+    scheda Licenza: ciò che si **mostra** e ciò che si **fa** non possono più divergere;
+  - **banner rosso persistente** con testo distinto per revoca / licenza non valida (i rimedi sono
+    opposti: il fornitore contro la scheda Licenza);
+  - **chiusura delle finestre figlie operative** (`🧰 Strumenti`, `🧙 Wizard`): erano fail-open —
+    i pulsanti erano grigi, ma una finestra **già aperta** restava operativa e permetteva di
+    continuare a configurare (il Wizard scrive token e filtro chat) con licenza negata.
+
+  **Le due policy restano quelle di prima, e sono diverse fra loro** — la distinzione va tenuta
+  ferma perché è facile confonderle: la **validità della licenza** è **fail-CLOSED** (assenza,
+  errore o stato non determinabile → bloccato), mentre il **dato di revoca** è **fail-OPEN**
+  (lista irraggiungibile, stantia o errore nel gate → **non** blocca; l'unico blocco ammesso è
+  quello dimostrato da una revoca esplicita, decisione 2026-07-30). Nessuna delle due è toccata.
+
+  Cambia invece, oltre alla visibilità: la **chiusura delle finestre operative già aperte**, che
+  è un cambiamento di **comportamento** — la superficie fail-open descritta sopra — non di sola
+  presentazione. La verifica della firma
+  (`verify_license`, Ed25519) **non è toccata**: la revoca è una sovrapposizione di presentazione
+  su una licenza altrimenti valida, e una licenza già invalida di suo conserva il proprio
+  messaggio. Tutti i percorsi fail-safe: un seam difettoso → **nessuna** accusa di revoca.
+
 **Test hard:** `tests/unit/test_revocation_client.py` (fetch fail-closed/probe, accept + anti-replay,
 `license_revoked` per serial/hw, `gate_allows` assente/stantia/fresca/revocata, cache round-trip/corrotta)
 e `tests/integration/test_license_lock_r3c.py` (bypass placeholder, **nessun blocco senza lista**, revoca per
