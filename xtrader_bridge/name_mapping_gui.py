@@ -215,6 +215,7 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
         self._profile_list = ctk.CTkScrollableFrame(prof, fg_color="transparent")
+        ui_cards.tune_scrolling(self._profile_list)   # scroll fluido (regola 2: ogni scrollable)
         self._profile_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._profile_rows = {}          # nome profilo → frame della riga (per l'evidenziazione)
         try:
@@ -241,6 +242,7 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
 
         self._rows_frame = ctk.CTkScrollableFrame(
             destra, height=380, label_text=i18n.tr("Righe del profilo"))
+        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=4, pady=6)
 
         actions = ctk.CTkFrame(destra, fg_color="transparent")
@@ -786,6 +788,7 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
         self._profile_list = ctk.CTkScrollableFrame(prof, fg_color="transparent")
+        ui_cards.tune_scrolling(self._profile_list)   # scroll fluido (regola 2: ogni scrollable)
         self._profile_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._profile_rows = {}
         try:
@@ -810,6 +813,7 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
 
         self._rows_frame = ctk.CTkScrollableFrame(
             destra, height=360, label_text=i18n.tr("Righe del profilo"))
+        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=4, pady=6)
 
         actions = ctk.CTkFrame(destra, fg_color="transparent")
