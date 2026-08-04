@@ -91,6 +91,10 @@ class FieldDiagnostic:
     final: str = ""               # dopo la value-map (CP-03) — valore XTrader
     required: bool = False
     error: str = OK               # uno dei codici sopra
+    # Nomi degli stadi applicati alla colonna: servono al motivo azionabile
+    # (`motivi_campi_mancanti`) per dire CHI ha svuotato il campo, non solo che è vuoto.
+    transform: str = ""
+    value_map: str = ""
 
     @property
     def ok(self) -> bool:
@@ -132,6 +136,7 @@ def _field_diag(rule, text, registry) -> FieldDiagnostic:
         target=rule.target, raw=raw, after_transform=after, final=final,
         required=bool(rule.required),
         error=_classify_extraction(rule, raw, reason, after, final),
+        transform=rule.transform or "", value_map=rule.value_map or "",
     )
 
 
@@ -336,3 +341,39 @@ def format_report(diag: Diagnosis) -> str:
         reason = f" — {why}" if (why and not fd.ok) else ""
         lines.append(f"[{flag}] {fd.target} ({kind}): {fd.error}{reason}  |  {chain}")
     return "\n".join(lines)
+
+
+# Codici che significano «la colonna è VUOTA e si può fare qualcosa» — gli unici per cui
+# ha senso un motivo accanto al verdetto (gli errori di VALORE, es. quota non numerica,
+# hanno già il loro testo e non compaiono fra i «mancanti»).
+_CODICI_VUOTO = (START_NOT_FOUND, END_NOT_FOUND, TRANSFORM_FAILED,
+                 VALUE_MAP_MISS, REQUIRED_EMPTY)
+
+
+def motivi_campi_mancanti(diag: "Diagnosis") -> dict:
+    """`{colonna: motivo azionabile}` per le colonne rimaste VUOTE.
+
+    Nasce dall'ordine del proprietario (2026-08-04): «Prova messaggio» diceva solo
+    «mancanti: SelectionName», lasciando indovinare fra delimitatori sbagliati,
+    trasformazione che non sa leggere il testo, o value-map che non trova l'alias —
+    tre correzioni completamente diverse. Il motivo include **il valore davvero
+    letto**, che è ciò che chiude il caso a colpo d'occhio.
+
+    Pura e testabile in CI: non tocca il motore, solo il testo mostrato."""
+    motivi = {}
+    for fd in diag.fields:
+        if fd.error not in _CODICI_VUOTO:
+            continue
+        if fd.error == START_NOT_FOUND:
+            motivi[fd.target] = "«Inizia dopo» non trovato nel messaggio"
+        elif fd.error == END_NOT_FOUND:
+            motivi[fd.target] = "«Finisce prima» non trovato dopo l'inizio"
+        elif fd.error == TRANSFORM_FAILED:
+            motivi[fd.target] = (f"la trasformazione «{fd.transform}» non ha saputo "
+                                 f"leggere «{fd.raw}»")
+        elif fd.error == VALUE_MAP_MISS:
+            motivi[fd.target] = (f"la value-map «{fd.value_map}» non ha trovato "
+                                 f"«{fd.after_transform}» nel dizionario")
+        else:   # REQUIRED_EMPTY
+            motivi[fd.target] = "nessun valore estratto"
+    return motivi

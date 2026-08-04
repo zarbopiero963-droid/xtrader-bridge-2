@@ -1960,7 +1960,11 @@ class CustomParserPanel(ctk.CTkFrame):
             # nemmeno quando il nome è palesemente divisibile. Il suggerimento vive SOLO qui,
             # nell'anteprima: NON passa dai `warnings`, che il runtime logga a ogni segnale.
             res_hint=ParserBuilder.separator_hint(
-                (res.row or {}).get("EventName", ""), self.builder.team_separator)))
+                (res.row or {}).get("EventName", ""), self.builder.team_separator),
+            # Motivo accanto a ogni campo mancante (ordine proprietario 2026-08-04): la
+            # diagnostica sa già CHI ha svuotato la colonna, ma finora restava solo nella
+            # tabella sotto — chi legge il verdetto doveva dedurlo.
+            missing_reasons=parser_diagnostics.motivi_campi_mancanti(diag)))
         self._last_report = parser_diagnostics.format_report(diag)
         self._render_diag_table(parser_diagnostics.diagnostic_table(diag, defn))
         self._render_preview_table(preview)
