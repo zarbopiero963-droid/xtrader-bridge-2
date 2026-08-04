@@ -995,6 +995,13 @@ Sezioni (colonna destra, dall'alto):
 - **Autoload (#182 PR A ②):** aprendo la scheda l'editor carica **da solo il parser attivo**.
   Solo su pannello nuovo; senza parser attivo, o se il file non è leggibile, resta **vuoto**
   (comportamento storico). Non cambia quale parser il bridge usa.
+- **Un file rotto non porta giù la schermata (B9 · #194 PR-H).** L'elenco «Parser salvati» e
+  l'autoload **reggono anche un file ostile**, non solo un JSON troncato: il file illeggibile
+  compare col **nome del file** e gli altri parser restano visibili e apribili; aprire proprio
+  quel file mostra **«❌ Errore caricamento: …»** invece di far cadere la finestra. Prima un
+  singolo file avvelenato (annidamento profondo, `{"version": Infinity}`) **svuotava l'intero
+  elenco** — l'utente vedeva «nessun parser» e nessuna spiegazione. Nessun cambiamento
+  visivo: cambia solo quanto è raro vedere la schermata rotta.
 - **🧰 Anagrafiche e dizionari (#182 PR A ④):** riquadro etichettato con **tre** pulsanti —
   **"📇 Provider"** (porta sulla scheda Provider dell'hub; senza hub ricade sull'aggiunta
   rapida), **"🗺️ Dizionario nomi"**, **"🎯 Dizionario mercati"**. I due dizionari **non stanno
