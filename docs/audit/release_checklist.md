@@ -90,6 +90,43 @@
 - [ ] Salvataggio config dalla GUI funziona e persiste.
 - [ ] Log leggibile; errori parser/CSV visibili; nessun token mostrato.
 
+### F.1 Scheda «🧩 Parser Personalizzato» — layout e verdetto (PR #249)
+
+Verificato sotto Xvfb su CustomTkinter reale, **non** su Windows: la geometria Tk e il DPI
+scaling sono l'unica parte che l'automazione qui non copre. Da rifare a mano al primo avvio
+su PC, anche a **125%** e **150%** di scala schermo.
+
+- [ ] **Nessun buco fra le sezioni.** Apri il Parser su un parser **senza** righe multi e
+      **senza** condizioni: «Output multi-riga» e «Condizioni di gate» devono essere alte
+      quanto i loro controlli (interruttori, pulsanti «➕», hint), non lasciare uno spazio
+      vuoto sotto. Prima della #249 ogni contenitore vuoto ne riservava **200px**.
+      Atteso: la «Griglia regole — 14 colonne CSV» entra nella stessa schermata.
+- [ ] **Il contenitore torna basso quando si svuota.** Aggiungi una riga mercato, poi
+      rimuovila col «🗑 Rimuovi». La sezione deve **tornare** alta com'era, non restare alta
+      quanto la riga appena tolta. Ripeti con una condizione di gate.
+      *(È il caso che il solo `height=0` alla costruzione non copre: l'altezza richiesta
+      resta quella dell'ultimo contenuto finché non la si rimette.)*
+- [ ] **Le due tabelle di prova nascono ridotte.** Prima di premere «🧪 Prova messaggio» sotto
+      le etichette «Anteprima righe generate» e «Diagnostica» non deve esserci un riquadro
+      vuoto; compaiono alla prima prova.
+- [ ] **Il verdetto nomina la condizione di gate.** Metti una condizione «contiene» con un
+      testo che il messaggio di prova **non** ha, poi «🧪 Prova messaggio».
+      Atteso: `⛔ Non pronto (CONDITIONS_NOT_MET) · il messaggio è stato letto correttamente,
+      ma non soddisfa la condizione di gate «contiene: …»`.
+      **Non** deve dire «nessun contenuto estratto dal messaggio»: era il motivo sbagliato,
+      e mandava a controllare i delimitatori invece della condizione.
+- [ ] **L'interruttore multi a vuoto si vede nel verdetto.** Accendi MultiMarket senza
+      aggiungere righe e prova un messaggio valido. Atteso: `✅ Pronto · … · ⚠ MultiMarket è
+      attivo ma nessuna riga mercato è abilitata: nessuna riga extra verrà generata.`
+      Resta un **avviso**: il verdetto non deve diventare `⛔`.
+- [ ] **Righe lunghe leggibili.** I motivi sono frasi intere: verifica che la label del
+      verdetto vada a capo invece di troncare, alle risoluzioni che usi davvero.
+- [ ] **Stessa risposta dall'assistente.** Chiedi all'assistente di provare lo stesso
+      messaggio bloccato da una condizione: deve dare **lo stesso motivo** della GUI, con la
+      condizione nominata. *(Nota: nel «🩺 perché è stato scartato?» — che legge il diario —
+      lo scarto per condizioni appare ancora come `NO_CONTENT_MATCH`: il codice nuovo è di
+      sola diagnosi e il diario non è stato toccato. Per distinguere, riprova il messaggio.)*
+
 ## G. Simulazione XTrader
 
 - [ ] Eseguita la procedura `xtrader_simulation_test.md` con XTrader in **Modalità
