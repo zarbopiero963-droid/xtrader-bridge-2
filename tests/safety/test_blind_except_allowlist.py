@@ -29,7 +29,7 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "ui_cards.py": (4, "composizione visiva #182 (card/badge/hint): helper best-effort "
+    "ui_cards.py": (5, "composizione visiva #182 (card/badge/hint) + tune_scrolling: helper best-effort "
                        "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
                        "su widget gia distrutti — la cornice non deve MAI far cadere un "
                        "pannello; nessun dato/flusso dentro, solo presentazione"),

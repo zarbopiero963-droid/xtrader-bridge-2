@@ -14,7 +14,7 @@ display): la logica esercitabile è testata a parte.
 
 import customtkinter as ctk
 
-from . import gui_utils, i18n, sports, ui_theme
+from . import gui_utils, i18n, sports, ui_cards, ui_theme
 from .betfair.dictionary_viewer import DictionaryBusy
 
 # Voce «tutti gli sport» del filtro (= nessun filtro). È un VALUE-AS-KEY: usata nel confronto di
@@ -69,6 +69,7 @@ class KnownTeamsPanel(ctk.CTkFrame):
         self._counts = ctk.CTkLabel(self, text="", anchor="w")
         self._counts.pack(fill="x", padx=14, pady=(0, 4))
         self._rows_frame = ctk.CTkScrollableFrame(self, height=400, label_text=i18n.tr("Nomi noti"))
+        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
     # ── dati ──────────────────────────────────────────────────────────────────

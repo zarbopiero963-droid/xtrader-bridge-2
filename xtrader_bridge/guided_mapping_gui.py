@@ -21,7 +21,7 @@ NB: modulo non testato in CI (richiede display); la logica sottostante è copert
 
 import customtkinter as ctk
 
-from . import config_store, gui_utils, i18n, name_mapping_store, sports, ui_theme
+from . import config_store, gui_utils, i18n, name_mapping_store, sports, ui_cards, ui_theme
 from .betfair.dictionary_viewer import Debouncer, DictionaryBusy
 from .betfair.guided_mapping import (
     competition_labels,
@@ -168,6 +168,7 @@ class GuidedMappingPanel(ctk.CTkFrame):
                      font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
         self._rows_frame = ctk.CTkScrollableFrame(self, height=340, label_text=i18n.tr("Squadre"))
+        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
