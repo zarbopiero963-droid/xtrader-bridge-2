@@ -5093,7 +5093,7 @@ il rilievo di Fugu Ultra). L'unico call site reale è `custom_pipeline` → `res
 `sport=getattr(defn, "sport", "")` e `language=source_language` possono essere **vuoti**. Con
 quella firma esatta:
 
-```
+```text
 entity_type filtrato (produzione), sport vuoto:
    ordine A -> 'Inter Milano'
    ordine B -> 'Inter Miami'
@@ -5165,7 +5165,7 @@ riga agnostica di ripiego: il sondaggio — che interrogava il solo chiamante **
 risolveva sull'agnostica, quindi nessun avviso. Ma un parser che dichiara `Calcio` fail-closa.
 Misurato prima della correzione:
 
-```
+```text
 chiamante agnostico      -> 'Inter generico'
 chiamante sport=Calcio   -> None          (ogni segnale perso)
 AVVISI                   -> NESSUNO       (l'utente non sa perché)
@@ -5203,7 +5203,7 @@ stati generati **tutti** i dizionari di 2–3 righe su un alfabeto di scope rido
 e confrontato «esiste un chiamante per cui il runtime fail-closa per ambiguità» con «c'è
 l'avviso». Esito: **528 buchi**, zero falsi positivi. Il più semplice:
 
-```
+```text
 righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
 scope che perde: (sport="", entity_type="team", language="")
 ```

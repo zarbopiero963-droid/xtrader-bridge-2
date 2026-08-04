@@ -179,10 +179,12 @@ def test_source_language_globale_malformata_fail_safe(tmp_path):
     # E l'equivalenza vale anche dove «nessun filtro» significa fail-closed: una lingua
     # malformata non deve MAI comportarsi diversamente da una lingua assente.
     profs_amb = nm.entries_for_profiles(_cfg(), ["P"])
-    assorted = [pipe.build_validated_row(_parser(), _MSG, name_mapping_profiles=profs_amb,
-                                         source_language=lang).status
-                for lang in ("", "ENG", "FR", "xx", "123")]
-    assert len(set(assorted)) == 1, f"malformata != assente: {assorted}"
+    stati = [pipe.build_validated_row(_parser(), _MSG, name_mapping_profiles=profs_amb,
+                                      source_language=lang).status
+             for lang in ("", "ENG", "FR", "xx", "123")]
+    # Si pretende ANCHE quale status condividono: `len(set(...)) == 1` da solo resterebbe verde
+    # se una regressione li spostasse tutti e cinque sullo stesso valore sbagliato (CodeRabbit).
+    assert set(stati) == {"MAPPING_MISSING"}, f"malformata != assente: {stati}"
 
 
 def test_source_language_none_su_dizionario_ambiguo_ora_fail_closed(tmp_path):

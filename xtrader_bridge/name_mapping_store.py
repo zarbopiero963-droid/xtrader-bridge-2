@@ -333,9 +333,10 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
             else:
                 warnings.append(
                     f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
-                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) con lo stesso "
-                    f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
-                    f"nomi, oppure distingui le righe per sport/tipo/lingua.")
+                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) che NEMMENO "
+                    f"un parser con sport/tipo/lingua dichiarati riesce a distinguere -> il nome "
+                    f"NON viene tradotto (fail-closed). Correggi il Dizionario nomi, oppure "
+                    f"distingui le righe per sport/tipo/lingua.")
     return warnings
 
 
@@ -564,10 +565,13 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
         return None
     esito = _resolve_scoped(nt, profiles, sport, entity_type, language)
     if esito is _AMBIGUOUS:
+        # Il nome normalizzato nel messaggio: senza, l'operatore vede una riga generica per
+        # ogni segnale scartato e non sa QUALE voce correggere (CodeRabbit). `nt` è un nome
+        # squadra normalizzato, non un segreto.
         _LOG.warning(
-            "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "
+            "name_mappings: alias ambiguo per %r (≥2 Betfair diversi per lo stesso nome "
             "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
-            "Correggi il Dizionario nomi.")
+            "Correggi il Dizionario nomi.", nt)
         return None
     return esito
 

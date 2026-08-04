@@ -263,6 +263,10 @@ def test_b20_il_catalogo_spedito_non_perde_NEMMENO_UNA_selezione():
     from xtrader_bridge import dizionario
 
     assert [r for r in dizionario._rows(None)], "catalogo spedito vuoto: il test non misura nulla"
+    # La regola di `_canonical_market` è ripetuta qui di proposito: serve un **oracolo
+    # indipendente** che scorra l'intero catalogo, cosa che la funzione pubblica non sa
+    # riportare. Se la regola di produzione cambia, questa copia NON la segue: è voluto —
+    # divergessero, questo test lo direbbe (CodeRabbit).
     scartate = []
     for m in dizionario.market_catalog(None):
         if m["dynamic"]:
@@ -344,8 +348,11 @@ def test_b21bis_avviso_e_runtime_coerenti_su_OGNI_scope_del_dizionario():
         profs = nms.entries_for_profiles(cfg, ["P"])
         scope = {(e.get("sport", ""), e.get("entity_type", ""), e.get("language", ""))
                  for e in nms.entries_for_profiles(cfg, ["P"])[0]} | {("", "", "")}
-        perso = any(nms.resolve_team("X", profs, sport=s or None,
-                                     entity_type=t or None, language=l or None) is None
+        # `_resolve_scoped` e non `resolve_team(...) is None`: quest'ultimo vale anche per un
+        # nome SCONOSCIUTO in quello scope, che non è un conflitto. Nessun caso qui ci finisce,
+        # ma un caso futuro passerebbe per il motivo sbagliato (CodeRabbit).
+        perso = any(nms._resolve_scoped("x", profs, s or None, t or None, l or None)
+                    is nms._AMBIGUOUS
                     for s, t, l in scope)
         avvisato = bool(nms.ambiguous_alias_warnings(cfg))
         assert avvisato == atteso, f"avviso sbagliato per {righe}"
@@ -457,23 +464,31 @@ def test_b21bis_avvisi_non_bloccano_lo_START_su_un_dizionario_grande():
     sarebbe piantata per quasi un minuto all'avvio. Col profilo indicizzato per nome
     normalizzato: **0,177 s**, e gli stessi 200 avvisi — nessuna diagnosi persa.
 
-    La soglia è larga di proposito (runner Windows, macchine lente): serve a intercettare il
-    ritorno del comportamento quadratico, non a misurare i millisecondi. Senza indice questo
-    dizionario impiega alcuni secondi, con indice qualche decimo."""
+    Lo scenario è **2000 righe / 200 alias** come la misura documentata, non una sua riduzione
+    (rilievo GPT-5.5: lo scarto fra scenario dichiarato e scenario testato indebolisce la
+    regressione). Misurato **su questo esatto scenario**: con indice **0,24 s**, senza indice
+    **13,7 s**, soglia a **5 s**.
+
+    Sono numeri veri, non arrotondati in favore di tesi: i 48,7 s del report iniziale venivano da
+    un dizionario diverso (2000 righe di cui 1000 con alias unico), qui il lavoro è concentrato
+    sui 200 alias in conflitto. Il margine resta ampio da entrambi i lati — servirebbe un runner
+    **20× più lento** per un falso rosso, e la regressione che intercetta è **57×** — che è il
+    modo di rendere un'asserzione temporale non-flaky senza renderla inutile (rilievi GPT-5.5 e
+    Fable 5 sulla flakiness su Windows CI)."""
     import time
 
     from xtrader_bridge import sports
 
     lista_sport = list(sports.SPORTS)
     tipi = list(nms.ENTITY_TYPES)
-    righe = [{"provider": f"Alias{i % 120}", "betfair": f"BF{i}",
+    righe = [{"provider": f"Alias{i % 200}", "betfair": f"BF{i}",
               "sport": lista_sport[i % len(lista_sport)],
               "entity_type": tipi[i % len(tipi)],
               "language": ["IT", "EN", "ES"][i % 3]}
-             for i in range(1200)]
+             for i in range(2000)]
     cfg = _cfg_nomi(righe)
     inizio = time.perf_counter()
     avvisi = nms.ambiguous_alias_warnings(cfg)
     durata = time.perf_counter() - inizio
-    assert len(avvisi) == 120, f"attesi 120 alias in conflitto, trovati {len(avvisi)}"
-    assert durata < 2.0, f"gli avvisi al load hanno impiegato {durata:.2f}s: START bloccato"
+    assert len(avvisi) == 200, f"attesi 200 alias in conflitto, trovati {len(avvisi)}"
+    assert durata < 5.0, f"gli avvisi al load hanno impiegato {durata:.2f}s: START bloccato"
