@@ -257,9 +257,9 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
             # già corretto una volta sul percorso runtime (banner/menu → falsi match).
             sonda = f"{sa}{ph}{eb}" if eb else f"{sa}{ph}\n"
             for lingua in sorted(lingue):
-                if (sonda, lingua) in sondate:
+                if (_normalize_text(sonda), lingua) in sondate:
                     continue
-                sondate.add((sonda, lingua))
+                sondate.add((_normalize_text(sonda), lingua))
                 # Nessun `try` attorno alla chiamata: `resolve_market` è difensivo su tutto
                 # ciò che arriva da config (frase vuota, delimitatori assenti, coppia non
                 # canonica) e la frase passa da `re.escape`, quindi non c'è nulla da cui
@@ -285,23 +285,38 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                 #
                 # È la stessa classe corretta quattro volte sulla #253 — reporting che diverge
                 # dalla detection — e chiedere al runtime la chiude in entrambe le direzioni.
-                contesi, tuple_viste = [], set()
+                # I contendenti sono TUPLE CANONICHE `(tipo, mercato, selezione)`, non nomi
+                # di mercato: è ciò che confronta il resolver. Deduplicare per `market_name`
+                # dava «combacia con 1 mercati diversi» su due voci dello stesso mercato con
+                # selezioni opposte — Over e Under, cioè i due lati della scommessa — senza
+                # alcun modo per l'utente di capire quali righe correggere (GPT-5.5, Fugu).
+                contesi, viste_tuple = [], set()
                 for altra in voci:
                     singola = resolve_market(sonda, [[altra]], rows, lingua or None)
                     if singola.status != "ok":
                         continue
-                    nome = singola.market["market_name"]
-                    if nome not in tuple_viste:
-                        tuple_viste.add(nome)
-                        contesi.append(nome)
-                # L'identità del conflitto è l'INSIEME dei mercati che se lo contendono, non
-                # la frase: due conflitti distinti sulla stessa frase (delimitatori diversi)
-                # restano due avvisi, mentre la stessa coppia sondata da voci diverse resta uno.
-                chiave = (profile, frozenset(contesi))
+                    m = singola.market
+                    tupla = (m["market_type"], m["market_name"], m["selection_name"])
+                    if tupla not in viste_tuple:
+                        viste_tuple.add(tupla)
+                        contesi.append(tupla)
+                if len(contesi) < 2:
+                    continue        # niente da elencare: non si scrive un avviso vuoto
+                # La chiave include la SONDA: due conflitti fra gli stessi due mercati ma su
+                # frasi diverse sono due righe diverse da correggere. Senza, 150 conflitti
+                # distinti collassavano in **un solo** avviso (misurato), cioè 149 nascosti —
+                # una diagnostica che ne mostra uno su 150 è peggio di nessuna, perché dà la
+                # sensazione di aver capito il problema (Fugu Ultra, Fable 5).
+                # La sonda entra NORMALIZZATA come la normalizza il runtime: «GG» e «gg»
+                # sono la stessa sonda per `_phrase_in_text`, quindi lo stesso conflitto —
+                # due avvisi sarebbero rumore. Frasi davvero diverse restano distinte.
+                chiave = (profile, _normalize_text(sonda), frozenset(contesi))
                 if chiave in visti:
                     break
                 visti.add(chiave)
-                dove = ", ".join(f"«{m}»" for m in contesi)
+                # Mercato + selezione: col solo mercato due righe in conflitto sullo
+                # stesso mercato sarebbero indistinguibili nel messaggio.
+                dove = ", ".join(f"«{mn} / {sn}»" for _mt, mn, sn in contesi)
                 warnings.append(
                     f"Mappatura mercati «{_norm_profile_name(profile)}», frase «{ph}»: "
                     f"combacia con {len(contesi)} mercati diversi ({dove}) -> il mercato "

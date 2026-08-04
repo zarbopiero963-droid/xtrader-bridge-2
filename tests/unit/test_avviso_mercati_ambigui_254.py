@@ -188,32 +188,59 @@ def test_255_una_voce_SANA_con_altri_delimitatori_non_va_elencata_come_contenden
     assert "Over/Under 2,5 gol" not in testo, f"accusa una voce sana: {testo}"
 
 
-def test_255_oltre_il_tetto_il_controllo_si_FERMA_e_lo_dice():
+def test_255_oltre_il_tetto_il_controllo_si_FERMA_e_lo_dice(monkeypatch):
     """Il costo cresce col quadrato delle voci, e oltre ~512 frasi distinte la cache dei regex
     compilati di `_phrase_in_text` va in thrashing. Misurato allo START:
 
         100 voci 0,09 s · 300 voci 0,70 s · 400 voci 1,2 s · **800 voci 54 s**
 
     Un minuto di finestra bloccata all'avvio sarebbe un danno peggiore del difetto che questo
-    avviso diagnostica — è la stessa trappola della #253, dove la diagnostica corretta costava
+    avviso diagnostica — la stessa trappola della #253, dove la diagnostica corretta costava
     48 s allo START.
 
     Il tetto **non è silenzioso**: un cap che tace si legge come «nessun conflitto», che è
-    esattamente la bugia da evitare in una diagnostica di sicurezza."""
-    import time
+    esattamente la bugia da evitare in una diagnostica di sicurezza.
+
+    **Si conta il lavoro, non i secondi** (rilievo GPT-5.5 e Fable 5): un'asserzione a orologio
+    è flaky su un runner Windows condiviso, e per giunta misura la cosa sbagliata. Contare le
+    chiamate a `resolve_market` è deterministico e dice di più — che oltre il tetto il lavoro
+    è **zero**, non solo veloce."""
+    chiamate = []
+    reale = mms.resolve_market
+    monkeypatch.setattr(mms, "resolve_market",
+                        lambda *a, **k: (chiamate.append(1), reale(*a, **k))[1])
 
     def _molte(n):
         return [_voce(f"frase{i}", "Entrambe le squadre a segno", "Sì") for i in range(n)]
 
     sotto = _cfg(_molte(mms._MAX_VOCI_CONTROLLO_AMBIGUITA))
-    inizio = time.perf_counter()
-    assert mms.ambiguous_phrase_warnings(sotto) == []      # sotto il tetto: controllo eseguito
-    durata = time.perf_counter() - inizio
-    assert durata < 5.0, f"al tetto il controllo impiega {durata:.2f}s: START bloccato"
+    assert mms.ambiguous_phrase_warnings(sotto) == []       # sotto il tetto: controllo eseguito
+    assert chiamate, "sotto il tetto il controllo non ha interrogato il runtime"
+    sotto_il_tetto = len(chiamate)
 
+    chiamate.clear()
     sopra = _cfg(_molte(mms._MAX_VOCI_CONTROLLO_AMBIGUITA + 1))
-    inizio = time.perf_counter()
     [avviso] = mms.ambiguous_phrase_warnings(sopra)
-    assert time.perf_counter() - inizio < 1.0, "oltre il tetto deve essere immediato"
+    assert chiamate == [], f"oltre il tetto ha comunque lavorato: {len(chiamate)} chiamate"
     assert "oltre il tetto" in avviso and "NON eseguito" in avviso, avviso
     assert str(mms._MAX_VOCI_CONTROLLO_AMBIGUITA) in avviso, avviso
+    # E sotto il tetto il lavoro resta lineare nelle sonde, non esplosivo: una risoluzione per
+    # voce (le sonde duplicate sono deduplicate, e il ciclo dei contendenti parte solo sui
+    # conflitti veri — qui non ce ne sono).
+    assert sotto_il_tetto <= mms._MAX_VOCI_CONTROLLO_AMBIGUITA, sotto_il_tetto
+
+
+def test_255_sonde_identiche_non_vengono_risondate():
+    """La protezione contro il caso «300 voci tutte in conflitto sulla stessa frase» esiste e
+    sta PRIMA del ciclo costoso (rilievo Fable 5): sonde identiche si interrogano una volta
+    sola. Misurato: 300 voci con la stessa frase → 0,074 s, contro 0,94 s con frasi tutte
+    diverse. Qui la stessa cosa contata invece che cronometrata."""
+    chiamate = []
+    reale = mms.resolve_market
+    from unittest import mock
+    with mock.patch.object(mms, "resolve_market",
+                           side_effect=lambda *a, **k: (chiamate.append(1), reale(*a, **k))[1]):
+        # 50 voci, UNA sola frase: una sonda sola da provare.
+        voci = [_voce("gg", "Entrambe le squadre a segno", "Sì") for _ in range(50)]
+        mms.ambiguous_phrase_warnings(_cfg(voci))
+    assert len(chiamate) <= 2, f"sonde identiche risondate {len(chiamate)} volte"
