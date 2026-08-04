@@ -736,7 +736,8 @@ Two strong, costly AI reviewers (Claude Fable 5, Fugu Ultra) do **not** run on
 every push like GPT-5.5/GLM. They spend (call the model) **only** in two cases:
 
 1. **automatically** on a push that touches **bridge core files** (`main.py`,
-   `xtrader_bridge/**`, deps `requirements*`/`pyproject.toml`/`poetry.lock`) —
+   `xtrader_bridge/**`, `license_manager/**`, deps
+   `requirements*`/`pyproject.toml`/`poetry.lock`) —
    they analyze the push-range;
 2. **or** when the agent adds the final label (pre-merge gate over the **whole
    PR**):
@@ -766,15 +767,36 @@ gh pr edit "$PR_NUMBER" --remove-label final-fugu-review || true
 
 sleep 2
 
-gh pr edit "$PR_NUMBER" \
-  --add-label final-fable-review \
-  --add-label final-fugu-review
+# ONE AT A TIME, not in a single call (see below).
+gh pr edit "$PR_NUMBER" --add-label final-fable-review
+gh pr edit "$PR_NUMBER" --add-label final-fugu-review
 ```
 
 In an environment without `gh` (GitHub MCP tools only), the equivalent is to
 remove and re-add the two labels on the PR via the GitHub API
 (`issues/{n}/labels`). The two labels must already exist in the repo; creating
 them is a one-time owner action.
+
+**Add the labels ONE AT A TIME** (#247 ①-bis). Adding several in a single API call
+emits one `labeled` event **per label**, and the two jobs gate on
+`github.event.label.name`:
+
+```yaml
+if: ( github.event.action != 'labeled' || github.event.label.name == 'final-fable-review' )
+```
+
+An event carrying a label that is not its own is **rejected** by the condition;
+combined with the PR concurrency group, the good jobs end up `skipped`. The symptom
+is "I added the labels and the reviewers didn't start", and it is not deducible from
+the logs: the job simply shows as skipped. Two separate calls work.
+
+**Note on the cost gate (#247 ①).** The two strong reviewers call the model only when
+the push touches core files. Since #247 the core set also includes
+**`license_manager/`**: it used to be outside, so on a PR to the tool that *signs the
+licenses* both exited in 2 s with `success` — and a reviewer that stays **silent** is
+indistinguishable from one that **approves**. If another area that signs, encrypts or
+publishes something is ever added, it must go into `CORE_TRIGGER_PATTERNS` in both
+workflows (a test in `tests/safety/test_ai_audit_workflows.py` enforces this).
 
 Then **wait** for the `PR Review Claude Fable 5` and `PR Review OpenRouter Fugu
 Ultra` workflows (they fall under the check-completion gate and review window).
@@ -868,7 +890,8 @@ workflows driven by API keys in the repo Secrets** — **GPT-5.5**, **GLM 5.2**,
 **Claude Fable 5**, **OpenRouter Fugu Ultra** — plus **CodeRabbit**. These are the
 default situation on every PR: the agent should always assume this is the coverage
 in place. GPT-5.5/GLM run on every push; Fable/Fugu run automatically only on
-pushes touching **core files** (`main.py`, `xtrader_bridge/**`, deps) or when the
+pushes touching **core files** (`main.py`, `xtrader_bridge/**`, `license_manager/**`,
+deps) or when the
 final-review labels are added (see «Final AI review»); CodeRabbit reviews the whole
 PR from its base.
 

@@ -46,10 +46,19 @@ def _real_transient_types():
     """Tupla delle classi transitorie reali di `telegram.error`
     (`NetworkError`/`TimedOut`/`RetryAfter`), risolta e cache-ata al primo uso.
 
-    Tupla **vuota** se `telegram` non è importabile (es. CI/test headless dove la
+    Tupla **vuota** se `telegram.error` non è importabile (es. CI/test headless dove la
     dipendenza non è installata): in tal caso `is_transient_error` ricade sul match
     per nome. L'import è lazy proprio per non richiedere `python-telegram-bot` al
-    semplice import del modulo (così la logica resta testabile senza la dipendenza)."""
+    semplice import del modulo (così la logica resta testabile senza la dipendenza).
+
+    Il predicato è **`telegram.error`, non il pacchetto `telegram`**, e la differenza è
+    osservabile (#247). `telegram/__init__.py` importa `error` **prima** di `request`, che
+    è dove esplode se manca una dipendenza transitiva (`httpx`/`idna`): un import fallito
+    del pacchetto lascia comunque `sys.modules['telegram.error']` popolato e REALE. In quello
+    stato `from telegram.error import ...` qui riesce mentre un `import telegram` fallisce —
+    ed è giusto così: se le classi reali sono disponibili, usarle è più preciso del match per
+    nome. Chi scrive test NON deve quindi usare `import telegram` come sonda di «telegram
+    presente»: la sonda è questa funzione."""
     global _TRANSIENT_TYPES_CACHE
     if _TRANSIENT_TYPES_CACHE is None:
         try:

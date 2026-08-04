@@ -1627,8 +1627,8 @@ dentro le schede. Perciò:
 | Scheda | Contenuto | Nota |
 |---|---|---|
 | **🔑 Chiave** | chiave pubblica (Textbox selezionabile) · «🔑 Genera / mostra keypair» · «📋 Copia chiave pubblica» · «💾 Backup della chiave privata» | la chiave pubblica è quella da incollare in `license.py` |
-| **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) · box del token + «📋 Copia chiave di attivazione» | il token è ciò che si manda all'utente |
-| **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) | selezionare una riga porta il serial nel campo |
+| **✅ Emetti** | Nome · Cognome · Giorni · Hardware ID → «✅ Genera chiave di attivazione» (SUCCESS) | il token **non** è qui: compare nella barra fuori dalle schede (vedi sotto) |
+| **📋 Registro** | ricerca · **tabella** (`ttk.Treeview`: Stato · Serial · Nome · Hardware ID · Giorni · Scadenza) · campo Serial + Nuovi giorni · «🔄 Rinnova» · «📋 Ri-mostra token» · «🚫 Revoca licenza» (DANGER) · «🗑 Elimina riga» (DANGER) | selezionare una riga porta il serial nel campo |
 | **🚫 Revoche** | «📤 Esporta lista revoche firmata» · pubblicazione automatica GitHub (repo/file/branch/ore/token) · «💾 Salva impostazioni» · «🔍 Verifica accesso» · «🚀 Pubblica ora» · etichetta persistente ultima pubblicazione | il token GitHub è mascherato e vive nel keyring |
 | **📦 Backup** | «📦 Esporta backup completo» · «📥 Ripristina backup completo» + avviso supporto offline | col **solo** seed registro e revoche non migrano (#183) |
 
@@ -1733,8 +1733,43 @@ giorni nuovi; per cambiare nome o macchina si emette una licenza nuova dalla sch
   file**. Un test lo presidia sul sorgente;
 - **la copia non mente**: se gli appunti non sono disponibili l'azione lo **dice** invece di
   dichiarare successo — altrimenti si incolla il contenuto vecchio credendo di avere la chiave nuova;
-- **la revoca è l'unica azione in `DANGER`** della scheda Registro: dev'essere distinguibile a colpo
-  d'occhio da «Rinnova» e «Ri-mostra», che le stanno accanto;
+
+**La chiave di attivazione sta FUORI dalle schede (2026-08-04).** Sotto le schede, sopra la riga
+messaggi, c'è una barra permanente: etichetta «Chiave di attivazione da mandare all'utente», il
+riquadro monospaziato del token e «📋 Copia chiave di attivazione». È visibile da **qualunque**
+scheda.
+
+Perché non è più dentro «✅ Emetti». Tre azioni scrivono in quel riquadro e **due stanno in una
+scheda diversa**: «🔄 Rinnova (nuovo token)» e «📋 Ri-mostra token» vivono nel **Registro**. Chi
+rinnovava restava quindi sul Registro a leggere «Inviala all'utente» con la chiave generata
+davvero ma scritta su una scheda che non stava guardando, e l'app non ce lo portava. Il
+proprietario ne ha concluso che il rinnovo non fosse possibile — lettura corretta di ciò che si
+vedeva. È la stessa forma della revoca invisibile (#235): la funzione faceva il suo lavoro,
+l'indicatore diceva il contrario.
+
+È il ragionamento **già** applicato in questo file alla riga messaggi — *«l'esito di un'azione
+dev'essere visibile qualunque scheda sia aperta»* — esteso all'esito che conta di più: il token è
+l'unica cosa che l'utente deve **copiare**. I messaggi di emissione, rinnovo e ri-mostra dicono
+ora **dove**: «Copiala dal riquadro in fondo alla finestra».
+
+Alternative scartate, per chi rifarà il design: **cambio di scheda automatico** dopo il rinnovo
+(sposta la vista sotto le mani e nasconde la tabella da cui si è appena scelta la riga);
+**riquadro duplicato** su due schede (due widget da tenere allineati su un valore che finisce
+incollato in produzione).
+
+- **le due azioni distruttive della scheda Registro sono in `DANGER`** — «🚫 Revoca licenza» e
+  «🗑 Elimina riga» — e devono restare distinguibili a colpo d'occhio da «Rinnova» e «Ri-mostra»,
+  che stanno accanto in colore neutro. *(Fino al 2026-08-04 la revoca era l'unica: l'invariante
+  diceva «l'unica azione in DANGER» ed è stata riscritta insieme al pulsante, non dopo.)*
+- **revocare ed eliminare non sono la stessa cosa, e l'etichetta lo dice**: revocare toglie
+  l'accesso **al cliente**, eliminare toglie la **riga** al proprietario. Per questo il pulsante
+  dice «riga» e non «licenza» — con lo stesso rosso, il testo è l'unica cosa che li distingue;
+- **eliminare NON riattiva un revocato** (la revoca vive in `revoked.jsonl`, store separato) **ma
+  ne fa sparire la riga dalla vista**: la conferma dice entrambe le cose, perché solo la prima
+  tranquillizzerebbe e solo la seconda spaventerebbe senza spiegare;
+- **niente si elimina senza conferma esplicita**, e il gate è **fail-closed**: se il dialogo non è
+  disponibile la risposta è «no». Un'azione irreversibile non deve poter avvenire per un dialogo
+  che non si è aperto;
 - **selezione dalla tabella invece di trascrizione a mano**: un `LIC-` sbagliato di un carattere
   significa revocare la licenza di un **altro** utente.
 

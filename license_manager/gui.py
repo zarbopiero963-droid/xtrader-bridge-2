@@ -261,7 +261,7 @@ class LicenseManagerApp(ctk.CTk):
                                       "cartella?): il token è comunque valido, salvalo a mano.")
         return {"accepted": True, "token": token,
                 "message": f"Chiave {verb} per «{nome_completo}» · {giorni} giorni. "
-                           f"Inviala all'utente.{suffix}"}
+                           f"Copiala dal riquadro in fondo alla finestra e inviala all'utente.{suffix}"}
 
     def _evaluate_issue(self, nome, cognome, giorni_str, hardware_id) -> dict:
         """Valida gli input ed **emette** la licenza firmata. Fail-closed: senza chiave, o con dati
@@ -337,7 +337,76 @@ class LicenseManagerApp(ctk.CTk):
             return {"found": True, "token": "",
                     "message": "Il record non contiene il token (registro vecchio?): ri-emetti con «Rinnova»."}
         return {"found": True, "token": token,
-                "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}). Rinvialo all'utente."}
+                "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}): nel riquadro in fondo alla finestra, pronto da rinviare."}
+
+    def _evaluate_delete(self, serial, *, conferma: bool = False) -> dict:
+        """**Elimina la riga** del registro per `serial`. Non revoca e non de-revoca nulla.
+
+        Ritorna ``{"accepted", "message", "needs_confirm"}``. La conferma la chiede l'handler GUI
+        (`_on_delete`) — questo metodo resta puro e testabile headless, come gli altri `_evaluate_*`.
+
+        Due esiti che vale la pena distinguere:
+
+        - serial **non nel registro** → nessuna scrittura, messaggio. Non si riscrive il file per nulla.
+        - serial **revocato** → `needs_confirm`. La revoca resta attiva (vive in `revoked.jsonl`, che
+          non tocchiamo: il cliente NON torna operativo), ma la riga sparisce dalla vista, quindi
+          quella revoca diventa **invisibile** nel Registro. È l'unico modo per perdere di vista una
+          revoca ancora in vigore, e l'utente deve saperlo PRIMA, non scoprirlo dopo.
+
+        Il token del record va perso con la riga: dopo l'eliminazione «📋 Ri-mostra token» non potrà
+        più ripescarlo. Detto nel messaggio di conferma, perché è la conseguenza che si dimentica."""
+        rec = registry.find_by_serial(self._read_records(directory=self._key_dir), serial)
+        if rec is None:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Serial non trovato nel registro: {str(serial).strip()}"}
+        nome, ser = rec.get("name", ""), rec.get("serial", "")
+        # Tre stati, non due: `True` revocata, `False` non revocata, **`None` non lo so**.
+        # `revoked.jsonl` illeggibile o lockato è frequente su Windows — è la ragione per cui
+        # `_revoked_serials` esiste con `strict`. Qui la lettura serviva solo a scegliere il testo
+        # dell'avviso, ma senza guardia l'eccezione usciva da `_evaluate_delete` e da `_on_delete`
+        # (che non ha handler): il pulsante non faceva **nulla e senza messaggio**.
+        # E `None` NON ricade su «non revocata»: sarebbe una rassicurazione su uno stato che non
+        # abbiamo letto — la stessa distinzione già scritta nel docstring di `_revoked_serials`
+        # («non poter leggere le revoche non è "nessuno è revocato": è "non lo so"»).
+        try:
+            revocato = registry.normalize_serial(ser) in self._revoked_serials(strict=True)
+        except Exception as exc:    # noqa: BLE001 — la vista della revoca non è il gate: qui
+            # si sceglie solo COSA dire; il gate resta `conferma`, che non dipende da questo.
+            _log.debug("Revoche illeggibili in eliminazione [%s]", type(exc).__name__)
+            revocato = None
+        # NIENTE si elimina senza `conferma=True`. Il gate è qui, non nell'handler: così anche un
+        # chiamante futuro che dimenticasse di chiedere non può cancellare per sbaglio — e la
+        # domanda non può essere «in anteprima» su un metodo che ha già scritto su disco.
+        if not conferma:
+            if revocato is True:
+                avviso = (f"⚠️ La licenza {ser} ({nome}) è REVOCATA. Eliminarne la riga NON la "
+                          "riattiva — la revoca resta in vigore sui bridge — ma la fa sparire da "
+                          "questo elenco, quindi non la vedrai più.")
+            elif revocato is None:
+                avviso = (f"⚠️ Non ho potuto leggere l'elenco delle revoche: non so se {ser} "
+                          f"({nome}) sia revocata. Eliminare la riga non riattiva nessuno, ma se "
+                          "una revoca c'è non la vedrai più qui. Il token va perso.")
+            else:
+                avviso = (f"Eliminare la riga {ser} ({nome})? L'operazione è irreversibile e il "
+                          "token va perso: «📋 Ri-mostra token» non potrà più ripescarlo.")
+            return {"accepted": False, "needs_confirm": True, "revoked": revocato,
+                    "message": avviso}
+        try:
+            rimossi = registry.remove_record(ser, directory=self._key_dir)
+        except registry.ConcurrentModification as exc:
+            # Non è un errore di disco: è un rifiuto DELIBERATO perché il registro è cambiato
+            # sotto (altra istanza aperta). Va detto con parole proprie — «riprova» qui è un
+            # consiglio sensato, mentre su un errore di I/O non lo sarebbe.
+            return {"accepted": False, "needs_confirm": False, "message": str(exc)}
+        except OSError as exc:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Eliminazione non riuscita ({type(exc).__name__}): registro invariato."}
+        if not rimossi:
+            return {"accepted": False, "needs_confirm": False,
+                    "message": f"Nessuna riga eliminata per {ser}."}
+        self._auto_backup_safe()        # #183: il registro è cambiato
+        return {"accepted": True, "needs_confirm": False,
+                "message": f"Riga eliminata: {ser} ({nome}). La revoca, se c'era, resta in vigore."}
 
     def _evaluate_revoke(self, serial) -> dict:
         """**Revoca** (R3b) la licenza identificata dal `serial`: la registra nello store revoche, così
@@ -947,13 +1016,54 @@ class LicenseManagerApp(ctk.CTk):
         self._build_scheda_revoche(self._area_scorrevole(schede.tab("🚫 Revoche")))
         self._build_scheda_backup(self._area_scorrevole(schede.tab("📦 Backup")))
 
+        # Chiave di attivazione fuori dalle schede, PRIMA della riga messaggi (l'ordine visivo è
+        # «ecco cosa è successo» sotto «ecco cosa devi copiare»). Vedi `_build_barra_token`.
+        self._build_barra_token()
+
         # Riga messaggi fuori dalle schede: l'esito di un'azione dev'essere visibile qualunque
         # scheda sia aperta (una revoca si conferma dalla scheda Registro e l'esito arriva qui).
         self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
         self._msg_lbl.pack(fill="x", padx=12, pady=(2, 10))
 
+        # In coda a `_build_ui`, dove sono sempre stati: inserendo `_build_barra_token` qui sopra
+        # erano finiti nel SUO corpo, quindi giravano prima che `_msg_lbl` esistesse (rilievo
+        # bloccante di Fable 5 e rilievo di CodeRabbit, indipendenti). Non crashavano — nessuna
+        # delle due tocca la riga messaggi, e l'app parte davvero (verificato sotto Xvfb) — ma
+        # dipendere da quella coincidenza è il difetto: la prima delle due che un domani volesse
+        # scrivere un messaggio troverebbe `_msg_lbl` inesistente.
         self._refresh_publish_fields()
         self._refresh_publish_status()
+
+    def _build_barra_token(self) -> None:
+        """Riquadro della **chiave di attivazione**, fuori dalle schede.
+
+        Perché non sta più dentro «✅ Emetti» (segnalazione del proprietario, 2026-08-04).
+        Il riquadro era costruito in `_build_scheda_emetti`, ma **tre** azioni ci scrivono dentro
+        e due vivono in una scheda diversa: «🔄 Rinnova (nuovo token)» e «📋 Ri-mostra token» stanno
+        nel **Registro**. Chi rinnovava una licenza restava quindi sul Registro a leggere
+        «Inviala all'utente» — con la chiave generata davvero, ma scritta su una scheda che non
+        stava guardando e senza che l'app ce lo portasse. La conclusione ragionevole era «non si
+        può rinnovare», e infatti è stata tratta.
+
+        È lo stesso ragionamento già applicato in questo file alla riga messaggi — *«l'esito di
+        un'azione dev'essere visibile qualunque scheda sia aperta»* — che però non era stato esteso
+        all'esito che conta di più: il token è l'unica cosa che devi **copiare**.
+
+        Alternative scartate: **cambiare scheda** da sola dopo il rinnovo (ti sposta sotto le mani
+        mentre stai lavorando sul Registro, e nasconde la tabella da cui hai appena scelto la riga);
+        **duplicare** il riquadro su due schede (due widget da tenere allineati, cioè la regola della
+        fonte unica violata su un valore che l'utente incolla in produzione).
+        """
+        barra = ctk.CTkFrame(self, fg_color="transparent")
+        barra.pack(fill="x", padx=12, pady=(4, 0))
+        ctk.CTkLabel(barra, text="Chiave di attivazione da mandare all'utente",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", pady=(0, 2))
+        self._token_box = ctk.CTkTextbox(barra, height=68, wrap="char",
+                                         font=ctk.CTkFont(family=_MONO[0], size=12))
+        self._token_box.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(barra, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(anchor="w")
 
     @staticmethod
     def _area_scorrevole(tab):
@@ -1014,15 +1124,8 @@ class LicenseManagerApp(ctk.CTk):
                       fg_color=ui_theme.SUCCESS, hover_color=ui_theme.SUCCESS_HOV).pack(
                           anchor="w", padx=10, pady=(10, 6))
 
-        ctk.CTkLabel(tab, text="Chiave di attivazione da mandare all'utente",
-                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(
-                         fill="x", padx=10, pady=(6, 2))
-        self._token_box = ctk.CTkTextbox(tab, height=76, wrap="char",
-                                         font=ctk.CTkFont(family=_MONO[0], size=12))
-        self._token_box.pack(fill="x", padx=10, pady=(0, 4))
-        ctk.CTkButton(tab, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
-                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
-                      hover_color=ui_theme.BORDER).pack(anchor="w", padx=10, pady=(0, 10))
+        # Il riquadro della chiave di attivazione NON sta più qui: vive fuori dalle schede,
+        # accanto alla riga messaggi. Vedi `_build_barra_token` per il motivo.
 
     # ── scheda: registro (tabella) ───────────────────────────────────────────────────────────
     def _build_scheda_registro(self, tab) -> None:
@@ -1068,6 +1171,13 @@ class LicenseManagerApp(ctk.CTk):
         # Revoca in DANGER: è l'azione distruttiva di questa scheda e dev'essere distinguibile
         # a colpo d'occhio dalle altre due (semantica di sicurezza, §13 dell'handoff).
         ctk.CTkButton(bottoni, text="🚫 Revoca licenza", command=self._on_revoke,
+                      fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(
+            side="left", padx=(0, 6))
+        # «Elimina riga» è distruttiva quanto la revoca ma in modo DIVERSO, e la differenza
+        # dev'essere leggibile senza aprire il manuale: revocare TOGLIE l'accesso al cliente,
+        # eliminare toglie la RIGA a te. Stesso rosso (entrambe irreversibili), etichetta che
+        # nomina l'oggetto giusto — «riga», non «licenza» — così non si scambiano.
+        ctk.CTkButton(bottoni, text="🗑 Elimina riga", command=self._on_delete,
                       fg_color=ui_theme.DANGER, hover_color=ui_theme.DANGER_HOV).pack(side="left")
 
         azioni = ctk.CTkFrame(tab, fg_color="transparent")
@@ -1408,6 +1518,23 @@ class LicenseManagerApp(ctk.CTk):
             dest = ""
         result = self._evaluate_export(dest)
         self._set_msg(result["message"])
+
+    def _on_delete(self) -> None:
+        """Elimina la riga del serial indicato, con conferma esplicita (azione irreversibile).
+
+        La conferma è SEMPRE richiesta, non solo per i revocati: eliminare una riga perde il token,
+        e `_conferma` è fail-closed (headless → «no»), quindi nel dubbio non si cancella nulla."""
+        serial = self._read(self._renew_serial_entry)
+        domanda = self._evaluate_delete(serial)          # non scrive nulla: chiede soltanto
+        if not domanda.get("needs_confirm"):             # serial inesistente / errore
+            self._set_msg(domanda["message"])
+            return
+        if not self._conferma(f"{domanda['message']}\n\nEliminare la riga?"):
+            self._set_msg("Eliminazione annullata: registro invariato.")
+            return
+        risultato = self._evaluate_delete(serial, conferma=True)
+        self._set_msg(risultato["message"])
+        self._on_registry_refresh()
 
     def _on_revoke(self) -> None:
         """Revoca (R3b) la licenza del serial indicato (stesso campo di rinnovo/ri-mostra), poi

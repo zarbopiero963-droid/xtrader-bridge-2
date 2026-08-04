@@ -24,6 +24,8 @@ import time
 
 import pytest
 
+from xtrader_bridge import reconnect_policy as rp
+
 
 class _SignalingEvent(threading.Event):
     """`threading.Event` che segnala `entered` DALL'INTERNO di `wait()` (prima riga),
@@ -77,18 +79,48 @@ def _transient_exc(name, msg="get_me giù: connessione non reale (simulato)"):
     `NetworkError`) se disponibile. Senza telegram (alcuni ambienti locali) si ricade su una classe
     dinamica con lo STESSO nome, che il fallback per nome di `is_transient_error` riconosce. Così il
     test è corretto in ENTRAMBI gli ambienti (bug CI: una classe dinamica NON è sottoclasse della
-    `telegram.error.TimedOut` reale → non transitoria → STOP)."""
-    try:
-        import telegram.error as te            # noqa: PLC0415 — import locale voluto (dipende dall'ambiente)
-        cls = getattr(te, name, None)
-        if isinstance(cls, type) and issubclass(cls, Exception):
+    `telegram.error.TimedOut` reale → non transitoria → STOP).
+
+    Sonda (#247). Le classi si prendono da **`reconnect_policy` stesso**, non da un
+    `import telegram.error` locale. Erano due sonde per la stessa domanda, e divergevano: un
+    `import telegram.error as te` ri-importa il **pacchetto radice** `telegram`, che fallisce
+    se manca una dipendenza transitiva (`httpx`/`idna`, nella user-site → dipende da `HOME`),
+    mentre la policy fa `from telegram.error import ...` e trova il sottomodulo già in
+    `sys.modules`. In quello stato l'helper costruiva una classe dinamica che `isinstance`
+    contro le classi reali rifiutava: errore «non transitorio» → nessuna riconnessione → test
+    rosso in un ambiente e verde in un altro, senza che il codice fosse cambiato.
+
+    L'invariante «ciò che questo helper costruisce, la policy lo riconosce» è verificata da
+    `test_helper_transient_exc_e_riconosciuto_dalla_policy` invece che da un `assert` qui
+    dentro: l'helper viene chiamato dentro `get_me`, cioè dentro il supervisor, dove un
+    `AssertionError` verrebbe classificato come errore permanente e il test fallirebbe con
+    «non ha riconnesso» — il sintomo, non la causa."""
+    for cls in rp._real_transient_types():     # unica fonte: le classi che la policy userà
+        if cls.__name__ == name:
             try:
                 return cls(msg)
             except Exception:                  # noqa: BLE001 — firma costruttore diversa → senza messaggio
                 return cls()
-    except Exception:                          # noqa: BLE001 — telegram assente → classe dinamica per nome
-        pass
-    return type(name, (Exception,), {})(msg)
+    return type(name, (Exception,), {})(msg)   # fallback per nome (telegram.error non importabile)
+
+
+@pytest.mark.parametrize("nome", ["NetworkError", "TimedOut"])
+def test_helper_transient_exc_e_riconosciuto_dalla_policy(nome):
+    """#247: l'eccezione costruita da `_transient_exc` DEVE essere transitoria per la policy.
+
+    È la precondizione di ogni test di riconnessione di questo file: se l'helper costruisce
+    una classe che `is_transient_error` rifiuta, il supervisor va in STOP e i test misurano il
+    ramo sbagliato — rossi che sembrano una regressione del prodotto e invece sono un difetto
+    dell'impalcatura. È esattamente ciò che accadeva quando l'helper sondava
+    `import telegram.error` (che ri-importa il pacchetto radice, e fallisce se manca `idna`)
+    mentre la policy sondava `from telegram.error import ...` (che trova il sottomodulo già in
+    `sys.modules`): l'helper ricadeva sulla classe dinamica omonima, che `isinstance` contro le
+    classi reali rifiuta.
+
+    Questo test è deliberatamente indipendente dall'ambiente: non chiede se telegram sia
+    installato, chiede solo che le due sonde diano la stessa risposta — che è l'unica cosa che
+    deve valere sia in CI sia in locale."""
+    assert rp.is_transient_error(_transient_exc(nome)) is True
 
 
 class _Bot:

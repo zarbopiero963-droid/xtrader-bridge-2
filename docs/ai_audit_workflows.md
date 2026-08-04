@@ -41,9 +41,9 @@ stampate.
 - **Claude Fable 5 e Fugu Ultra** sono i reviewer **forti e costosi**, quindi
   spendono (chiamano il modello) **solo quando serve**:
   - **automaticamente** su un push che tocca **file core del bridge** — `main.py`,
-    `xtrader_bridge/**`, e le dipendenze (`requirements*`, `pyproject.toml`,
-    `poetry.lock`) — dove un bug significa CSV sbagliato o doppia scommessa; in
-    questo caso analizzano il **push-range**;
+    `xtrader_bridge/**`, `license_manager/**`, e le dipendenze (`requirements*`,
+    `pyproject.toml`, `poetry.lock`) — dove un bug significa CSV sbagliato, doppia
+    scommessa o una licenza firmata male; in questo caso analizzano il **push-range**;
   - **oppure** quando viene aggiunta la label `final-fable-review` /
     `final-fugu-review` (gate finale pre-merge), dove rivedono l'**intera PR**
     (base...head).
@@ -54,6 +54,16 @@ stampate.
   non vede mai le API key, che restano nei GitHub Secrets. Il gate `paths` nativo
   di GitHub non è usato perché filtrerebbe anche l'evento `labeled`: il gate costo
   è dentro lo script (salta il modello se nessun file core e nessuna label).
+  **`license_manager/` è stato aggiunto al set core con la #247**: ne era fuori, quindi
+  su una PR al tool che *firma le licenze ed emette la lista di revoca* i due reviewer
+  forti uscivano in 2–3 s con `success` senza aver chiamato il modello. In un elenco di
+  venti check verdi, un reviewer che **tace** e uno che **approva** sono indistinguibili
+  — ed è successo davvero sulla #246, dove i due, una volta fatti partire a mano via
+  label, hanno trovato **quattro bloccanti reali di perdita dati** sul registro licenze.
+  **Le label finali vanno aggiunte UNA ALLA VOLTA**: aggiungerne più d'una in una sola
+  chiamata API emette un evento `labeled` per ciascuna, e quello che non corrisponde al
+  proprio `github.event.label.name` viene rifiutato dall'`if:` del job — che con il
+  gruppo di concorrenza finisce `skipped`, senza nulla nei log che lo spieghi.
   Dettagli: su `synchronize` (push a una PR esistente) analizzano il **push-range**;
   su `opened`/`reopened`/`ready_for_review` con file core analizzano l'**intera PR**
   (base...head), come per la label. Il gate è **fail-safe** sulla truncation della

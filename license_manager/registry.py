@@ -1,7 +1,7 @@
 """License Manager — **registro delle licenze emesse** (issue #140, opzione A).
 
 Oggi l'emissione di una licenza è **stateless**: il tool produce un token e non registra nulla.
-Questo modulo aggiunge un **registro locale** append-only sul PC del proprietario — `licenses.jsonl`
+Questo modulo aggiunge un **registro locale** sul PC del proprietario — `licenses.jsonl`
 nella cartella del License Manager (`%APPDATA%\\XTraderLicenseManager`, la stessa del seed privato,
 mai nel repo/EXE) — così il proprietario può **ritrovare** chi ha ricevuto cosa, con che scadenza, e
 (in una fase successiva) **rinnovare/revocare** da un elenco.
@@ -13,6 +13,9 @@ Logica **pura e fail-safe**, senza GUI:
   **stesso** identificatore, senza aggiungere campi al formato token (nessuna migrazione);
 - il record si costruisce **dal payload del token** (`record_from_token`), così il registro combacia
   sempre con la licenza realmente firmata (nome/hardware/scadenza autoritativi);
+- la scrittura e' **append-only** con UNA sola eccezione dichiarata: `remove_record`, che elimina
+  una riga riscrivendo il file in modo atomico. Non tocca `revoked.jsonl`, quindi **non riattiva**
+  un revocato; ma ne fa sparire la riga dalla vista — vedi il suo docstring;
 - append-only robusto (stesso idiom di `xtrader_bridge.event_journal`: guardia sulla riga troncata +
   `flush`/`fsync`, lettura tollerante che salta le righe malformate);
 - **nessun segreto**: il registro contiene il **token di attivazione** (che il proprietario dà
@@ -24,6 +27,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import tempfile
 import threading
 
 # Serial deterministico condiviso: vive in `xtrader_bridge.licensing.license` (pacchetto condiviso) così
@@ -32,7 +36,7 @@ import threading
 from xtrader_bridge.licensing.license import license_serial
 
 from . import log_safe
-from .core import manager_dir
+from .core import _fsync_dir, manager_dir
 
 _log = log_safe.get_logger(__name__)
 
@@ -54,6 +58,19 @@ STATUS_EXPIRED = "SCADUTA"
 # revoca veniva registrata e pubblicata correttamente, ma il proprietario non aveva modo di
 # **vederla**, e poteva credere che non avesse funzionato o rinnovare per sbaglio un revocato.
 STATUS_REVOKED = "REVOCATA"
+
+
+class ConcurrentModification(RuntimeError):
+    """Il registro è cambiato fra la lettura e la riscrittura di `remove_record`.
+
+    Non è un errore di I/O: il file è perfettamente leggibile: è **qualcun altro** che ci ha
+    scritto nel frattempo — tipicamente una seconda istanza del License Manager che ha appena
+    emesso una licenza. Si solleva **prima** di `os.replace`, quindi il registro resta invariato
+    e il record appena aggiunto dall'altra istanza non viene perso.
+
+    Sottoclasse di `RuntimeError` e non di `OSError` di proposito: i chiamanti che catturano
+    `OSError` per gli errori di disco non devono confondere «non ho potuto scrivere» con «non
+    devo scrivere»."""
 
 
 def normalize_serial(value) -> str:
@@ -162,6 +179,134 @@ def append_record(record: dict, *, directory: "str | None" = None) -> dict:
             f.flush()
             os.fsync(f.fileno())
     return record
+
+
+def remove_record(serial, *, directory: "str | None" = None) -> int:
+    """**Elimina** dal registro tutti i record con quel `serial`. Ritorna quanti ne ha rimossi.
+
+    È l'**unica** operazione non-append di questo modulo, e va letta sapendo cosa NON fa.
+
+    **Non revoca e non de-revoca.** La revoca vive in `revoked.jsonl`, uno store separato: questa
+    funzione non lo tocca. Eliminare la riga di un revocato **non lo riattiva** — la lista firmata
+    che i bridge scaricano si costruisce da `revoked.jsonl` (`revocation_entries`), non da qui.
+    È la trappola che ha già rischiato di far tornare attivi tutti i revocati nella PR-C (#194),
+    e per questo è verificata da un test dedicato invece che lasciata al ragionamento.
+
+    **Ma fa sparire quel serial dalla VISTA.** `view_rows` costruisce l'elenco dai record del
+    registro e vi *sovrappone* i serial revocati: senza record non c'è riga, quindi una revoca
+    ancora attiva diventa **invisibile** nel Registro. Chi chiama deve dirlo all'utente prima di
+    procedere — la GUI lo fa con una conferma esplicita.
+
+    **Riscrittura atomica**: si scrive un temporaneo nella stessa cartella e si fa `os.replace`,
+    quindi un crash a metà lascia il registro **precedente intatto** invece di un file mezzo
+    riscritto. È la stessa forma usata per il file-chiave in `core.save_signing_key`, ed è
+    obbligatoria qui: a differenza di un append, questa operazione riscrive TUTTO il file.
+
+    **Solleva `ConcurrentModification`** se il registro è cambiato fra la lettura e il momento
+    subito prima di `os.replace` — tipicamente un'altra istanza che ha appena registrato una
+    licenza: il file resta invariato e quel record non viene perso.
+
+    **Fin dove arriva, detto con precisione** (rilievo bloccante di Fable 5 sulla PR #246). Non è
+    un lock: fra `os.stat` e `os.replace` resta una finestra di **microsecondi** in cui un append
+    concorrente verrebbe comunque sovrascritto. Il controllo **riduce** l'esposizione, non la
+    azzera — e la riduce di molto: prima copriva l'intero intervallo lettura→scrittura, che
+    include il **dialogo di conferma** e quindi può durare minuti; ora copre solo la coda finale.
+
+    Chiuderla davvero richiede un lock **inter-processo**, che è la issue **#185** (e il **B42**
+    del piano #194) e ha il suo scope. Qui il residuo è **accettato deliberatamente**, non
+    ignorato: è la scelta fra un rischio da microsecondi e allargare a un redesign della
+    concorrenza una PR sul tool delle licenze.
+
+    Serial vuoto/non trovato → `0`, nessuna scrittura (non si riscrive un file per nulla).
+    Gli altri errori di I/O **propagano**, come in `append_record`."""
+    voluto = normalize_serial(serial)
+    if not voluto:
+        return 0
+    path = registry_path(directory)
+    with _WRITE_LOCK:
+        # Si filtrano le RIGHE GREZZE, non i record ri-serializzati (rilievo di Fable 5 e
+        # CodeRabbit, indipendenti). Ri-costruire il file da `read_records` avrebbe scartato per
+        # sempre le righe che quella funzione salta — vuote, troncate, non-dict — comprese quelle
+        # di **altri** serial, che l'utente non ha chiesto di toccare. Su questo registro sarebbe
+        # distruzione silenziosa: contiene l'unica copia del token di ogni licenza, e una riga
+        # troncata da un crash è ancora recuperabile a mano finché resta sul disco.
+        #
+        # E si lavora in BINARIO, non in testo (rilievo bloccante di Fugu Ultra). La prima
+        # versione di questo filtro leggeva con `errors="replace"`: i byte non-UTF-8 di una riga
+        # di un ALTRO serial diventavano `U+FFFD` in lettura e venivano riscritti **mutilati**.
+        # Misurato: `Nom\xe8` → `Nom\xef\xbf\xbd`. Cioè la correzione che doveva impedire la
+        # perdita di righe altrui le corrompeva in un altro modo. In binario i byte passano
+        # identici: si decodifica solo per DECIDERE, mai per riscrivere.
+        try:
+            with open(path, "rb") as f:
+                contenuto = f.read()
+            stato_letto = os.stat(path)
+        except FileNotFoundError:
+            return 0        # registro mai creato (installazione nuova): non c'è nulla da togliere
+        except OSError:
+            # Lockato / permessi / disco: il file c'è ma non si legge. Rispondere `0` direbbe
+            # «non c'era niente da eliminare» — rassicurante e FALSO su un guasto non
+            # diagnosticato, cioè il difetto che questa PR esiste per togliere (rilievo GPT-5.5).
+            # Propaga: la GUI lo riporta come «Eliminazione non riuscita: registro invariato».
+            raise
+        tenute, rimossi = [], 0
+        for grezza in contenuto.split(b"\n"):
+            if not grezza.strip():
+                continue
+            try:
+                obj = json.loads(grezza.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                obj = None      # non decodificabile → non è la riga cercata → si TIENE
+            if isinstance(obj, dict) and normalize_serial(obj.get("serial")) == voluto:
+                rimossi += 1
+                continue
+            tenute.append(grezza)
+        if not rimossi:
+            return 0
+        payload = b"".join(r + b"\n" for r in tenute)
+        parent = os.path.dirname(path) or "."
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=parent, prefix=".registry_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            # Guardia anti-race INTER-PROCESSO (rilievo bloccante di Fugu Ultra). `_WRITE_LOCK`
+            # serializza i thread, non i processi: due License Manager aperti insieme sono
+            # possibili, e per un APPEND il caso peggiore è un interlacciamento, mentre per una
+            # riscrittura dell'INTERO file un append concorrente andrebbe **perso del tutto** —
+            # un fallimento peggiore, e introdotto da questa funzione.
+            #
+            # Non è un lock inter-processo (quello è la #185, che ha il suo scope): è un
+            # controllo di versione. Se il file è cambiato fra la lettura e adesso, si RIFIUTA
+            # invece di sovrascrivere. Perdere una licenza appena emessa in silenzio è il
+            # danno peggiore; rifiutare e far ripetere l'operazione è rumoroso e reversibile.
+            # Perché `(st_mtime_ns, st_size)` basta per la minaccia REALE (rilievo GPT-5.5 sulla
+            # granularità dei timestamp): l'unica scrittura concorrente possibile su questo file è
+            # un **append** — `append_record`/`append_revocation` e il ripristino di backup — e un
+            # append cambia SEMPRE la dimensione, qualunque sia la risoluzione dell'orologio del
+            # filesystem. Sfuggirebbe solo una riscrittura di pari dimensione, che in questo
+            # modulo non esiste. Un hash del contenuto sarebbe più forte in astratto e inutile qui.
+            stato_ora = os.stat(path)
+            if (stato_ora.st_mtime_ns, stato_ora.st_size) != (stato_letto.st_mtime_ns,
+                                                              stato_letto.st_size):
+                raise ConcurrentModification(
+                    "il registro è cambiato durante l'eliminazione (un'altra istanza del "
+                    "License Manager?): nessuna riga eliminata, riprova")
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+        # `fsync` della DIRECTORY dopo il rename (rilievo Fugu Ultra): l'fsync del file rende
+        # durabile il CONTENUTO, non la voce di directory — un power-loss subito dopo `os.replace`
+        # poteva lasciare il registro al contenuto vecchio. Riusa l'helper di `core`, che e' gia'
+        # best-effort e non solleva (su Windows e' un no-op: la' il rename e' gia' atomico).
+        _fsync_dir(parent)
+    return rimossi
 
 
 def read_records(*, directory: "str | None" = None, path: "str | None" = None) -> list:
