@@ -546,10 +546,20 @@ contratto: i log di **puro dominio** `f"❌ {err}"` (errore di validazione) e `f
 degli store), coi valori interpolati `{err}`/`{problem}`/`{exc}` di dominio. A quegli avvisi di
 store se ne aggiunge uno (audit #137, **non bloccante**, stessa forma `f"⚠️ {warn}"` e stessa
 regola «resta IT»): i **conflitti del Dizionario nomi** — un nome che punta a ≥2 nomi Betfair
-diversi con lo stesso scope, che a runtime farebbe fail-closare la traduzione. Per chi disegna la
-UI il punto è che allo START il log può ora contenere **N righe ⚠️ di configurazione** prima delle
-righe di stato: l'elenco cresce col numero di conflitti, quindi il pannello non può assumere un
-numero fisso di avvisi né troncarli in silenzio — sono la ragione per cui un segnale verrà scartato. I **dialoghi modali di
+diversi, che a runtime fa fail-closare la traduzione. Da **PR-P (#194 · B21)** l'avviso ha **due
+varianti**, perché chiedono all'utente due azioni diverse:
+
+- righe con lo **stesso scope** → «…con lo stesso scope -> il nome NON viene tradotto
+  (fail-closed). Correggi il Dizionario nomi, oppure distingui le righe per sport/tipo/lingua.»
+- righe distinguibili **solo** da sport/tipo/lingua → «…distinguibili SOLO da uno
+  sport/tipo/lingua -> un parser che non li specifica NON traduce il nome (fail-closed). Va bene
+  se i tuoi parser dichiarano lo scope; altrimenti lascia una riga agnostica come ripiego.»
+
+La seconda è la più lunga delle due e la più probabile su dizionari multi-sport o multilingua:
+chi disegna il pannello non può assumere una riga corta. Per chi disegna la UI il punto resta che
+allo START il log può contenere **N righe ⚠️ di configurazione** prima delle righe di stato:
+l'elenco cresce col numero di conflitti, quindi il pannello non può assumere un numero fisso di
+avvisi né troncarli in silenzio — sono la ragione per cui un segnale verrà scartato. I **dialoghi modali di
 conferma modalità** (REALE/COLLAUDO/MULTI-segnale + i due gate autostart/START reale) sono invece
 **localizzati dalla slice 4y** — vedi §9.
 

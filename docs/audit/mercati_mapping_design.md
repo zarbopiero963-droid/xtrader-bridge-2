@@ -117,7 +117,18 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    incoerente: phrase-mapping + riconoscimento a ID); in **BOTH** la coppia a nome basta e la
    riga resta valida (CodeRabbit).
 3. **Coerenza + canonicalizzazione Mercato/Selezione.** La selezione deve appartenere al
-   mercato scelto (garantito già in fase di GUI: la tendina Selezione dipende dal Mercato).
+   mercato scelto. La GUI aiuta (la tendina Selezione dipende dal Mercato) ma **non basta**:
+   `dizionario.selections_for_market` combacia su `MarketType` **oppure** `MarketName` —
+   comodo per le tendine, pericoloso al momento di **accoppiare**. Se il `MarketName` risolto
+   coincide col `MarketType` di un'altra riga, la selezione arriva da quella riga e finisce
+   accoppiata al `market_type` di questa: una coppia che nel dizionario **non esiste**.
+   Perciò `_canonical_market` verifica esplicitamente che la selezione appartenga al mercato
+   risolto (`MarketName` normalizzato uguale) e, se non lo è, **non risolve** (B20 #194, audit
+   #192 L16). Sul catalogo spedito non cambia nulla — misurato: 81 righe, 22 `MarketType` e 22
+   `MarketName` distinti, **0 collisioni** — chiude il caso del dizionario esteso o editato a
+   mano. *Residuo dichiarato:* su un catalogo così sporco le tendine GUI possono ancora
+   **offrire** una coppia che il runtime rifiuterà; la direzione resta sicura (segnale non
+   scritto, non scritto sbagliato).
    In più **`resolve_market` risolve ogni voce nella tupla CANONICA del Catalogo XTrader**
    (`_canonical_market`): il match è case/spazio-insensitive, ma ciò che si ritorna — e che
    il runtime scriverà nel CSV — sono **sempre** i valori canonici del catalogo

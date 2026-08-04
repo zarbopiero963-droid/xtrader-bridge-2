@@ -147,15 +147,35 @@ def test_end_to_end_parita_live_preview():
 
 
 def test_end_to_end_agnostico_fail_closed_su_ambiguita():
-    # Con lingua-fonte "" (non dichiarata) e voci mercato in DUE lingue che matchano la stessa
-    # frase con MarketType DIVERSI → ambiguità → riga SCARTATA (fail-closed, comportamento
-    # storico pre-5c: il dizionario non tira a indovinare). Nomi risolti ma segnale non
-    # piazzabile per il mercato ambiguo: nessun mercato inventato.
+    # Con lingua-fonte "" (non dichiarata) NULLA in questo segnale è decidibile: sono ambigui
+    # sia i NOMI (`Reds` → `Liverpool` EN / `Liverpool IT` IT) sia i MERCATI (la frase «gg» in
+    # due lingue → MarketType diversi). La riga è SCARTATA: nessun nome e nessun mercato
+    # inventati.
+    #
+    # Il gate che scatta è quello dei NOMI, che nella catena viene prima (B21, PR-P). Fino a
+    # PR-P questo test vedeva `MARKET_MAPPING_MISSING` perché il dizionario nomi, in assenza di
+    # filtro-lingua, risolveva `Reds` con la PRIMA riga salvata invece di fail-closare — il suo
+    # stesso commento diceva «Nomi risolti», e quei nomi erano scelti dall'ordine di salvataggio.
+    # Ora l'ambiguità dei nomi non passa più inosservata e il segnale si ferma uno stadio prima.
     name_profs = nm.entries_for_profiles(_cfg(), ["P"])
     mkt_profs = mms.entries_for_profiles(_cfg(), ["M"])
     r = pipe.build_validated_row(
         _parser(), _MSG, name_mapping_profiles=name_profs,
         market_mapping_profiles=mkt_profs, source_language="")
+    assert not r.placeable
+    assert r.status == "MAPPING_MISSING"
+
+
+def test_end_to_end_agnostico_il_gate_MERCATI_resta_coperto():
+    # Il compagno del test sopra, perché spostando quello si perderebbe la copertura del gate
+    # MERCATI: con nomi NON ambigui (una sola lingua nel dizionario nomi) la catena arriva fino
+    # ai mercati, e lì la frase «gg» in due lingue resta ambigua → `MARKET_MAPPING_MISSING`.
+    # Così entrambe le guardie restano esercitate, ciascuna sul suo stadio.
+    cfg = _cfg()
+    cfg["name_mappings"] = {"P": [r for r in _NAME_ROWS if r["language"] == "EN"]}
+    r = pipe.build_validated_row(
+        _parser(), _MSG, name_mapping_profiles=nm.entries_for_profiles(cfg, ["P"]),
+        market_mapping_profiles=mms.entries_for_profiles(cfg, ["M"]), source_language="")
     assert not r.placeable
     assert r.status == "MARKET_MAPPING_MISSING"
 

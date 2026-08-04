@@ -272,21 +272,145 @@ def ambiguous_alias_warnings(cfg: dict) -> list:
                 if not nt:
                     continue
                 voce = conflitti.setdefault(
-                    (key, nt, _scope_signature(e)),
-                    {"nome": str(e.get(key, "")).strip(), "betfair": []})
+                    (key, nt), {"nome": str(e.get(key, "")).strip(), "betfair": []})
                 if e["betfair"] not in voce["betfair"]:
                     voce["betfair"].append(e["betfair"])
-        for (key, _nt, _sig), voce in conflitti.items():
+        chiamanti = _chiamanti_plausibili(righe)
+        # Le righe indicizzate per nome normalizzato (alias E canonico). Senza questo, sondare
+        # ogni chiamante per ogni nome in conflitto significa rieseguire `_resolve_scoped`
+        # sull'INTERO profilo: misurato su un dizionario worst-case realistico (2000 righe,
+        # tutti gli sport/tipi/lingue, 200 alias in conflitto → 168 chiamanti) il costo era di
+        # **48,7 secondi**, e questa funzione gira allo START: l'app si sarebbe piantata per
+        # quasi un minuto (rischio sollevato da GPT-5.5 sulla #253 e confermato misurando).
+        #
+        # È equivalente, non un'approssimazione: una riga il cui nome non combacia con `nt` non
+        # produce mai un hit in `_resolve_in_tier` e non concorre mai all'ambiguità, e toglierla
+        # non altera né il rango né l'ordine delle righe che restano — quindi i gruppi di
+        # `_scoped_entry_groups` sono esattamente il sottoinsieme combaciante di quelli pieni.
+        # L'equivalenza è verificata su 26.235 dizionari dal test esaustivo.
+        per_nome = {}
+        for e in righe:
+            # `dict.fromkeys` deduplica i due nomi: se alias e canonico normalizzano uguale, la
+            # riga va inserita UNA volta sola, altrimenti comparirebbe due volte nel gruppo e
+            # falserebbe il conteggio delle destinazioni.
+            for n in dict.fromkeys(normalize(e.get(k, "")) for k in ("provider", "betfair")):
+                if n:
+                    per_nome.setdefault(n, []).append(e)
+        for (key, _nt), voce in conflitti.items():
             if len(voce["betfair"]) < 2:
                 continue                       # una sola destinazione = nessun conflitto
+            # L'avviso NON ricalcola l'ambiguità: la CHIEDE al runtime, con la STESSA funzione
+            # (`_resolve_scoped`) e per OGNI chiamante plausibile (B21 #194). Le due stesure
+            # precedenti sbagliavano proprio qui, e i due difetti sono stati trovati in review
+            # sulla #253 da Fable 5 e Fugu Ultra indipendentemente: sondare il solo chiamante
+            # agnostico taceva su un conflitto interno a uno sport con ripiego agnostico
+            # (parser che dichiara lo sport → ogni segnale perso, nessun ⚠️), e passare le
+            # righe PIATTE ignorava i tier di `_scoped_entry_groups`, quindi poteva accusare
+            # una config che il runtime risolve.
+            nt = normalize(voce["nome"])
+            candidate = per_nome.get(nt, [])
+            # I massimali sono strutturalmente un sottoinsieme dei plausibili, ma si sondano
+            # insieme: così la scelta del messaggio non dipende da quell'invariante: se un
+            # domani i due insiemi divergessero, `esiti` avrebbe comunque la risposta invece di
+            # un `None` silenzioso che farebbe passare per sano un conflitto insanabile.
+            massimali = _chiamanti_massimali(candidate)
+            esiti = {c: _resolve_scoped(nt, [candidate], *c) for c in chiamanti | massimali}
+            if _AMBIGUOUS not in esiti.values():
+                continue
             fase = "alias" if key == "provider" else "nome canonico"
             dove = ", ".join(f"«{b}»" for b in voce["betfair"])
-            warnings.append(
-                f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
-                f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) con lo stesso "
-                f"scope -> il nome NON viene tradotto (fail-closed). Correggi il Dizionario "
-                f"nomi, oppure distingui le righe per sport/tipo/lingua.")
+            # Due diagnosi diverse, perché chiedono due azioni diverse all'utente, e il
+            # discrimine è UNO: **esiste un parser che se la caverebbe?** Se sì, il dizionario
+            # è sano e basta dichiarare lo scope nel parser; se no, il conflitto è dentro uno
+            # scope e va corretto il dizionario.
+            #
+            # E la domanda va posta ai chiamanti **più specifici possibili**, non a uno
+            # qualsiasi. Due stesure sbagliate, entrambe corrette da una misura:
+            #
+            # - «fail-closa SOLO l'agnostico» sbagliava appena le righe portavano più di una
+            #   dimensione: con `sport` diverso ma **stesso** `entity_type`, anche il chiamante
+            #   che filtra il solo tipo resta bloccato → messaggio duro su un dizionario sano
+            #   (trovato preparando gli screenshot del pannello: la schermata e la misura,
+            #   messe una accanto all'altra, si contraddicevano);
+            # - «risolve QUALCUNO» sbagliava sul caso misto (rilievo GPT-5.5): due righe in
+            #   conflitto dentro `Calcio` più una che risolve in `Tennis` bastavano a
+            #   dichiararlo sano — ma dichiarare `Calcio` non aiuta, e il messaggio morbido
+            #   consigliava l'azione sbagliata proprio a chi ha il problema.
+            #
+            # `_chiamanti_massimali` è il prodotto dei valori NON vuoti presenti su ogni
+            # dimensione: sono gli scope più stretti che un parser possa dichiarare su queste
+            # righe. Se uno di quelli resta ambiguo, nessuna configurazione lo schiva.
+            risolvibile = all(esiti[c] is not _AMBIGUOUS for c in massimali)
+            if risolvibile:
+                warnings.append(
+                    f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
+                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}), distinguibili "
+                    f"SOLO da uno sport/tipo/lingua -> un parser che non li specifica NON traduce "
+                    f"il nome (fail-closed). Va bene se i tuoi parser dichiarano lo scope; "
+                    f"altrimenti lascia una riga agnostica come ripiego.")
+            else:
+                warnings.append(
+                    f"Mappatura nomi «{_norm_profile_name(profile)}», {fase} «{voce['nome']}»: "
+                    f"punta a {len(voce['betfair'])} nomi Betfair diversi ({dove}) che NEMMENO "
+                    f"un parser con sport/tipo/lingua dichiarati riesce a distinguere -> il nome "
+                    f"NON viene tradotto (fail-closed). Correggi il Dizionario nomi, oppure "
+                    f"distingui le righe per sport/tipo/lingua.")
     return warnings
+
+
+def _chiamanti_plausibili(righe) -> set:
+    """Gli scope ``(sport, entity_type, language)`` per cui un parser dell'utente può
+    interrogare **queste** righe: il **prodotto cartesiano** dei valori presenti su ciascuna
+    dimensione, più il vuoto (= non filtrata) su ognuna.
+
+    Il prodotto non è pignoleria (rilievo Fable 5 sulla #253). La stesura precedente provava
+    le tuple **per riga** più l'agnostico, e mancava le combinazioni che nessuna singola riga
+    esibisce. Una ricerca esaustiva su 26.235 dizionari di 2–3 righe ha trovato **528 casi** in
+    cui il runtime fail-closava per ambiguità senza che l'avviso dicesse nulla; il più semplice:
+
+        righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
+        scope che perde: (sport="", entity_type="team", language="")
+
+    `("", "team", "")` non è la tupla di nessuna riga — entrambe le righe `team` hanno anche
+    una lingua — ma è esattamente ciò che passa `custom_pipeline` con un parser senza sport e
+    senza lingua-fonte, cioè il caso **più comune**. La stessa ricerca, col prodotto, dà **0
+    buchi e 0 falsi positivi**.
+
+    Dimensione: `(|sport|+1) × (|tipo|+1) × (|lingua|+1)` per profilo, coi valori presi dalle
+    righe — tipi e lingue sono limitati dai rispettivi vocabolari, gli sport da quanti ne usa
+    l'utente. Si valuta **una volta al load**, non per messaggio."""
+    sport = {e.get("sport", "") or "" for e in righe} | {""}
+    tipi = {e.get("entity_type", "") or "" for e in righe} | {""}
+    lingue = {e.get("language", "") or "" for e in righe} | {""}
+    return {(s, t or None, l) for s in sport for t in tipi for l in lingue}
+
+
+def _chiamanti_massimali(righe) -> set:
+    """Gli scope **più stretti** che un parser possa dichiarare su queste righe: il prodotto
+    dei valori NON vuoti presenti su ogni dimensione (una dimensione senza valori resta ``""``,
+    perché non c'è nulla da dichiarare).
+
+    Serve a scegliere il messaggio, non a decidere se avvisare. Se anche uno solo di questi
+    chiamanti resta ambiguo, **nessuna** configurazione di parser schiva il conflitto: la
+    diagnosi è «correggi il Dizionario nomi». Se invece li risolvono tutti, il dizionario è
+    sano e basta dichiarare lo scope nel parser.
+
+    Sottoinsieme di `_chiamanti_plausibili` (che include anche gli scope parziali, e serve a
+    decidere **se** avvisare): qui interessano solo i più specifici. L'inclusione è verificata
+    da un test, ed è anche ciò che rende sondarli gratuito — l'unione dei due insiemi è il primo.
+
+    Invariante da tenere presente (rilievo Fable 5): un massimale che risolve a ``None`` —
+    nessuna riga eleggibile per quella combinazione — conta come «risolvibile», ed è corretto:
+    `None` significa «questo alias non esiste in quello scope», non «non so scegliere». È
+    `_AMBIGUOUS`, sentinella distinta, a segnalare il conflitto. Se un domani `None` e conflitto
+    collassassero sullo stesso valore, questa funzione tacerebbe sui conflitti veri."""
+    dimensioni = []
+    for d in _SCOPE_DIMENSIONS:
+        valori = {e.get(d, "") or "" for e in righe}
+        valori.discard("")
+        dimensioni.append(sorted(valori) or [""])
+    return {(s, t or None, l)
+            for s in dimensioni[0] for t in dimensioni[1] for l in dimensioni[2]}
 
 
 def _entity_eligible(entry, allowed) -> bool:
@@ -358,21 +482,45 @@ def _scoped_entry_groups(entries, want_sport, want_entity=None, want_language=""
 _AMBIGUOUS = object()
 
 
-def _scope_signature(e):
-    """Firma di scoping di una riga: ``(sport, entity_type, language)``. Due righe con firma
-    DIVERSA sono override distinguibili (il chiamante può separarle passando lo scope), non un
+#: Le dimensioni di scoping, nell'ordine della firma. Fonte unica: `_scope_signature`
+#: e `resolve_team` devono nominarle allo stesso modo, o la firma si disallinea in
+#: silenzio dal filtro (B21 #194).
+_SCOPE_DIMENSIONS = ("sport", "entity_type", "language")
+
+
+def _scope_signature(e, dimensioni_filtrate=()):
+    """Firma di scoping di una riga, limitata alle dimensioni su cui il chiamante **ha
+    davvero filtrato**. Due righe con firma DIVERSA sono override distinguibili, non un
     conflitto; solo righe con firma UGUALE sono indistinguibili.
 
     Le righe arrivano già ripulite da `_clean_entry` (sport via `sports.normalize_sport`, tipo e
     lingua via i rispettivi normalizzatori), quindi due scope **equivalenti** scritti con casing o
     spazi diversi (``"Calcio"``/``"calcio"``) collassano allo STESSO valore → l'ambiguità fra
-    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica."""
-    return (str(e.get("sport", "") or ""),
-            str(e.get("entity_type", "") or ""),
-            str(e.get("language", "") or ""))
+    Betfair diversi viene comunque rilevata, non sfugge per una differenza cosmetica.
+
+    **`dimensioni_filtrate` (B21 #194, audit #192 L13).** Prima la firma includeva SEMPRE tutte e
+    tre le dimensioni, e quindi dichiarava «distinguibili» due righe che il chiamante **non aveva
+    alcun modo di distinguere**. Un parser sport-agnostico chiama `resolve_team` senza `sport`:
+    con `Inter → Inter Milano` (Calcio) e `Inter → Inter Miami` (Basket) le firme risultavano
+    diverse, la guardia anti-ambiguità non scattava, e vinceva la **prima riga salvata**.
+    Misurato prima della correzione:
+
+        ordine A -> 'Inter Milano'
+        ordine B -> 'Inter Miami'      <- la squadra dipendeva dall'ordine di salvataggio
+
+    Senza un avviso, e su un percorso vivo: quel nome finisce nell'`EventName`, quindi nel
+    mercato e nella selezione su cui si scommette.
+
+    La regola giusta è che **una dimensione distingue solo se il chiamante ha filtrato su di
+    essa**: se non ha passato `sport`, lo sport non può separare due righe in conflitto, perché
+    non è una scelta che qualcuno abbia fatto — è solo un dato che sta nel file. Le dimensioni
+    non filtrate collassano fuori dalla firma, le righe tornano indistinguibili e la guardia
+    esistente fa fail-closed, come già faceva a firma uguale."""
+    return tuple(str(e.get(d, "") or "") for d in _SCOPE_DIMENSIONS
+                 if d in dimensioni_filtrate)
 
 
-def _resolve_in_tier(nt, group, key):
+def _resolve_in_tier(nt, group, key, dimensioni_filtrate=()):
     """Risolve una fase (``key``: ``"provider"`` = alias · ``"betfair"`` = canonico) dentro un
     tier (gruppo di righe dello stesso rango), preservando l'ordine salvato:
 
@@ -391,9 +539,24 @@ def _resolve_in_tier(nt, group, key):
                if e.get(key, "") and e.get("betfair", "") and normalize(e.get(key, "")) == nt]
     if not matches:
         return None
+    # Dimensioni su cui il chiamante NON ha filtrato: lì una riga AGNOSTICA è la risposta
+    # naturale — è esattamente ciò per cui l'utente l'ha creata — mentre le righe che portano
+    # un valore SPECIFICO sono override che a questa domanda non si applicano. Se esistono
+    # righe agnostiche su tutte le dimensioni non filtrate si usano quelle (comportamento
+    # legacy: «agnostica + override per-sport, chiamante senza sport → l'agnostica»).
+    # Solo quando NON ce n'è nessuna restano in gioco righe tutte specifiche e non
+    # distinguibili, ed è lì che vive B21: `Calcio → Inter Milano` contro
+    # `Basket → Inter Miami` con chiamante agnostico non ha una risposta giusta, e prima
+    # vinceva la prima salvata.
+    non_filtrate = [d for d in _SCOPE_DIMENSIONS if d not in dimensioni_filtrate]
+    if non_filtrate:
+        agnostiche = [e for e in matches
+                      if all(not str(e.get(d, "") or "") for d in non_filtrate)]
+        if agnostiche:
+            matches = agnostiche
     by_sig = {}
     for e in matches:
-        by_sig.setdefault(_scope_signature(e), set()).add(e.get("betfair", ""))
+        by_sig.setdefault(_scope_signature(e, dimensioni_filtrate), set()).add(e.get("betfair", ""))
     if any(len(betfairs) > 1 for betfairs in by_sig.values()):
         return _AMBIGUOUS
     return matches[0].get("betfair", "")
@@ -446,22 +609,67 @@ def resolve_team(team: str, profiles, sport=None, entity_type=None, language=Non
     nt = normalize(team)
     if not nt:
         return None
+    esito = _resolve_scoped(nt, profiles, sport, entity_type, language)
+    if esito is _AMBIGUOUS:
+        # Il nome normalizzato nel messaggio: senza, l'operatore vede una riga generica per
+        # ogni segnale scartato e non sa QUALE voce correggere (CodeRabbit). `nt` è un nome
+        # squadra normalizzato, non un segreto.
+        _LOG.warning(
+            "name_mappings: alias ambiguo per %r (≥2 Betfair diversi per lo stesso nome "
+            "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
+            "Correggi il Dizionario nomi.", nt)
+        return None
+    return esito
+
+
+def _dimensioni_filtrate(sport, entity_type, language) -> set:
+    """Quali dimensioni di scope il chiamante ha **davvero** filtrato (B21 #194).
+
+    Solo queste possono rendere «distinguibili» due righe in conflitto: una dimensione su cui
+    non si è filtrato non è una scelta di nessuno, è solo un dato che sta nel file — e usarla
+    per separare due righe significa risolvere in base all'ordine di salvataggio. Si usano i
+    valori NORMALIZZATI (come i filtri stessi), così uno sport ignoto — che non filtra nulla —
+    non conta come filtro attivo."""
+    filtrate = set()
+    if sports.normalize_sport(sport):
+        filtrate.add("sport")
+    if _entity_filter(entity_type) is not None:
+        filtrate.add("entity_type")
+    if recognition.normalize_source_language(language):
+        filtrate.add("language")
+    return filtrate
+
+
+def _resolve_scoped(nt, profiles, sport, entity_type, language):
+    """Il **cuore** della risoluzione: ritorna il nome Betfair, `_AMBIGUOUS`, oppure ``None``.
+
+    Fonte unica (Regola 3). `resolve_team` ci aggiunge solo la normalizzazione del nome e il
+    log; `ambiguous_alias_warnings` la interroga per sapere se un dato chiamante fail-closa.
+    Prima l'avviso *simulava* il runtime passando le righe piatte a `_resolve_in_tier`, e le
+    due detection potevano divergere in due modi, entrambi trovati in review sulla #253
+    (Fable 5 e Fugu Ultra, indipendentemente):
+
+    - **taceva su un conflitto vivo**: due righe in conflitto dentro `sport=Calcio` più una
+      riga agnostica di ripiego: il sondaggio agnostico risolveva sull'agnostica, quindi
+      nessun avviso — ma un parser che dichiara `Calcio` perdeva OGNI segnale, senza un ⚠️;
+    - **ignorava i tier**: il runtime scorre i gruppi di `_scoped_entry_groups` dal più
+      specifico all'agnostico e si ferma al primo esito; su righe piatte quella precedenza
+      non esiste, quindi l'avviso poteva accusare una config che il runtime risolve.
+
+    Chiamando la stessa funzione la divergenza non è «improbabile»: è impossibile."""
+    filtrate = _dimensioni_filtrate(sport, entity_type, language)
     want = sports.normalize_sport(sport)
     for entries in profiles:
         # Si esaurisce un TIER di priorità (alias, poi canonico) PRIMA di scendere al tier
         # più agnostico: così un alias agnostico non scavalca un canonico esatto-sport dello
         # stesso nome (Codex P2 #174). Dentro il tier resta alias→canonico (l'alias del
         # provider ha precedenza sul nome canonico). Un alias/canonico ambiguo nel tier
-        # (≥2 betfair diversi) fa fail-closed (None), non si indovina (audit #137).
+        # (≥2 betfair diversi) fa fail-closed, non si indovina (audit #137).
         for group in _scoped_entry_groups(entries, want, entity_type, language):
             for key in ("provider", "betfair"):   # alias PRIMA del canonico (precedenza invariata)
-                hit = _resolve_in_tier(nt, group, key)
+                hit = _resolve_in_tier(nt, group, key, filtrate)
                 if hit is _AMBIGUOUS:
-                    _LOG.warning(
-                        "name_mappings: alias ambiguo (≥2 Betfair diversi per lo stesso nome "
-                        "nello stesso profilo/tier) → fail-closed, nessuna traduzione. "
-                        "Correggi il Dizionario nomi.")
-                    return None
+                    return _AMBIGUOUS
                 if hit is not None:
                     return hit
     return None

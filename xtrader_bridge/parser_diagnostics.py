@@ -73,7 +73,14 @@ _EXPLAIN = {
     INVALID_PRICE_BOUNDS: "limiti di prezzo incoerenti (Min > Max o intervallo che esclude Price)",
     MISSING_PROVIDER: "Provider mancante (richiesto dal contratto)",
     MODE_REQUIRED_MISSING: "campo richiesto dalla Modalità di riconoscimento",
-    MAPPING_MISSING: "EventName non traducibile: separatore non trovato o squadra non nei profili di mappatura nomi",
+    # Tre cause, non due (B21 PR-P #194): oltre al separatore e alla squadra assente c'è ora
+    # l'alias AMBIGUO — la squadra è nei profili, ma punta a ≥2 nomi Betfair diversi che il
+    # parser non sa distinguere. Va nominata, altrimenti l'utente legge «non nei profili» e va
+    # ad aggiungere una riga che c'è già, peggiorando il conflitto invece di risolverlo. Il
+    # dettaglio su QUALE alias e su cosa fare è nell'avviso al load (`ambiguous_alias_warnings`).
+    MAPPING_MISSING: ("EventName non traducibile: separatore non trovato, squadra non nei profili "
+                      "di mappatura nomi, oppure alias ambiguo (stessa squadra su ≥2 nomi Betfair "
+                      "diversi non distinguibili dal parser)"),
     MARKET_MAPPING_MISSING: "mercato non risolvibile: frasi ambigue, o nessuna frase combacia e nessun mercato dalle regole",
     # #182 PR S — il testo dice COSA FARE, non solo cosa è successo: il campo da correggere è
     # nominato per esteso, perché è l'unica azione che sblocca il messaggio. Senza questa voce

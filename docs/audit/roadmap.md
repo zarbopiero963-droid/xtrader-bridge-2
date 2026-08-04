@@ -5034,3 +5034,270 @@ che oggi scrive correttamente, un danno molto maggiore di quello che questa PR p
 
 Invariato anche il percorso **con dizionario attivo** (`MAPPING_MISSING`): area dichiarata sana
 dall'audit, non toccata.
+
+---
+
+## PR-P (#194 · B20 + B21) — la guardia che confrontava la dimensione sbagliata
+
+Due difetti della stessa forma: una guardia anti-ambiguità **c'è già**, ma si lascia aggirare
+perché confronta la dimensione sbagliata. Entrambi chiusi qui — B21 dopo una decisione esplicita
+del proprietario, perché il suo baratto non era tecnico.
+
+### B20 (#192 L16) — la selezione poteva venire da un altro mercato · CORRETTO
+
+`dizionario.selections_for_market` combacia su `MarketType` **oppure** `MarketName`. È utile per
+le tendine della GUI (si passa l'uno o l'altro), ma al momento di **accoppiare** mercato e
+selezione è pericoloso: se il `MarketName` risolto coincide col `MarketType` di un'**altra** riga,
+la selezione arriva da quella riga e si accoppia al `market_type` di questa. Misurato sul codice
+vecchio, con un catalogo di due righe:
+
+```
+{'market_type': 'MATCH_ODDS', 'market_name': 'Vincente',
+ 'selection_name': 'Selezione di UN ALTRO mercato'}
+```
+
+`market_type` e `market_name` dalla riga A, `selection_name` dalla riga B: una coppia che nel
+dizionario **non esiste**, scritta nel CSV come se esistesse. Chiuso in `_canonical_market`
+saltando le selezioni il cui `MarketName` normalizzato non è quello del mercato risolto.
+
+**Raggio d'azione, misurato invece che stimato:** il catalogo spedito ha 81 righe, 22 `MarketType`
+e 22 `MarketName` distinti, **0 collisioni** e **0 righe a rischio**. La correzione non cambia
+nulla sul dato vero: chiude il dizionario esteso o editato a mano. Suite storica invariata.
+
+**Residuo dichiarato** (trovato cercando i *consumatori*, non i siti): `parser_builder.
+selection_options` e `name_mapping_gui._selections_for` usano lo stesso `selections_for_market`
+per le tendine. Su un catalogo con collisioni possono ancora **offrire** una coppia che il runtime
+ora rifiuta → il segnale si perde invece di essere sbagliato. Direzione sicura, residuo scritto
+qui perché non venga riscoperto come bug. `config_agent` usa la stessa funzione ma passa sempre un
+`MarketType`: non toccato (area dichiarata sana, Regola 5).
+
+### B21 (#192 L13) — l'ordine di salvataggio decideva la squadra · CORRETTO fail-closed
+
+Una riga del Dizionario nomi era considerata «distinguibile» da un'altra se differiva per
+`(sport, entity_type, language)`. Ma la firma **non sa se il chiamante ha davvero filtrato** su
+quelle dimensioni: un parser sport-agnostico passa `sport=None`, le due righe restano formalmente
+distinte, la guardia anti-ambiguità non scattava e la risoluzione ricadeva sulla **prima salvata**.
+Misurato prima della correzione:
+
+```
+alias "Inter" -> "Inter Milano" (Calcio)  |  "Inter Miami" (Basket)
+ordine A -> 'Inter Milano'
+ordine B -> 'Inter Miami'      <-- la squadra dipende dall'ORDINE DI SALVATAGGIO
+```
+
+Il valore finisce nell'`EventName`, quindi nel mercato e nella selezione su cui si scommette.
+
+**È vivo sul percorso di produzione, e su quali dimensioni** (misurato in review sulla #253, dopo
+il rilievo di Fugu Ultra). L'unico call site reale è `custom_pipeline` → `resolve_event_name` →
+`resolve_team`, e passa **sempre** `entity_type=PARTICIPANT_ENTITY_TYPES`, ma
+`sport=getattr(defn, "sport", "")` e `language=source_language` possono essere **vuoti**. Con
+quella firma esatta:
+
+```text
+entity_type filtrato (produzione), sport vuoto:
+   ordine A -> 'Inter Milano'
+   ordine B -> 'Inter Miami'
+```
+
+Quindi le dimensioni scoperte sono **`sport` e `language`**, non `entity_type`: quella è sempre
+filtrata e infatti risolve in modo deterministico (riga `competition` esclusa dal filtro, non
+indovinata). Il difetto è più stretto di come lo descriveva la prima stesura, e comunque **reale**.
+
+**La mitigazione ad avvisi, e perché è arrivata solo con la correzione.** In review (rilievo Fugu
+Ultra) era stato chiesto un avviso temporaneo. Rifiutato allora, e per una ragione che vale la pena
+tenere: `ambiguous_alias_warnings(cfg)` vede **solo il dizionario**, non se il parser attivo
+valorizza `sport`. Finché il runtime risolveva per ordine di salvataggio, per l'utente che lo
+valorizza le righe *erano* distinguibili e l'avviso sarebbe stato un falso positivo a ogni avvio —
+esattamente ciò contro cui mette in guardia il docstring della funzione: «un avviso che diverge è
+peggio di nessun avviso, perché o tace su un conflitto vivo o accusa una configurazione sana».
+
+Con il fail-closed la contraddizione sparisce: se le righe sono distinguibili solo dallo scope, un
+parser che non lo dichiara **davvero** non traduce, quindi l'avviso non accusa nessuno — informa.
+Perciò l'avviso c'è, in **due varianti**, perché chiedono due azioni diverse: righe con lo stesso
+scope → «correggi il dizionario»; righe distinguibili solo da sport/tipo/lingua → «va bene se i
+tuoi parser dichiarano lo scope, altrimenti lascia una riga agnostica come ripiego».
+
+E non ricalcola nulla: **chiede al runtime** (`_resolve_in_tier`) invece di rifare la detection
+raggruppando per firma. Prima la rifaceva, e appena il runtime è diventato più stretto le due
+sarebbero divergute — con l'avviso che dichiarava sana una configurazione su cui il resolver ormai
+fail-closava. Chiedendolo, la divergenza è strutturalmente impossibile, ed è ciò che
+`test_avviso_e_runtime_dicono_la_STESSA_cosa` verifica su una matrice di configurazioni.
+
+### La decisione, e cosa comporta
+
+Il baratto non era tecnico:
+
+| Scelta | Costo |
+|---|---|
+| **fail-closed** (non risolvo se il chiamante non ha filtrato) | eventi oggi tradotti smettono di esserlo → **segnali persi** |
+| **ordine di salvataggio** (com'era) | ogni tanto si traduce la squadra sbagliata → **scommessa sbagliata** |
+
+Il piano #194 non copriva questa scelta (non è fra D1/D2/D3) e CLAUDE.md Regola 5 prescrive di
+fermarsi e chiedere. **Il proprietario ha scelto fail-closed**: un segnale perso è visibile e si
+corregge, una squadra sbagliata no.
+
+**La guardia non è «non risolvo mai», ed è la parte da non rompere.** Quando c'è una risposta
+giusta viene data. Chi filtra ottiene la sua riga. Chi **non** filtra ottiene la riga
+**agnostica** — quella che l'utente ha scritto come «vale per tutto» — se esiste: è la risposta
+esplicita per un chiamante senza scope, e ha il pregio di non dipendere dall'ordine. Fail-closed
+scatta solo quando restano ≥2 destinazioni davvero indistinguibili per quel chiamante.
+
+**Gli otto test riorientati, non cancellati.** Codificavano il comportamento a ordine di
+salvataggio; ognuno continua a difendere la garanzia per cui era stato scritto:
+
+| Test | Cosa difendeva | Come è stato riorientato |
+|---|---|---|
+| `..._source_language_none_comportamento_legacy` | che senza lingua si risolvesse comunque | rinominato `..._su_dizionario_ambiguo_ora_fail_closed`; aggiunto il gemello che verifica che un dizionario **decidibile** traduca come sempre, BetType incluso |
+| `..._globale_malformata_fail_safe` | «malformata == assente», non un filtro rotto | l'invariante è verificata **come uguaglianza fra i due casi** invece che cablando l'esito «Liverpool - Leeds», che era il comportamento a ordine di salvataggio |
+| `..._parita_live_preview_source_language` | parità live/anteprima per ogni lingua | la parità si pretende **anche sul percorso fail-closed** — un'anteprima che mostra una riga mentre il live la scarta è il modo peggiore di sbagliare |
+| `test_end_to_end_agnostico_fail_closed_su_ambiguita` | il gate MERCATI | il gate NOMI ora scatta prima (i nomi *erano* ambigui, e il commento diceva «Nomi risolti»); aggiunto il compagno con nomi non ambigui, così il gate mercati resta coperto |
+| `..._override_scoped_NON_e_ambiguo` · `..._filtro_lingua_esatta_e_agnostica` | che scoped + agnostica non fosse un conflitto | resta vero, ma senza filtro vince l'**agnostica** invece della prima salvata; aggiunto l'assert che l'ordine non conta più |
+| `test_scope_diverso_non_e_ambiguo_scope_uguale_si` | che sport diversi non fossero un falso positivo | l'assunto era sbagliato — `custom_pipeline` passa `sport` **vuoto** per un parser senza sport; rinominato `test_scope_diverso_e_ambiguo_SE_il_chiamante_non_filtra` |
+| `test_avviso_e_runtime_dicono_la_STESSA_cosa` | equivalenza avviso ↔ runtime | equivalenza **invariata**; tre righe della matrice passano da `False` a `True`, perché il ciclo interroga `resolve_team` **senza scope** — la stessa cosa che fa la pipeline |
+
+### Il giro di review: l'avviso sbagliava due volte, e sempre per la stessa causa
+
+`ambiguous_alias_warnings` **simulava** il runtime invece di chiamarlo, e Fable 5 e Fugu Ultra
+hanno trovato indipendentemente i due modi in cui questo divergeva.
+
+**Taceva su un conflitto vivo** (Fable 5). Due righe in conflitto *dentro* `sport=Calcio` più una
+riga agnostica di ripiego: il sondaggio — che interrogava il solo chiamante **agnostico** —
+risolveva sull'agnostica, quindi nessun avviso. Ma un parser che dichiara `Calcio` fail-closa.
+Misurato prima della correzione:
+
+```text
+chiamante agnostico      -> 'Inter generico'
+chiamante sport=Calcio   -> None          (ogni segnale perso)
+AVVISI                   -> NESSUNO       (l'utente non sa perché)
+```
+
+Il caso peggiore possibile per una diagnostica: il difetto colpisce **solo** chi ha configurato
+tutto per bene, e proprio a lui non dice niente.
+
+**Ignorava i tier** (Fugu Ultra). Il runtime scorre i gruppi di `_scoped_entry_groups` dal tier
+più specifico all'agnostico e si ferma al primo esito; l'avviso passava le righe **piatte** a
+`_resolve_in_tier`, dove quella precedenza non esiste — quindi poteva anche accusare una config
+che il runtime risolve.
+
+**Una causa sola, una correzione sola.** Il cuore della risoluzione è stato estratto in
+`_resolve_scoped` (nome, profili, scope → nome Betfair · `_AMBIGUOUS` · `None`), e ora
+`resolve_team` ci aggiunge solo la normalizzazione e il log, mentre l'avviso **chiede alla stessa
+funzione** se un dato chiamante fail-closa — provando l'agnostico più ogni combinazione di scope
+che il dizionario stesso contiene (insieme finito: quello delle righe). La divergenza non è
+«improbabile», è impossibile: non ci sono due implementazioni da tenere allineate.
+
+Il commento della stesura precedente prometteva già che la divergenza fosse «strutturalmente
+impossibile». Non lo era: chiamava `_resolve_in_tier`, cioè un **pezzo** del runtime, non il
+runtime. È la differenza fra riusare una funzione e riusare *la decisione*.
+
+**Regola 2, la classe:** i due `malformed_entry_warnings` (nomi e mercati) condividono già il
+predicato `_malformed_fields` col resolver — sono cioè già scritti nella forma giusta.
+`source_manager.duplicate_name_warnings` non rispecchia alcuna decisione di runtime (il routing
+usa il `chat_id`). `ambiguous_alias_warnings` era l'unico sito fuori regola.
+
+**Terzo giro: il prodotto cartesiano, e una ricerca esaustiva invece di un'opinione.** Fable 5 ha
+poi osservato che i chiamanti sondati erano le tuple **per riga** più l'agnostico, e che un parser
+filtra una **combinazione** che può non comparire su nessuna singola riga. Il suo esempio non
+riproduceva (lì ogni chiamante risolve), ma un esempio che non riproduce non è una prova: sono
+stati generati **tutti** i dizionari di 2–3 righe su un alfabeto di scope ridotto — 26.235 casi —
+e confrontato «esiste un chiamante per cui il runtime fail-closa per ambiguità» con «c'è
+l'avviso». Esito: **528 buchi**, zero falsi positivi. Il più semplice:
+
+```text
+righe:  (agnostica → A) · (team, IT → A) · (team, EN → B)
+scope che perde: (sport="", entity_type="team", language="")
+```
+
+`("", "team", "")` non è la tupla di nessuna riga — entrambe le `team` hanno anche una lingua — ma
+è **esattamente** ciò che passa `custom_pipeline` con un parser senza sport e senza lingua-fonte:
+il caso più comune. Con il prodotto cartesiano (`_chiamanti_plausibili`): **0 buchi, 0 falsi
+positivi**. La ricerca è rimasta come test di regressione.
+
+**Il primo tentativo di misura mentiva, e vale la pena dirlo.** La ricerca iniziale usava
+`resolve_team(...) is None` come segnale di fail-closed e trovava «buchi» in cui le due righe
+avevano lo **stesso** `betfair`: nessuna ambiguità, semplicemente nessuna riga per quello scope.
+`None` per nome sconosciuto non è un conflitto — la distinzione che il docstring di
+`test_avviso_e_runtime_dicono_la_STESSA_cosa` segnalava già, e che ho dovuto reimparare
+misurando. La ricerca buona interroga `_resolve_scoped` e confronta con `_AMBIGUOUS`.
+
+**E il test esaustivo, la prima volta, era verde su codice sabotato.** Costruiva l'insieme dei
+chiamanti chiamando `_chiamanti_plausibili`, cioè la funzione di produzione: sabotandola degradava
+anche l'oracolo e il confronto restava vero. Ora il prodotto cartesiano se lo calcola il test.
+Scoperto provando a rompere il test, non leggendolo.
+
+**Quarto giro: la diagnostica corretta bloccava l'avvio per 48 secondi.** GPT-5.5 ha chiesto di
+verificare il costo al load su un file nomi realistico. Misurato su un worst-case (2000 righe,
+tutti gli sport/tipi/lingue, 200 alias in conflitto → 168 chiamanti sondati): **48,7 secondi**. E
+`ambiguous_alias_warnings` gira allo **START**, quindi l'app si sarebbe piantata per quasi un
+minuto — una diagnostica giusta pagata con una regressione peggiore del difetto che diagnostica.
+Fable 5 nello stesso giro aveva escluso il rischio prestazionale: era un'opinione, la misura dice
+il contrario.
+
+Causa: per ogni nome in conflitto e per ogni chiamante si rieseguiva `_resolve_scoped` sull'INTERO
+profilo. Il profilo è ora **indicizzato per nome normalizzato**, così ogni sondaggio vede solo le
+righe che possono combaciare: **0,177 s**, con gli **stessi 200 avvisi** — nessuna diagnosi persa.
+
+L'indice è **equivalente, non un'approssimazione**: una riga il cui nome non combacia non produce
+mai un hit in `_resolve_in_tier` e non concorre all'ambiguità, e toglierla non altera né il rango
+né l'ordine delle righe che restano — i gruppi di `_scoped_entry_groups` sono esattamente il
+sottoinsieme combaciante di quelli pieni. L'equivalenza è verificata dal test esaustivo sui 26.235
+dizionari, che resta verde. La regressione prestazionale è a sua volta un test, verificato per
+sabotaggio: togliendo l'indice diventa rosso.
+
+**Quinto giro: l'avviso mandava a correggere un dizionario SANO.** Trovato preparando gli
+screenshot del pannello per il proprietario, non da un test né da un reviewer. Il profilo di
+esempio «Serie A» — `Inter` → `Inter Milano` (Calcio) e `Inter Miami` (Basket), entrambe
+`entity_type=team` — riceveva il messaggio duro («NEMMENO un parser con sport/tipo/lingua
+dichiarati riesce a distinguere»), mentre la misura stampata **accanto alla schermata** diceva:
+
+```text
+Serie A: senza sport -> None | sport=Calcio -> 'Inter Milano'
+```
+
+Cioè un parser che dichiara lo sport risolveva benissimo, e l'avviso mandava l'utente a correggere
+un dizionario **sano** invece che a dichiarare lo scope nel parser. Il messaggio è la sola cosa che
+l'utente legge: se indica l'azione sbagliata, la diagnostica è peggio che assente.
+
+Causa: il discrimine fra le due diagnosi era «fail-closa **solo** il chiamante agnostico», che
+smette di funzionare appena le righe portano più di una dimensione valorizzata — con `sport` **e**
+`entity_type` popolati, anche il chiamante che filtra il solo tipo resta bloccato, e tanto basta a
+far scattare il ramo duro. Sostituito col discrimine giusto e più semplice: **esiste un chiamante
+che risolve?** Se sì → «dichiara lo scope nel parser»; se no → «correggi il dizionario».
+
+Verificato per sabotaggio (rimettendo la vecchia regola il test torna rosso). Vale la pena
+notarlo: nessuno dei quattro reviewer l'ha visto, e nessun test scritto fin lì lo copriva — l'ha
+trovato l'aver messo **la schermata e la misura una accanto all'altra**, che è una forma di
+verifica che il testo di un avviso merita, perché è l'unica parte del sistema che parla
+direttamente all'utente.
+
+**Sesto giro: «risolve qualcuno» non è «il dizionario è sano».** Rilievo GPT-5.5, confermato
+misurando — e sullo stesso identico punto Fable 5 aveva scritto che la regola era «corretta per
+costruzione». Il caso misto: due righe in conflitto **dentro** `Calcio` più una che risolve in
+`Tennis`.
+
+```text
+agnostico      -> None
+sport=Calcio   -> None                  (l'utente con un parser Calcio è bloccato)
+sport=Tennis   -> 'Tennista United'
+```
+
+Con `any(...)` bastava la risoluzione di `Tennis` per dichiararlo sano, e usciva il messaggio
+morbido «dichiara lo scope nel parser» — ma dichiarare `Calcio` **non aiuta**: il messaggio
+consigliava l'azione sbagliata proprio all'utente che ha il problema.
+
+La regola giusta guarda i chiamanti **massimali** (`_chiamanti_massimali`): il prodotto dei valori
+non vuoti presenti su ogni dimensione, cioè gli scope più stretti che un parser possa dichiarare
+su quelle righe. Se anche uno solo resta ambiguo, nessuna configurazione lo schiva → «correggi il
+dizionario». I tre casi, misurati dopo:
+
+| Dizionario | Messaggio |
+|---|---|
+| Calcio/Basket, stesso tipo | morbido — dichiara lo scope |
+| stesso sport, stesso tipo | duro — correggi il dizionario |
+| misto (Calcio rotto, Tennis sano) | duro — correggi il dizionario |
+
+**Tre giri di fila sullo stesso predicato**, ciascuno corretto da una misura e non da una lettura:
+è il segno che il testo di un avviso va verificato come si verifica una funzione — la sua
+correttezza è «indica l'azione giusta», e nessun test di comportamento la cattura.
+
+Suite completa dopo la correzione: **5079 passed, 1 skipped**, zero `xfail` residui.
