@@ -10,7 +10,7 @@ altri pannelli GUI, non testati in CI perché richiedono un display).
 
 import customtkinter as ctk
 
-from . import i18n
+from . import i18n, ui_theme
 
 # Colori semantici theme-aware `(chiaro, scuro)`, coerenti con il resto della GUI
 # (stessa palette di custom_parser_gui/app: verde OK, arancio avviso, rosso reale).
@@ -161,7 +161,7 @@ class ConfigSummaryPanel(ctk.CTkFrame):
             return
 
         for ch in summary.channels:
-            card = ctk.CTkFrame(self._body)
+            card = ctk.CTkFrame(self._body, fg_color=ui_theme.SURFACE, corner_radius=ui_theme.RADIUS_CARD, border_width=1, border_color=ui_theme.BORDER)
             card.pack(fill="x", padx=4, pady=3)
             ctk.CTkLabel(card, text=channel_title(ch), anchor="w",
                          font=ctk.CTkFont(weight="bold")).pack(fill="x", padx=8, pady=(6, 1))

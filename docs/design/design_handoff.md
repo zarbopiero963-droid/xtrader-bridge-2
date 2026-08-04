@@ -952,16 +952,29 @@ attualmente nascosta ma ritenuta**, come «🧹 Nomi squadra» dalla #182 PR N �
 
 ### 7.1 🧩 Parser Personalizzato (`custom_parser_gui.py`) — il pannello più complesso
 Costruttore visuale che definisce **come estrarre ogni colonna del CSV** da un messaggio,
-senza toccare il codice. È il cuore della configurazione avanzata. Sezioni:
+senza toccare il codice. È il cuore della configurazione avanzata.
+
+> **#182 restyle (2026-08-04) — composizione a DUE COLONNE, sketch = specifica.** Il pannello
+> è diviso da un grid in **colonna sinistra fissa (272px)** — la card della lista parser, bordo
+> `ACCENT`, che NON scorre con l'editor — e **colonna destra scrollabile** con le sezioni,
+> ognuna una **card** `SURFACE` con bordo `BORDER` e raggio `RADIUS_CARD` (fonte unica dei
+> costrutti: `ui_cards.py` — card/badge/hint). I marcatori della lista sono **badge-pillola**
+> (mini-frame bordato + label, `ui_cards.badge`): l'approssimazione CustomTkinter della pillola
+> web degli sketch (accettata: niente ombre/hover). I due avvisi della griglia (valore fisso ⑥
+> e nota BetType ⑧) stanno **sotto la griglia**, dentro la sua card — non più sopra le
+> Anagrafiche, lontani da ciò che spiegano.
+
+Sezioni (colonna destra, dall'alto):
 
 - **Intestazione:** `Nome parser`, `Modalità` (`(eredita globale)` + opzioni), `Sport`
   (`(non specificato)` / Calcio / Tennis / Basket / Rugby Union / Football Americano), pulsante **"➕ Provider"**.
-- **Parser salvati (#182 PR A ①):** **elenco SEMPRE VISIBILE** (non più una tendina chiusa),
-  in **ordine alfabetico** case-insensitive, con due marcatori per riga: **«✓ attivo»** (verde
-  `STATUS_OK`) sul parser attivo di default e **«📡 N»** (grigio) col numero di chat che lo
-  puntano esplicitamente. La riga selezionata è evidenziata (`ACCENT`). **Doppio click = apri**,
-  con la stessa conferma «modifiche non salvate»; sotto l'elenco **"🆕 Nuovo"**, **"📑 Duplica"**,
-  **"🗑 Elimina"** e il suggerimento *«(doppio click su un parser per aprirlo)»*.
+- **Parser salvati (#182 PR A ① · colonna SINISTRA):** **elenco SEMPRE VISIBILE** (non più una
+  tendina chiusa), in **ordine alfabetico** case-insensitive, con due badge per riga:
+  **«✓ attivo»** (verde `STATUS_OK`) sul parser attivo di default e **«📡 N»** col numero di
+  chat che lo puntano esplicitamente. La riga selezionata è evidenziata (`ACCENT`).
+  **Doppio click = apri**, con la stessa conferma «modifiche non salvate»; il suggerimento
+  *«(doppio click su un parser per aprirlo)»* sta sotto la lista, e in fondo alla card
+  **"🆕 Nuovo"**, **"📑 Duplica"**, **"🗑 Elimina"**.
   **"📂 Carica" non esiste più**: assorbito dal doppio click.
 - **Autoload (#182 PR A ②):** aprendo la scheda l'editor carica **da solo il parser attivo**.
   Solo su pannello nuovo; senza parser attivo, o se il file non è leggibile, resta **vuoto**
@@ -1189,7 +1202,7 @@ XTrader** nella scheda Conferme (vuota = disattivate resta ammessa).
 Titolo **"📇  Anagrafica Provider"**. Campo nome + **"➕ Aggiungi"**; lista provider salvati
 con **"🗑 Rimuovi"** per riga. Anagrafica riusabile nella colonna Provider dei parser.
 
-**Marcatore d'uso per riga (#182 PR E).** A destra del nome, prima del pulsante Rimuovi:
+**Marcatore d'uso per riga (#182 PR E · #182 restyle: badge-pillola `ui_cards.badge`, elenco dentro una card `SURFACE`/`BORDER`/`RADIUS_CARD`).** A destra del nome, prima del pulsante Rimuovi:
 - **«🧩 N parser»** (grigio) = quanti parser salvati **fissano** quel provider, cioè hanno una
   regola con `target="Provider"` e quel nome come valore fisso. Le regole che **estraggono** il
   Provider dal messaggio non contano: non dipendono da una voce dell'anagrafica;
@@ -1250,7 +1263,7 @@ Sport/Tipo/Lingua e i nomi **Mercato/Selezione del Catalogo** (canonici), i **ta
 guidato** (`guided_mapping_gui.py`, modulo separato — slice futura). La **logica** (persistenza,
 gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia solo il testo mostrato.
 
-- **⚽ Calcio (Dizionario nomi squadra):** **colonna profili SEMPRE VISIBILE** (#182 PR B — prima
+- **⚽ Calcio (Dizionario nomi squadra):** **#182 restyle (2026-08-04):** layout a DUE COLONNE — card profili fissa a sinistra (252px, bordo `ACCENT`, bottoni 🆕/✏️/🗑 in fondo alla card, hint sotto la lista) e tabella+azioni+stato nella colonna destra. **Colonna profili SEMPRE VISIBILE** (#182 PR B — prima
   era una tendina `CTkOptionMenu`, quindi per sapere quali profili esistessero bisognava aprirla).
   Un riquadro scorrevole con una riga per profilo, ciascuna con:
   - il **nome**;
@@ -1303,7 +1316,7 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
     **Se un altro strumento tiene il lock del DB** fa fail-fast con «⏳ Dizionario occupato:
     riprova tra poco» (arancione) **senza congelare la finestra**. La riga di stato riporta
     l'esito (es. «📥 Aggiunti N nomi Betfair… ; M già presenti»).
-- **🎯 Mercati (Dizionario mercati):** **colonna profili SEMPRE VISIBILE** (#182 PR C), con la
+- **🎯 Mercati (Dizionario mercati):** **#182 restyle:** stesse DUE COLONNE del Dizionario nomi (card profili sinistra / tabella destra). **Colonna profili SEMPRE VISIBILE** (#182 PR C), con la
   **stessa identica presentazione** del Dizionario nomi: riquadro scorrevole, una riga per
   profilo con **«🧩 N»** (quanti parser salvati lo usano, omesso a zero) e **«· N righe»**;
   **click singolo = apri** (l'apertura auto-salva il profilo che stai lasciando); da **tastiera**
@@ -1940,7 +1953,7 @@ incrementali** (merge manuale del proprietario). Il ponte design→CustomTkinter
 | **PR-2** | Migrazione colori di `name_mapping_gui.py` (47 HEX → token: «Elimina»→`DANGER`, «Salva profilo»→`SUCCESS`, «Precompila da Betfair»→`ACCENT`, testo di stato ok/warn/err→`STATUS_OK`/`STATUS_WARN`/`STATUS_ERR`) — pannelli Nome + Mercato | ✅ **applicata** |
 | **PR-3** | Migrazione colori dei restanti moduli GUI (`guided_mapping_gui`, `profiles_gui`, `source_chats_gui`, `provider_gui`, `custom_parser_gui`, `known_teams_gui`, `tools_gui`, `config_agent_gui`) + `signal_outcome` (`last_color` DRY_RUN) ai token — 63 HEX. Nuovo token `WARN_WEAK` (sfondo warning tenue per la barra "in attesa" dell'assistente) | ✅ **applicata** |
 | — | **Cornice rossa 3px** finestra in MODALITÀ REALE (§13, kit §3 «◐ adattato») + **toggle tema** dark/chiaro in header (kit §1) | ⏳ da fare (elementi strutturali/comportamentali, non solo colore) |
-| — | Restyling strutturale schermate (Parser §7.1 griglia 14 col, tab a workflow numerato, badge, mockup stati) | ⏳ da fare |
+| — | Restyling strutturale schermate (Parser §7.1 griglia 14 col, tab a workflow numerato, badge, mockup stati) | ◐ **#182 restyle 2026-08-04**: fatto per l'hub Strumenti — Parser e Dizionari a DUE COLONNE con card `ui_cards.py`, badge-pillola (lista parser, marcatori d'uso Provider), elenchi in card (Sorgenti, Diario, Profili, Riepilogo). Restano da fare: mockup stati e rifiniture finestra principale (lo sketch #182 non vi proponeva modifiche) |
 
 **Invarianti §13 preservate in PR-1** (verificate da `tests/integration/test_palette.py` +
 `tests/unit/test_ui_theme.py`): semantica colori bloccata (verde=AVVIA/ATTIVO, rosso=STOP/

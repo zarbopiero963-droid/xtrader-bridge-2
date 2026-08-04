@@ -209,7 +209,7 @@ class SourceChatsPanel(ctk.CTkFrame):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=320)
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=320, fg_color=ui_theme.SURFACE, corner_radius=ui_theme.RADIUS_CARD, border_width=1, border_color=ui_theme.BORDER)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         btns = ctk.CTkFrame(self, fg_color="transparent")
@@ -371,7 +371,7 @@ class _ParserListDialog(ctk.CTkToplevel):
                                "le cui condizioni combaciano (una riga CSV per parser che scatta)."),
             wraplength=440, justify="left", font=ctk.CTkFont(size=11),
             text_color="gray", anchor="w").pack(anchor="w", padx=12, pady=(10, 6))
-        self._list_frame = ctk.CTkScrollableFrame(self, height=220)
+        self._list_frame = ctk.CTkScrollableFrame(self, height=220, fg_color=ui_theme.SURFACE, corner_radius=ui_theme.RADIUS_CARD, border_width=1, border_color=ui_theme.BORDER)
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=6)
         add = ctk.CTkFrame(self, fg_color="transparent")
         add.pack(fill="x", padx=12, pady=4)

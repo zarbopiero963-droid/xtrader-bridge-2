@@ -67,7 +67,7 @@ class ProfilesPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(self, text=i18n.tr("Profili salvati"), anchor="w",
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=12, pady=(6, 2))
-        self._list_frame = ctk.CTkScrollableFrame(self, height=300)
+        self._list_frame = ctk.CTkScrollableFrame(self, height=300, fg_color=ui_theme.SURFACE, corner_radius=ui_theme.RADIUS_CARD, border_width=1, border_color=ui_theme.BORDER)
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=(0, 6))
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),

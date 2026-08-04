@@ -35,6 +35,7 @@ from . import (
     provider_store,
     recognition,
     sports,
+    ui_cards,
     ui_theme,
     ui_widgets,
     validator,
@@ -612,8 +613,32 @@ class CustomParserPanel(ctk.CTkFrame):
         # avevano uno scroll proprio (griglia regole, tabella diagnostica) diventano frame
         # semplici: lo scorrimento lo gestisce SOLO questo contenitore (niente scroll
         # verticali annidati, che si rubavano la rotellina a vicenda).
-        outer = ctk.CTkScrollableFrame(self)
-        outer.pack(fill="both", expand=True)
+        # #182 restyle (sketch = specifica): DUE COLONNE. La lista parser vive in una card
+        # FISSA a sinistra — visibile anche mentre l'editor scorre, che è il punto della
+        # lista «sempre a vista» — e l'editor scrollabile sta a destra. Il layout piatto
+        # storico (lista come fascia orizzontale sopra l'editor) è quello che il
+        # proprietario ha bocciato al confronto con lo sketch.
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        for metodo, args in (("grid_columnconfigure", (1,)), ("grid_rowconfigure", (0,))):
+            fn = getattr(body, metodo, None)
+            if callable(fn):
+                fn(*args, weight=1)
+
+        # ── colonna sinistra: card della lista parser (bordo ACCENT come lo sketch) ──
+        side = ctk.CTkFrame(body, width=272, fg_color=ui_theme.SURFACE,
+                            corner_radius=ui_theme.RADIUS_CARD,
+                            border_width=1, border_color=ui_theme.ACCENT)
+        if callable(getattr(side, "grid", None)):
+            side.grid(row=0, column=0, sticky="ns", padx=(10, 4), pady=8)
+        if callable(getattr(side, "pack_propagate", None)):
+            side.pack_propagate(False)   # la larghezza la decide la card, non il contenuto
+        self._side = side
+
+        # ── colonna destra: editor scrollabile (tutte le sezioni-card) ──
+        outer = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        if callable(getattr(outer, "grid", None)):
+            outer.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=8)
         self._outer = outer
 
         top = ctk.CTkFrame(outer, fg_color="transparent")
@@ -642,9 +667,9 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkButton(top, text=i18n.tr("➕ Provider"), width=110,
                       command=self._add_provider).pack(side="left", padx=6)
 
-        # gestione parser salvati: lista + nuovo / carica / duplica / elimina
-        manage = ctk.CTkFrame(outer, fg_color="transparent")
-        manage.pack(fill="x", padx=10, pady=(0, 6))
+        # gestione parser salvati: lista + nuovo / duplica / elimina — nella COLONNA SINISTRA
+        manage = ctk.CTkFrame(side, fg_color="transparent")
+        manage.pack(fill="both", expand=True, padx=4, pady=(4, 4))
         # #182 PR A ① — elenco SEMPRE VISIBILE al posto della tendina chiusa. Prima i parser
         # salvati vivevano dentro un `CTkOptionMenu`: per sapere quali esistevano bisognava
         # aprirlo, e per vederne le regole servivano due passaggi (apri tendina → «📂 Carica»).
@@ -656,17 +681,18 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkLabel(manage, text=i18n.tr("Parser salvati:"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=6)
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
-        self._saved_list = ctk.CTkScrollableFrame(manage, height=104)
-        self._saved_list.pack(fill="x", padx=6, pady=(2, 4))
+        # La lista riempie la colonna in VERTICALE (negli sketch scorre lei, non la card).
+        self._saved_list = ctk.CTkScrollableFrame(manage, fg_color="transparent")
+        self._saved_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._saved_rows = {}          # nome parser → widget riga (per evidenziare la selezione)
+        ui_cards.hint(ctk, manage,
+                      i18n.tr("(doppio click su un parser per aprirlo)"), pad=(6, 0))
         bottoni = ctk.CTkFrame(manage, fg_color="transparent")
-        bottoni.pack(fill="x", padx=6)
-        ctk.CTkButton(bottoni, text=i18n.tr("🆕 Nuovo"), width=90, command=self._new).pack(side="left", padx=3)
-        ctk.CTkButton(bottoni, text=i18n.tr("📑 Duplica"), width=90, command=self._duplicate_selected).pack(side="left", padx=3)
-        ctk.CTkButton(bottoni, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
-                      command=self._delete_selected).pack(side="left", padx=3)
-        ctk.CTkLabel(bottoni, text=i18n.tr("(doppio click su un parser per aprirlo)"),
-                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=8)
+        bottoni.pack(fill="x", padx=2, pady=(2, 2))
+        ctk.CTkButton(bottoni, text=i18n.tr("🆕 Nuovo"), width=78, command=self._new).pack(side="left", padx=2)
+        ctk.CTkButton(bottoni, text=i18n.tr("📑 Duplica"), width=78, command=self._duplicate_selected).pack(side="left", padx=2)
+        ctk.CTkButton(bottoni, text=i18n.tr("🗑 Elimina"), width=78, fg_color=ui_theme.DANGER,
+                      command=self._delete_selected).pack(side="left", padx=2)
 
         # #182 PR A ④ — «🧰 Anagrafiche e dizionari»: le tre anagrafiche che servono mentre si
         # costruisce un parser, raccolte in un punto solo e visibile. Prima erano sparpagliate:
@@ -674,7 +700,9 @@ class CustomParserPanel(ctk.CTkFrame):
         # checkbox profili) e l'anagrafica Provider non era raggiungibile affatto — «➕ Provider»
         # qui sopra aggiunge un nome al volo, non apre l'elenco.
         # Sola PRESENTAZIONE: i comandi sono quelli di prima, cambia dove si trovano.
-        anag = ctk.CTkFrame(outer)
+        anag = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                            corner_radius=ui_theme.RADIUS_CARD,
+                            border_width=1, border_color=ui_theme.BORDER)
         anag.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(anag, text=i18n.tr("🧰 Anagrafiche e dizionari"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
@@ -687,28 +715,15 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkButton(riga_anag, text=i18n.tr("🎯 Dizionario mercati"), width=170,
                       command=self._open_market_mapping).pack(side="left", padx=6)
 
-        # #182 PR A ⑧: nota fissa sotto la griglia. Il lato è l'unica colonna obbligatoria che
-        # non si può dedurre dal messaggio, e la tendina non può spiegare da sola perché non
-        # offre BACK/LAY — che pure sono accettati. Testo statico: nessuno stato da mantenere.
-        ctk.CTkLabel(
-            outer,
-            text=i18n.tr("ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può "
-                         "contenere. BACK/LAY sono accettati in ingresso e convertiti "
-                         "automaticamente; FAVOR/CONTRA non sono supportati."),
-            font=ctk.CTkFont(size=11), text_color="gray",
-            anchor="w", justify="left", wraplength=880).pack(fill="x", padx=16, pady=(0, 2))
-
-        # #182 PR A ⑥: avviso NON bloccante sulle righe con valore fisso. Vuoto = invisibile.
-        self._fixed_warn_lbl = ctk.CTkLabel(
-            outer, text="", font=ctk.CTkFont(size=11), text_color=ui_theme.STATUS_WARN,
-            anchor="w", justify="left", wraplength=880)
-        self._fixed_warn_lbl.pack(fill="x", padx=16, pady=(0, 2))
-
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
-        cat = ctk.CTkFrame(outer, fg_color="transparent")
+        # #182 restyle: card di sezione (prima era un frame trasparente, senza confini).
+        cat = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                           corner_radius=ui_theme.RADIUS_CARD,
+                           border_width=1, border_color=ui_theme.BORDER)
         cat.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:")).pack(side="left", padx=6)
+        ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:"),
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=8, pady=6)
         self._markets = self.builder.market_options()
         # #182 PR A ⑤: le due tendine sono a CASCATA (Mercato -> Selezione) ma avevano una sola
         # etichetta davanti alla prima, quindi la seconda non diceva cosa fosse. Un'etichetta per
@@ -733,7 +748,9 @@ class CustomParserPanel(ctk.CTkFrame):
         # tipo (✓ N attive = profili selezionati, — nessuna = nessuno). Nessun cambio funzionale:
         # le checkbox profili e i pulsanti «apri Dizionario» restano quelli di prima; solo la
         # presentazione cambia (le mappature vivono accanto al parser, dove si accendono).
-        trad = ctk.CTkFrame(outer)
+        trad = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                            corner_radius=ui_theme.RADIUS_CARD,
+                            border_width=1, border_color=ui_theme.BORDER)
         trad.pack(fill="x", padx=10, pady=(2, 6))
         ctk.CTkLabel(trad, text=i18n.tr("🔗 Traduzioni attive per questo parser"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
@@ -790,25 +807,57 @@ class CustomParserPanel(ctk.CTkFrame):
         # messaggi pertinenti (filtro fail-closed), es. «un mercato diverso per scenario».
         self._build_conditions_section(outer)
 
+        # #182 restyle: la griglia delle 14 colonne vive in una card dedicata, col titolo di
+        # sezione degli sketch e — QUI SOTTO la griglia, non più sopra le Anagrafiche — i due
+        # avvisi che parlano delle sue righe (valore fisso ⑥ e nota BetType ⑧: erano
+        # impacchettati lontani da ciò che spiegavano, rilievo proprietario sugli screenshot).
+        rules_card = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                                  corner_radius=ui_theme.RADIUS_CARD,
+                                  border_width=1, border_color=ui_theme.BORDER)
+        rules_card.pack(fill="x", padx=10, pady=(4, 6))
+        ctk.CTkLabel(rules_card, text=i18n.tr("Griglia regole — 14 colonne CSV"),
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(6, 0))
+
         # Toggle «Avanzate» (#293 densità parser): mostra/nasconde le colonne Trasformazione e
         # Value-map, tenendo di default la tabella più leggibile (solo colonne essenziali).
-        adv_bar = ctk.CTkFrame(outer, fg_color="transparent")
-        adv_bar.pack(fill="x", padx=10, pady=(4, 0))
+        adv_bar = ctk.CTkFrame(rules_card, fg_color="transparent")
+        adv_bar.pack(fill="x", padx=8, pady=(2, 0))
         self._advanced_var = ctk.BooleanVar(value=self._show_advanced)
         ctk.CTkCheckBox(adv_bar, text=i18n.tr("⚙️ Avanzate (Trasformazione · Value-map)"),
                         variable=self._advanced_var,
                         command=self._on_toggle_advanced).pack(side="left", padx=2)
 
         # intestazione colonne — le colonne avanzate compaiono solo in modalità «Avanzate».
-        self._rules_head = ctk.CTkFrame(outer, fg_color="transparent")
-        self._rules_head.pack(fill="x", padx=10)
+        self._rules_head = ctk.CTkFrame(rules_card, fg_color="transparent")
+        self._rules_head.pack(fill="x", padx=8)
         self._populate_rules_header()
 
-        self._rows_frame = ctk.CTkFrame(outer, fg_color="transparent")
-        self._rows_frame.pack(fill="x", padx=10, pady=6)
+        self._rows_frame = ctk.CTkFrame(rules_card, fg_color="transparent")
+        self._rows_frame.pack(fill="x", padx=8, pady=6)
 
-        actions = ctk.CTkFrame(outer, fg_color="transparent")
-        actions.pack(fill="x", padx=10, pady=4)
+        # #182 PR A ⑥: avviso NON bloccante sulle righe con valore fisso. Vuoto = invisibile.
+        self._fixed_warn_lbl = ctk.CTkLabel(
+            rules_card, text="", font=ctk.CTkFont(size=11), text_color=ui_theme.STATUS_WARN,
+            anchor="w", justify="left", wraplength=860)
+        self._fixed_warn_lbl.pack(fill="x", padx=12, pady=(0, 2))
+        # #182 PR A ⑧: nota fissa sotto la griglia. Il lato è l'unica colonna obbligatoria che
+        # non si può dedurre dal messaggio, e la tendina non può spiegare da sola perché non
+        # offre BACK/LAY — che pure sono accettati. Testo statico: nessuno stato da mantenere.
+        ctk.CTkLabel(
+            rules_card,
+            text=i18n.tr("ℹ️ BetType: PUNTA o BANCA sono gli unici valori che il CSV può "
+                         "contenere. BACK/LAY sono accettati in ingresso e convertiti "
+                         "automaticamente; FAVOR/CONTRA non sono supportati."),
+            font=ctk.CTkFont(size=11), text_color="gray",
+            anchor="w", justify="left", wraplength=860).pack(fill="x", padx=12, pady=(0, 6))
+
+        # #182 restyle: azioni + area di prova in un'unica card («Azioni e prova» dello sketch).
+        prova_card = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                                  corner_radius=ui_theme.RADIUS_CARD,
+                                  border_width=1, border_color=ui_theme.BORDER)
+        prova_card.pack(fill="x", padx=10, pady=(0, 8))
+        actions = ctk.CTkFrame(prova_card, fg_color="transparent")
+        actions.pack(fill="x", padx=8, pady=(6, 4))
         # #182 PR A ⑦: «💾 Salva parser», non «💾 Salva». È il primo di quattro pulsanti in fila
         # con tre comandi di PROVA, quindi si legge come parte di quel gruppo; e nell'app esistono
         # già «💾 Salva Config» (finestra principale), «💾 Salva profilo» (Dizionario nomi) e
@@ -824,9 +873,9 @@ class CustomParserPanel(ctk.CTkFrame):
                       command=self._test_batch).pack(side="left", padx=4)
         ctk.CTkButton(actions, text=i18n.tr("📋 Copia diagnostica"), command=self._copy_diag).pack(side="left", padx=4)
 
-        # test-live
-        test = ctk.CTkFrame(outer, fg_color="transparent")
-        test.pack(fill="x", padx=10, pady=6)
+        # test-live — dentro la card «Azioni e prova»
+        test = ctk.CTkFrame(prova_card, fg_color="transparent")
+        test.pack(fill="x", padx=8, pady=(0, 6))
         ctk.CTkLabel(test, text=i18n.tr("Messaggio di prova:")).pack(anchor="w", padx=6)
         self._msg_box = ctk.CTkTextbox(test, height=120)
         self._msg_box.pack(fill="x", padx=6, pady=4)
@@ -879,7 +928,9 @@ class CustomParserPanel(ctk.CTkFrame):
     def _build_multi_section(self, outer):
         """Sezione output multi-riga: due interruttori + due liste di righe dinamiche.
         Solo widget; lo stato vive nel `ParserBuilder` (round-trip/anteprima testati in CI)."""
-        sec = ctk.CTkFrame(outer)
+        sec = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                           corner_radius=ui_theme.RADIUS_CARD,
+                           border_width=1, border_color=ui_theme.BORDER)
         sec.pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(sec, text=i18n.tr("Output multi-riga (un messaggio → più righe CSV)"),
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))
@@ -1079,7 +1130,9 @@ class CustomParserPanel(ctk.CTkFrame):
         """Sezione «Condizioni di gate»: modo E/O + righe dinamiche [contiene/NON contiene +
         testo + Rimuovi]. Solo widget; lo stato vive nel `ParserBuilder` (round-trip e gate
         testati in CI). Nessuna condizione = nessun filtro (comportamento invariato)."""
-        sec = ctk.CTkFrame(outer)
+        sec = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
+                           corner_radius=ui_theme.RADIUS_CARD,
+                           border_width=1, border_color=ui_theme.BORDER)
         sec.pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(sec, text=i18n.tr("Condizioni di gate (il parser scatta solo se il messaggio le soddisfa)"),
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))
@@ -1591,13 +1644,13 @@ class CustomParserPanel(ctk.CTkFrame):
             riga.pack(fill="x", pady=1)
             etichetta = ctk.CTkLabel(riga, text=nome, anchor="w")
             etichetta.pack(side="left", padx=(4, 6))
+            # #182 restyle: i marcatori diventano badge-pillola (ui_cards, stile sketch).
+            # Testi INVARIATI («✓ attivo», «📡 N»): cambia solo la veste.
             if nome != self._NONE_SAVED and nome == attivo:
-                ctk.CTkLabel(riga, text=i18n.tr("✓ attivo"), text_color=ui_theme.STATUS_OK,
-                             font=ctk.CTkFont(size=11)).pack(side="left", padx=3)
+                ui_cards.badge(ctk, riga, i18n.tr("✓ attivo"), kind="ok")
             quante = per_chat.get(nome, 0)
             if quante:
-                ctk.CTkLabel(riga, text=i18n.tr("📡 {n}").format(n=quante),
-                             font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=3)
+                ui_cards.badge(ctk, riga, i18n.tr("📡 {n}").format(n=quante), kind="muted")
             self._saved_rows[nome] = riga
             # click = seleziona · doppio click = apri (con la conferma del caricamento).
             # I gestori ritornano "break" (rilievo Sourcery #223): senza, un doppio click
