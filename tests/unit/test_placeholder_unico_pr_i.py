@@ -46,8 +46,42 @@ def test_la_fonte_unica_non_ha_falsi_positivi(sano):
 def test_la_fonte_unica_regge_i_non_stringa():
     """Arriva da JSON e da CSV editabili a mano: `None`, numeri e liste non devono far
     esplodere un predicato usato per decidere se scartare una selezione."""
-    for valore in (None, 0, 1.85, [], {}, True):
+    for valore in (None, 0, 1.85, [], True, [1, 2]):
         assert validators.has_unresolved_placeholder(valore) is False, repr(valore)
+
+
+def test_la_fonte_unica_e_coerente_sui_dict():
+    """Rilievo GPT-5.5 sulla #252: la risposta non deve dipendere dal *contenuto* del tipo.
+
+    Con `str(value or "")` un `dict` dava due risposte diverse — `{}` → `False` (falsy, quindi
+    collassato a stringa vuota) e `{"a": 1}` → `True` (`str` lo scrive con le graffe) — e la
+    risposta permissiva capitava proprio sul caso vuoto. Ora entrambi sono `True`: se una
+    struttura arriva a un predicato sui placeholder è un errore di programmazione, e scartare
+    il valore è la direzione sicura."""
+    assert validators.has_unresolved_placeholder({}) is True
+    assert validators.has_unresolved_placeholder({"a": 1}) is True
+
+
+def test_la_fonte_unica_e_fail_closed_sui_contenitori_con_placeholder():
+    """Casi chiesti da CodeRabbit sulla #252 — e la scelta è *deliberatamente* l'opposto
+    della sua proposta, con la ragione scritta.
+
+    CodeRabbit proponeva `if not isinstance(value, str): return False`, per allineare il
+    codice al docstring che prometteva «non-stringa → False». Il rilievo era giusto — codice
+    e docstring divergevano — ma la direzione no: con quella scelta un contenitore che
+    *contiene* un placeholder verrebbe giudicato «nessun placeholder», quindi usato come
+    valore reale, e finirebbe nel CSV stringificato con le graffe dentro. Fail-OPEN, che è
+    esattamente la classe di difetto che questa PR chiude.
+
+    Allineato quindi il **docstring** al codice invece del contrario: qualunque valore che si
+    *scrive* con una graffa è trattato come placeholder e scartato. Un contenitore che arriva
+    fin qui è comunque un errore di programmazione — tutti i chiamanti reali passano stringhe
+    (CSV `DictReader`, valori estratti dal parser, `_subst`) — e su un errore di
+    programmazione la direzione sicura è scartare."""
+    assert validators.has_unresolved_placeholder(["{HOME_TEAM}"]) is True
+    assert validators.has_unresolved_placeholder({"nome": "{HOME_TEAM}"}) is True
+    # Un contenitore SENZA graffe resta un non-placeholder: la regola guarda il testo, non il tipo.
+    assert validators.has_unresolved_placeholder(["Inter", "Milan"]) is False
 
 
 # ── B10 · dizionario.has_placeholder era fail-OPEN ───────────────────────────
@@ -206,6 +240,30 @@ def test_b16_vale_anche_per_le_forme_rotte(rotto):
     """Non solo il placeholder canonico: anche un template troncato a metà."""
     defn = _parser_con_id_fissi()
     assert engine.matches_message(defn, f"Match: {rotto}") is False
+
+
+@pytest.mark.parametrize("modo", ["NAME_ONLY", "ID_ONLY", "BOTH"])
+def test_b16_vale_in_tutte_le_modalita_di_riconoscimento(modo):
+    """Copertura per modalità (richiesta GPT-5.5 sulla #252).
+
+    Il gate di contenuto si comporta diversamente per modalità — quali campi contano come
+    «di riconoscimento» cambia fra `NAME_ONLY`, `ID_ONLY` e `BOTH` — quindi una correzione
+    verificata su una sola modalità non dice nulla sulle altre. Qui la regola è
+    **obbligatoria**, che è il ramo che ritorna `True` per primo in tutte e tre: se il
+    placeholder non fosse filtrato, il gate si aprirebbe in ognuna."""
+    defn = CustomParserDef(
+        name="perModo",
+        mode=modo,
+        rules=[
+            FieldRule(target="MarketId", fixed_value="1"),
+            FieldRule(target="SelectionId", fixed_value="7"),
+            FieldRule(target="EventName", start_after="Match:", required=True),
+        ],
+    )
+    assert engine.matches_message(defn, "Match: {HOME_TEAM} v {AWAY_TEAM}") is False
+    assert engine.matches_message(defn, "Match: Inter v Milan") is True, (
+        f"controllo positivo fallito in {modo}: il gate si è chiuso sul messaggio buono"
+    )
 
 
 def test_b16_un_placeholder_parziale_dentro_un_valore_vero_blocca():

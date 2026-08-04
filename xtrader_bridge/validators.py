@@ -142,8 +142,18 @@ def has_unresolved_placeholder(value) -> bool:
 
     Non solleva mai: il valore arriva da JSON e da CSV editabili a mano, e questo predicato
     decide se **scartare** una selezione — un'eccezione qui trasformerebbe una guardia in un
-    crash. Un non-stringa non ha graffe per definizione → `False`."""
-    return "{" in str(value or "") or "}" in str(value or "")
+    crash.
+
+    **Non-stringa: `str(value)`, non `str(value or "")`** (rilievo GPT-5.5 sulla #252). La
+    seconda forma collassa ogni valore *falsy* a stringa vuota, e su un `dict` produceva una
+    risposta che dipendeva dal contenuto: `{}` → `False` (falsy → `""`) ma `{"a": 1}` → `True`
+    (`str` dà `"{'a': 1}"`). Due risposte diverse per lo stesso tipo, e quella permissiva sul
+    caso vuoto. Con `str(value)` un non-stringa che *si scrive* con graffe è coerentemente un
+    placeholder → scartato: se una struttura arriva fin qui è un errore di programmazione, e
+    fail-closed è la direzione giusta. È anche l'idioma già usato in `csv_writer._sanitize_cell`
+    (`"" if value is None else str(value)`), quindi il repository ne ha uno solo."""
+    s = "" if value is None else str(value)
+    return "{" in s or "}" in s
 
 
 _PLACEHOLDER_TOKEN_RE = re.compile(r"\{([A-Z_]+)\}")

@@ -715,7 +715,7 @@ Tutti questi gate devono passare perché una riga venga scritta:
    per caso (A10). Per usare un campo non di riconoscimento come "trigger" di contenuto,
    marcalo **obbligatorio**.
 
-   **Un placeholder non è contenuto (B11-bis… anzi B16, #194 PR-I).** Un valore estratto che
+   **Un placeholder non è contenuto (B16, #194 PR-I).** Un valore estratto che
    contiene ancora un placeholder — `{HOME_TEAM}`, o una sua forma rotta come `{HOME_TEAM`,
    `HOME_TEAM}`, `{home_team}` — **non conta** come contenuto di segnale, esattamente come
    un'estrazione vuota. Il caso reale è un bot che pubblica il proprio **template non
@@ -882,7 +882,7 @@ trasformazione) e `→map` (dopo value-map), più un codice di stato:
 | `INVALID_HANDICAP` | `Handicap` valorizzato ma non numerico, o `\|Handicap\| > 1000` |
 | `INVALID_PRICE_BOUNDS` | limiti incoerenti: `Min > Max`, o l'intervallo esclude `Price` (segnalato solo sul limite che offende) |
 | `MODE_REQUIRED_MISSING` | campo richiesto dalla Modalità di riconoscimento mancante |
-| `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato nulla: solo valori fissi / nessun match |
+| `NO_CONTENT_MATCH` (messaggio) | nessuna estrazione ha trovato **contenuto reale**: solo valori fissi / nessun match, **oppure** l'unico valore estratto contiene un placeholder non risolto (`{HOME_TEAM}`, anche parziale — B16) |
 
 Il verdetto della diagnostica **coincide** con ciò che il bridge scriverebbe a
 runtime (stessa pipeline `build_validated_row`): se "Prova messaggio" dice pronto,
