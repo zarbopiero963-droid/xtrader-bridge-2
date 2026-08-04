@@ -218,3 +218,54 @@ def test_serial_inesistente_non_chiede_conferma(registro):
     esito = _app(registro)._evaluate_delete("LIC-FANTASMA")
 
     assert esito["needs_confirm"] is False and esito["accepted"] is False
+
+
+# ── il riquadro del token vive FUORI dalle schede ───────────────────────────
+#
+# Segnalazione del proprietario (2026-08-04): «rinnovo, ma sul bridge serve la chiave lunga
+# generata solo quando si crea l'utente, non c'è modo». La funzione c'era e funzionava — il
+# token veniva scritto nel riquadro della scheda «Emetti» mentre il pulsante che lo genera sta
+# nel «Registro», e l'app non cambiava scheda. Difetto di VISIBILITÀ, non di logica: la stessa
+# forma della revoca invisibile (#235).
+
+def test_il_riquadro_token_non_e_costruito_dentro_una_scheda():
+    """Guardia sul sorgente: `_token_box` dev'essere creato in `_build_barra_token` (fuori dalle
+    schede), non in `_build_scheda_emetti`.
+
+    Sul sorgente e non a runtime perché è una proprietà di COSTRUZIONE: a finestra costruita un
+    widget «dentro Emetti» e uno «fuori» hanno entrambi un master valido, e la differenza che
+    conta — resta visibile cambiando scheda? — non si legge da un attributo.
+    """
+    import ast
+    import inspect
+
+    from license_manager import gui as gui_mod
+
+    sorgente = inspect.getsource(gui_mod)
+    albero = ast.parse(sorgente)
+    creato_in = set()
+    for nodo in ast.walk(albero):
+        if not isinstance(nodo, ast.FunctionDef):
+            continue
+        for interno in ast.walk(nodo):
+            if (isinstance(interno, ast.Attribute) and interno.attr == "_token_box"
+                    and isinstance(interno.ctx, ast.Store)):
+                creato_in.add(nodo.name)
+
+    assert "_build_barra_token" in creato_in, (
+        "`_token_box` non è più costruito in `_build_barra_token`")
+    assert "_build_scheda_emetti" not in creato_in, (
+        "`_token_box` è tornato dentro la scheda Emetti: rinnovando dal Registro il token "
+        "sarebbe di nuovo invisibile")
+
+
+def test_i_messaggi_di_rinnovo_e_ri_mostra_dicono_DOVE_e_il_token():
+    """Un messaggio che dice «inviala all'utente» senza dire dove sia la chiave è ciò che ha
+    fatto concludere al proprietario che il rinnovo non funzionasse."""
+    import inspect
+
+    from license_manager import gui as gui_mod
+
+    sorgente = inspect.getsource(gui_mod)
+    assert sorgente.count("riquadro in fondo alla finestra") >= 2, (
+        "i messaggi di emissione/rinnovo e ri-mostra devono indicare dove trovare il token")

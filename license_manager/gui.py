@@ -261,7 +261,7 @@ class LicenseManagerApp(ctk.CTk):
                                       "cartella?): il token è comunque valido, salvalo a mano.")
         return {"accepted": True, "token": token,
                 "message": f"Chiave {verb} per «{nome_completo}» · {giorni} giorni. "
-                           f"Inviala all'utente.{suffix}"}
+                           f"Copiala dal riquadro in fondo alla finestra e inviala all'utente.{suffix}"}
 
     def _evaluate_issue(self, nome, cognome, giorni_str, hardware_id) -> dict:
         """Valida gli input ed **emette** la licenza firmata. Fail-closed: senza chiave, o con dati
@@ -337,7 +337,7 @@ class LicenseManagerApp(ctk.CTk):
             return {"found": True, "token": "",
                     "message": "Il record non contiene il token (registro vecchio?): ri-emetti con «Rinnova»."}
         return {"found": True, "token": token,
-                "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}). Rinvialo all'utente."}
+                "message": f"Token di «{rec.get('name', '')}» ({rec.get('serial', '')}): nel riquadro in fondo alla finestra, pronto da rinviare."}
 
     def _evaluate_delete(self, serial, *, conferma: bool = False) -> dict:
         """**Elimina la riga** del registro per `serial`. Non revoca e non de-revoca nulla.
@@ -994,10 +994,45 @@ class LicenseManagerApp(ctk.CTk):
         self._build_scheda_revoche(self._area_scorrevole(schede.tab("🚫 Revoche")))
         self._build_scheda_backup(self._area_scorrevole(schede.tab("📦 Backup")))
 
+        # Chiave di attivazione fuori dalle schede, PRIMA della riga messaggi (l'ordine visivo è
+        # «ecco cosa è successo» sotto «ecco cosa devi copiare»). Vedi `_build_barra_token`.
+        self._build_barra_token()
+
         # Riga messaggi fuori dalle schede: l'esito di un'azione dev'essere visibile qualunque
         # scheda sia aperta (una revoca si conferma dalla scheda Registro e l'esito arriva qui).
         self._msg_lbl = ctk.CTkLabel(self, text="", anchor="w")
         self._msg_lbl.pack(fill="x", padx=12, pady=(2, 10))
+
+    def _build_barra_token(self) -> None:
+        """Riquadro della **chiave di attivazione**, fuori dalle schede.
+
+        Perché non sta più dentro «✅ Emetti» (segnalazione del proprietario, 2026-08-04).
+        Il riquadro era costruito in `_build_scheda_emetti`, ma **tre** azioni ci scrivono dentro
+        e due vivono in una scheda diversa: «🔄 Rinnova (nuovo token)» e «📋 Ri-mostra token» stanno
+        nel **Registro**. Chi rinnovava una licenza restava quindi sul Registro a leggere
+        «Inviala all'utente» — con la chiave generata davvero, ma scritta su una scheda che non
+        stava guardando e senza che l'app ce lo portasse. La conclusione ragionevole era «non si
+        può rinnovare», e infatti è stata tratta.
+
+        È lo stesso ragionamento già applicato in questo file alla riga messaggi — *«l'esito di
+        un'azione dev'essere visibile qualunque scheda sia aperta»* — che però non era stato esteso
+        all'esito che conta di più: il token è l'unica cosa che devi **copiare**.
+
+        Alternative scartate: **cambiare scheda** da sola dopo il rinnovo (ti sposta sotto le mani
+        mentre stai lavorando sul Registro, e nasconde la tabella da cui hai appena scelto la riga);
+        **duplicare** il riquadro su due schede (due widget da tenere allineati, cioè la regola della
+        fonte unica violata su un valore che l'utente incolla in produzione).
+        """
+        barra = ctk.CTkFrame(self, fg_color="transparent")
+        barra.pack(fill="x", padx=12, pady=(4, 0))
+        ctk.CTkLabel(barra, text="Chiave di attivazione da mandare all'utente",
+                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x", pady=(0, 2))
+        self._token_box = ctk.CTkTextbox(barra, height=68, wrap="char",
+                                         font=ctk.CTkFont(family=_MONO[0], size=12))
+        self._token_box.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(barra, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
+                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
+                      hover_color=ui_theme.BORDER).pack(anchor="w")
 
         self._refresh_publish_fields()
         self._refresh_publish_status()
@@ -1060,15 +1095,8 @@ class LicenseManagerApp(ctk.CTk):
                       fg_color=ui_theme.SUCCESS, hover_color=ui_theme.SUCCESS_HOV).pack(
                           anchor="w", padx=10, pady=(10, 6))
 
-        ctk.CTkLabel(tab, text="Chiave di attivazione da mandare all'utente",
-                     font=ctk.CTkFont(weight="bold"), anchor="w").pack(
-                         fill="x", padx=10, pady=(6, 2))
-        self._token_box = ctk.CTkTextbox(tab, height=76, wrap="char",
-                                         font=ctk.CTkFont(family=_MONO[0], size=12))
-        self._token_box.pack(fill="x", padx=10, pady=(0, 4))
-        ctk.CTkButton(tab, text="📋 Copia chiave di attivazione", command=self._on_copy_token,
-                      fg_color=ui_theme.SURFACE3, text_color=ui_theme.TEXT,
-                      hover_color=ui_theme.BORDER).pack(anchor="w", padx=10, pady=(0, 10))
+        # Il riquadro della chiave di attivazione NON sta più qui: vive fuori dalle schede,
+        # accanto alla riga messaggi. Vedi `_build_barra_token` per il motivo.
 
     # ── scheda: registro (tabella) ───────────────────────────────────────────────────────────
     def _build_scheda_registro(self, tab) -> None:
