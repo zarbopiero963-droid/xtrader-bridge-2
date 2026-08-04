@@ -349,6 +349,22 @@ def format_report(diag: Diagnosis) -> str:
 _CODICI_VUOTO = (START_NOT_FOUND, END_NOT_FOUND, TRANSFORM_FAILED,
                  VALUE_MAP_MISS, REQUIRED_EMPTY)
 
+# Il valore mostrato viene dal messaggio Telegram: testo NON attendibile (rilievo
+# convergente Fable 5 + GPT-5.5 sulla #245). Grezzo renderebbe illeggibile la riga
+# sintetica del verdetto, e un valore multilinea potrebbe far sembrare «righe del
+# verdetto» del testo scelto dall'utente — stessa classe di rischio dei control-char
+# nel CSV (`csv_writer._sanitize_cell`). Qui: una riga sola, cappata, taglio VISIBILE.
+_MAX_VALORE = 60
+
+
+def _leggibile(valore: str) -> str:
+    """Valore utente reso sicuro per UNA riga di verdetto: control-char in spazi,
+    spazi compattati, taglio a `_MAX_VALORE` con «…» esplicito (mai silenzioso)."""
+    testo = " ".join(str(valore or "").split())      # \n \r \t → spazio, spazi compattati
+    if len(testo) > _MAX_VALORE:
+        testo = testo[:_MAX_VALORE] + "…"
+    return testo
+
 
 def motivi_campi_mancanti(diag: "Diagnosis") -> dict:
     """`{colonna: motivo azionabile}` per le colonne rimaste VUOTE.
@@ -370,10 +386,10 @@ def motivi_campi_mancanti(diag: "Diagnosis") -> dict:
             motivi[fd.target] = "«Finisce prima» non trovato dopo l'inizio"
         elif fd.error == TRANSFORM_FAILED:
             motivi[fd.target] = (f"la trasformazione «{fd.transform}» non ha saputo "
-                                 f"leggere «{fd.raw}»")
+                                 f"leggere «{_leggibile(fd.raw)}»")
         elif fd.error == VALUE_MAP_MISS:
             motivi[fd.target] = (f"la value-map «{fd.value_map}» non ha trovato "
-                                 f"«{fd.after_transform}» nel dizionario")
+                                 f"«{_leggibile(fd.after_transform)}» nel dizionario")
         else:   # REQUIRED_EMPTY
             motivi[fd.target] = "nessun valore estratto"
     return motivi

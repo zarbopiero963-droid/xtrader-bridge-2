@@ -85,3 +85,29 @@ def test_il_verdetto_resta_identico_senza_motivi():
                 res_missing_required=["SelectionName"], res_detail=None)
     assert (ParserBuilder.test_verdict([], [], **args)
             == "⛔ Non pronto (NOT_READY) · mancanti: SelectionName")
+
+
+def test_motivo_taglia_e_appiattisce_il_testo_dell_utente():
+    """Rilievo convergente Fable 5 + GPT-5.5 sulla #245: il valore letto viene dal
+    messaggio Telegram — testo NON attendibile. Se finisse grezzo nel verdetto, un
+    messaggio lungo lo renderebbe illeggibile e uno multilinea potrebbe «spoofare»
+    le righe sotto (la stessa classe di rischio dei control-char nel CSV)."""
+    lungo = "A" * 300
+    regola = cp.FieldRule(target="SelectionName", start_after="Risultato:",
+                          end_before="§", transform="score_to_over_ht", required=True)
+    defn = cp.CustomParserDef(name="P", rules=[*_BASE, regola])
+    msg = f"Match: J v I\nRisultato: {lungo}\nRIGA FALSA\n§\nQuota: 1,85\n"
+    diag = pd.diagnose(defn, msg, provider="TG", mode="NAME_ONLY", require_price=True)
+    testo = pd.motivi_campi_mancanti(diag)["SelectionName"]
+    assert "\n" not in testo and "\r" not in testo, "a-capo non appiattiti"
+    assert len(testo) < 200, f"motivo troppo lungo ({len(testo)}): riga illeggibile"
+    assert "…" in testo, "il troncamento deve essere VISIBILE, non silenzioso"
+
+
+def test_motivo_non_tronca_i_valori_corti():
+    """Il caso normale resta intatto: nessun «…» quando non serve."""
+    _defn, diag = _diagnosi(cp.FieldRule(
+        target="SelectionName", start_after="Risultato:", end_before="\n",
+        transform="score_to_over_ht", required=True))
+    testo = pd.motivi_campi_mancanti(diag)["SelectionName"]
+    assert "«primo tempo»" in testo and "…" not in testo
