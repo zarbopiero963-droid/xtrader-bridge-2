@@ -63,7 +63,10 @@ def test_whitelist_value_map_coerente_con_le_mappe_reali(gui):
     nasce una mappa nuova senza colonna ammessa, questo test lo dice."""
     per_colonna = {"markettype": "MarketType", "marketname": "MarketName",
                    "selectionname": "SelectionName", "bettype": "BetType"}
-    nomi_mappe = set(value_maps.registry()) | set(value_maps._DIZIONARIO_MAPS)
+    # Solo API pubbliche (rilievo Fable #244): i nomi delle famiglie dizionario
+    # vengono da `dizionario_value_maps([])` (righe vuote → mappe vuote ma nomi
+    # presenti), i built-in da `registry()`.
+    nomi_mappe = set(value_maps.registry()) | set(value_maps.dizionario_value_maps([]))
     for nome in nomi_mappe:
         assert nome in per_colonna, f"value-map `{nome}` senza colonna associata"
         assert per_colonna[nome] in gui.VALUE_MAP_COLS
