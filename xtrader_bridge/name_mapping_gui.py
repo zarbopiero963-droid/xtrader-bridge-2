@@ -199,9 +199,7 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
             _fn = getattr(body, _metodo, None)
             if callable(_fn):
                 _fn(*_args, weight=1)
-        side = ctk.CTkFrame(body, width=252, fg_color=ui_theme.SURFACE,
-                            corner_radius=ui_theme.RADIUS_CARD,
-                            border_width=1, border_color=ui_theme.ACCENT)
+        side = ctk.CTkFrame(body, width=252, **ui_cards.card_style(border=ui_theme.ACCENT))
         if callable(getattr(side, "grid", None)):
             side.grid(row=0, column=0, sticky="ns", padx=(12, 4), pady=(0, 8))
         if callable(getattr(side, "pack_propagate", None)):
@@ -772,9 +770,7 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
             _fn = getattr(body, _metodo, None)
             if callable(_fn):
                 _fn(*_args, weight=1)
-        side = ctk.CTkFrame(body, width=252, fg_color=ui_theme.SURFACE,
-                            corner_radius=ui_theme.RADIUS_CARD,
-                            border_width=1, border_color=ui_theme.ACCENT)
+        side = ctk.CTkFrame(body, width=252, **ui_cards.card_style(border=ui_theme.ACCENT))
         if callable(getattr(side, "grid", None)):
             side.grid(row=0, column=0, sticky="ns", padx=(12, 4), pady=(0, 8))
         if callable(getattr(side, "pack_propagate", None)):

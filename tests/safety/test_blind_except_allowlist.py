@@ -49,7 +49,7 @@ _ALLOWLIST = {
                    "incidente 2026-08-04 (revoca invisibile + Strumenti fail-open), 4 handler: "
                    "`_revoca_nega` fail-safe su False — in dubbio NON si accusa di revoca, l'unico "
                    "blocco legittimo e' quello dimostrato da una lista firmata; "
-                   "`_chiudi_strumenti_per_lock` gira a OGNI giro da bloccato e deve tollerare una "
+                   "`_chiudi_finestre_operative_per_lock` gira a OGNI giro da bloccato e deve tollerare una "
                    "finestra gia' distrutta: un errore qui romperebbe il lock che deve proteggere; "
                    "`_mostra_license_banner` e `_set_license_banner` sono render Tk best-effort — un "
                    "widget distrutto non puo' impedire il BLOCCO, che resta applicato comunque; "

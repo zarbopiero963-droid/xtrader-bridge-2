@@ -31,6 +31,23 @@ _BADGE_KINDS = {
 }
 
 
+def card_style(border=None) -> dict:
+    """Kwargs di stile della CARD — la FONTE UNICA dei quattro token (rilievo CodeRabbit #236:
+    `card()` esisteva ma i pannelli duplicavano i letterali in ~12 siti, cioè proprio la
+    divergenza-futura che la regola 3 vieta). I pannelli fanno
+    ``ctk.CTkFrame(parent, **ui_cards.card_style())`` — la costruzione resta NEL pannello
+    (i test AST la ispezionano lì), lo stile vive qui.
+
+    ``border``: colore bordo alternativo (es. `ui_theme.ACCENT` per le colonne-lista);
+    None = il bordo standard `BORDER`."""
+    return {
+        "fg_color": ui_theme.SURFACE,
+        "corner_radius": ui_theme.RADIUS_CARD,
+        "border_width": 1,
+        "border_color": border if border is not None else ui_theme.BORDER,
+    }
+
+
 def _best_effort(widget, method, *args, **kwargs):
     """Chiama ``widget.method(...)`` se esiste; i doppi dei test non hanno Tk dietro."""
     fn = getattr(widget, method, None)
@@ -49,9 +66,7 @@ def card(ctk, parent, title="", *, pad=(10, 6), fill="x", expand=False):
 
     Il titolo è un ``CTkLabel`` costruito QUI e non nei pannelli: è cornice, non contenuto —
     i test AST sui pannelli contano i bottoni/label di dominio, non la cornice."""
-    frame = ctk.CTkFrame(parent, fg_color=ui_theme.SURFACE,
-                         corner_radius=ui_theme.RADIUS_CARD,
-                         border_width=1, border_color=ui_theme.BORDER)
+    frame = ctk.CTkFrame(parent, **card_style())
     _best_effort(frame, "pack", fill=fill, expand=expand, padx=pad[0], pady=pad[1])
     if title:
         try:

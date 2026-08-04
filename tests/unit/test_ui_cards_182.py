@@ -87,6 +87,32 @@ def test_helpers_non_crollano_sui_doppi_senza_metodi():
     ui_cards.hint(ctk, None, "h")
 
 
+def test_card_style_e_la_fonte_unica_dei_token():
+    """Rilievo CodeRabbit #236: i pannelli devono prendere lo stile da QUI, non duplicare
+    i letterali. Il contratto: i 4 token, e il bordo alternativo per le colonne-lista."""
+    kw = ui_cards.card_style()
+    assert kw == {"fg_color": ui_theme.SURFACE,
+                  "corner_radius": ui_theme.RADIUS_CARD,
+                  "border_width": 1,
+                  "border_color": ui_theme.BORDER}
+    accent = ui_cards.card_style(border=ui_theme.ACCENT)
+    assert accent["border_color"] == ui_theme.ACCENT
+    assert {k: v for k, v in accent.items() if k != "border_color"} == \
+           {k: v for k, v in kw.items() if k != "border_color"}
+
+
+def test_nessun_pannello_duplica_i_token_della_card():
+    """La classe, non il sito (regola 2): NESSUN modulo GUI fuori da ui_cards deve
+    ripetere il letterale `corner_radius=ui_theme.RADIUS_CARD` — se ricompare, la
+    fonte unica si è di nuovo sdoppiata."""
+    import pathlib
+    pkg = pathlib.Path(ui_cards.__file__).parent
+    colpevoli = [p.name for p in pkg.glob("*.py")
+                 if p.name != "ui_cards.py"
+                 and "corner_radius=ui_theme.RADIUS_CARD" in p.read_text(encoding="utf-8")]
+    assert colpevoli == []
+
+
 def test_hint_usa_testo_e_colore_tenue():
     ctk = _ctk_finto(_Registrati)
     lbl = ui_cards.hint(ctk, "genitore", "aiuto")

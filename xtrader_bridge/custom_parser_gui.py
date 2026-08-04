@@ -626,9 +626,7 @@ class CustomParserPanel(ctk.CTkFrame):
                 fn(*args, weight=1)
 
         # ── colonna sinistra: card della lista parser (bordo ACCENT come lo sketch) ──
-        side = ctk.CTkFrame(body, width=272, fg_color=ui_theme.SURFACE,
-                            corner_radius=ui_theme.RADIUS_CARD,
-                            border_width=1, border_color=ui_theme.ACCENT)
+        side = ctk.CTkFrame(body, width=272, **ui_cards.card_style(border=ui_theme.ACCENT))
         if callable(getattr(side, "grid", None)):
             side.grid(row=0, column=0, sticky="ns", padx=(10, 4), pady=8)
         if callable(getattr(side, "pack_propagate", None)):
@@ -700,9 +698,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # checkbox profili) e l'anagrafica Provider non era raggiungibile affatto — «➕ Provider»
         # qui sopra aggiunge un nome al volo, non apre l'elenco.
         # Sola PRESENTAZIONE: i comandi sono quelli di prima, cambia dove si trovano.
-        anag = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                            corner_radius=ui_theme.RADIUS_CARD,
-                            border_width=1, border_color=ui_theme.BORDER)
+        anag = ctk.CTkFrame(outer, **ui_cards.card_style())
         anag.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(anag, text=i18n.tr("🧰 Anagrafiche e dizionari"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
@@ -718,9 +714,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
         # #182 restyle: card di sezione (prima era un frame trasparente, senza confini).
-        cat = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                           corner_radius=ui_theme.RADIUS_CARD,
-                           border_width=1, border_color=ui_theme.BORDER)
+        cat = ctk.CTkFrame(outer, **ui_cards.card_style())
         cat.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=8, pady=6)
@@ -748,9 +742,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # tipo (✓ N attive = profili selezionati, — nessuna = nessuno). Nessun cambio funzionale:
         # le checkbox profili e i pulsanti «apri Dizionario» restano quelli di prima; solo la
         # presentazione cambia (le mappature vivono accanto al parser, dove si accendono).
-        trad = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                            corner_radius=ui_theme.RADIUS_CARD,
-                            border_width=1, border_color=ui_theme.BORDER)
+        trad = ctk.CTkFrame(outer, **ui_cards.card_style())
         trad.pack(fill="x", padx=10, pady=(2, 6))
         ctk.CTkLabel(trad, text=i18n.tr("🔗 Traduzioni attive per questo parser"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
@@ -811,9 +803,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # sezione degli sketch e — QUI SOTTO la griglia, non più sopra le Anagrafiche — i due
         # avvisi che parlano delle sue righe (valore fisso ⑥ e nota BetType ⑧: erano
         # impacchettati lontani da ciò che spiegavano, rilievo proprietario sugli screenshot).
-        rules_card = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                                  corner_radius=ui_theme.RADIUS_CARD,
-                                  border_width=1, border_color=ui_theme.BORDER)
+        rules_card = ctk.CTkFrame(outer, **ui_cards.card_style())
         rules_card.pack(fill="x", padx=10, pady=(4, 6))
         ctk.CTkLabel(rules_card, text=i18n.tr("Griglia regole — 14 colonne CSV"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(6, 0))
@@ -852,9 +842,7 @@ class CustomParserPanel(ctk.CTkFrame):
             anchor="w", justify="left", wraplength=860).pack(fill="x", padx=12, pady=(0, 6))
 
         # #182 restyle: azioni + area di prova in un'unica card («Azioni e prova» dello sketch).
-        prova_card = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                                  corner_radius=ui_theme.RADIUS_CARD,
-                                  border_width=1, border_color=ui_theme.BORDER)
+        prova_card = ctk.CTkFrame(outer, **ui_cards.card_style())
         prova_card.pack(fill="x", padx=10, pady=(0, 8))
         actions = ctk.CTkFrame(prova_card, fg_color="transparent")
         actions.pack(fill="x", padx=8, pady=(6, 4))
@@ -928,9 +916,7 @@ class CustomParserPanel(ctk.CTkFrame):
     def _build_multi_section(self, outer):
         """Sezione output multi-riga: due interruttori + due liste di righe dinamiche.
         Solo widget; lo stato vive nel `ParserBuilder` (round-trip/anteprima testati in CI)."""
-        sec = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                           corner_radius=ui_theme.RADIUS_CARD,
-                           border_width=1, border_color=ui_theme.BORDER)
+        sec = ctk.CTkFrame(outer, **ui_cards.card_style())
         sec.pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(sec, text=i18n.tr("Output multi-riga (un messaggio → più righe CSV)"),
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))
@@ -1130,9 +1116,7 @@ class CustomParserPanel(ctk.CTkFrame):
         """Sezione «Condizioni di gate»: modo E/O + righe dinamiche [contiene/NON contiene +
         testo + Rimuovi]. Solo widget; lo stato vive nel `ParserBuilder` (round-trip e gate
         testati in CI). Nessuna condizione = nessun filtro (comportamento invariato)."""
-        sec = ctk.CTkFrame(outer, fg_color=ui_theme.SURFACE,
-                           corner_radius=ui_theme.RADIUS_CARD,
-                           border_width=1, border_color=ui_theme.BORDER)
+        sec = ctk.CTkFrame(outer, **ui_cards.card_style())
         sec.pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(sec, text=i18n.tr("Condizioni di gate (il parser scatta solo se il messaggio le soddisfa)"),
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=8, pady=(6, 2))

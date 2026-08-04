@@ -612,7 +612,10 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   ri-valutano il lock — una licenza revocata a sessione viva → **STOP fail-closed** (stesso path del PR
   4). L'Hardware ID è **memoizzato** (niente WMI/subprocess a ogni tick sul thread GUI). Con l'URL
   **placeholder** il gate sarebbe **bypassato** (dev, come la chiave di TEST) — **oggi non è il caso**:
-  l'URL è reale, quindi il gate è **attivo e fail-closed**.
+  l'URL è reale, quindi il gate è **attivo**. Resta **fail-OPEN** (decisione 2026-07-30): blocca solo
+  una licenza **esplicitamente revocata** in una lista verificata — lista assente/stantia/URL
+  irraggiungibile NON bloccano (`_revocation_gate_ok` ritorna True in quei casi). Il **fail-CLOSED**
+  riguarda la *validità* della licenza, non la disponibilità del dato di revoca.
 
 - **Visibilità del blocco** (incidente del collaudo 2026-08-03/04 (notte)). Il blocco funzionava ma era **invisibile**: la
   scheda «🔑 Licenza» mostrava **verde** «✅ Licenza attiva · scade tra N giorni» a un utente

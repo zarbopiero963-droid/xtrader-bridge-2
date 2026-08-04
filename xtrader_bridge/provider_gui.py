@@ -76,8 +76,7 @@ class ProviderPanel(ctk.CTkFrame):
         # #182 restyle: l'elenco vive in una card (bordo + raggio dei token), come lo sketch.
         self._rows_frame = ctk.CTkScrollableFrame(
             self, height=360, label_text=i18n.tr("Provider salvati"),
-            fg_color=ui_theme.SURFACE, corner_radius=ui_theme.RADIUS_CARD,
-            border_width=1, border_color=ui_theme.BORDER)
+            **ui_cards.card_style())
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
