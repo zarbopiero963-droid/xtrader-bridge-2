@@ -141,6 +141,41 @@ def test_l_esenzione_numerica_resta_intatta():
         assert not csv_writer._sanitize_cell(numero).startswith("'"), numero
 
 
+@pytest.mark.parametrize("grezzo,atteso", [
+    ("1.85\r\n", "1.85"),      # a-capo in CODA
+    ("\r\n1.85", "1.85"),      # a-capo in TESTA
+    ("\r\n1,85\r\n", "1,85"),  # entrambi, con virgola decimale
+    ("-1.5\r\n", "-1.5"),      # segno negativo conservato
+])
+def test_un_numero_con_acapo_ai_bordi_resta_un_numero(grezzo, atteso):
+    """Bloccante Fable 5 (+ follow-up Fugu Ultra) sulla #250: niente spazio residuo.
+
+    La prima versione della patch sostituiva **ogni** sequenza di a-capo con uno spazio,
+    bordi compresi: `"1.85\\r\\n"` finiva nel file come `"1.85 "`. Il ramo interno non se ne
+    accorgeva — decide su `s.strip()`, dove lo spazio sparisce — quindi la cella risultava
+    «numerica» e usciva **senza apostrofo**, ma il valore *scritto* non era più un numero per
+    `_NUMERIC_RE`. XTrader l'avrebbe letto come testo: il contratto numerico rotto in silenzio,
+    che è il modo peggiore.
+
+    La lezione di metodo: il test B11 originale asseriva solo il **conteggio delle righe**, e
+    per quello la prima versione era verde. Il valore scritto va asserito, non dedotto."""
+    risultato = csv_writer._sanitize_cell(grezzo)
+    assert risultato == atteso, repr(risultato)
+    assert csv_writer._NUMERIC_RE.fullmatch(risultato), (
+        f"{risultato!r} non è più un numero per _NUMERIC_RE: XTrader lo leggerebbe come testo"
+    )
+
+
+def test_una_cella_fatta_solo_di_acapo_resta_vuota():
+    """Caso limite del taglio ai bordi: se la cella è SOLO a-capo non resta niente.
+
+    Va gestito esplicitamente perché dopo la sostituzione la stringa è vuota, e i rami
+    successivi indicizzano `s[0]`: senza la guardia sarebbe un `IndexError` su un input che
+    arriva da Telegram, cioè non fidato."""
+    for solo_acapo in ("\r", "\n", "\r\n", "\n\n\n", "\r\n\r\n"):
+        assert csv_writer._sanitize_cell(solo_acapo) == "", repr(solo_acapo)
+
+
 def test_la_protezione_formula_sopravvive_a_un_acapo_iniziale():
     """Un a-capo in testa non deve diventare un modo per far passare una formula.
 
@@ -160,8 +195,12 @@ def test_solo_cr_e_lf_spezzano_il_file(tmp_path):
     FILE nessun altro carattere spezza una riga. Se un domani questo test diventasse rosso su
     uno dei caratteri «innocui», vorrebbe dire che il perimetro va allargato — ed è meglio
     scoprirlo da un test che da un CSV sbagliato."""
+    # Escape ESPLICITI, mai il carattere letterale (rilievo Fable 5 sulla #250): NEL, LS e
+    # PS sono invisibili nel sorgente e in un diff, quindi un'edit distratta può cancellarne
+    # uno o fonderne due senza che si veda. Così il perimetro resta leggibile e verificabile.
     spezza = {"\r": True, "\n": True,
-              "\v": False, "\f": False, "": False, " ": False, " ": False}
+              "\v": False, "\f": False,
+              "\x85": False, "\u2028": False, "\u2029": False}
     for ch, atteso in spezza.items():
         percorso = str(tmp_path / f"m{ord(ch)}.csv")
         with open(percorso, "w", newline="", encoding="utf-8") as f:

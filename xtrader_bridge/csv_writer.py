@@ -370,8 +370,13 @@ _CSV_FORMULA_CHARS = ("=", "+", "-", "@")
 _CSV_CTRL_CHARS = ("\t", "\r", "\n")
 
 # Gli unici caratteri che spezzano una riga a livello di FILE (misurato in
-# `tests/unit/test_crlf_riga_forgiata_b11.py::test_solo_cr_e_lf_spezzano_il_file`). Una
-# sequenza intera → un solo spazio, così `\r\n` non diventa due spazi. Vedi `_sanitize_cell`.
+# `tests/unit/test_crlf_riga_forgiata_b11.py::test_solo_cr_e_lf_spezzano_il_file`).
+# Due regex, non una, perché a-capo ai BORDI e a-capo INTERNI vanno trattati diversamente:
+# quelli ai bordi si tolgono e basta, quelli in mezzo diventano UN solo spazio (`\r\n` è un
+# a-capo, non due). Sostituire anche i bordi con uno spazio lascerebbe un residuo che rompe
+# il contratto numerico: `"1.85\r\n"` diventerebbe `"1.85 "`, che per `_NUMERIC_RE` NON è
+# più un numero — e XTrader lo leggerebbe come testo (bloccante Fable 5 sulla #250).
+_CSV_LINEBREAK_EDGE_RE = re.compile(r"\A[\r\n]+|[\r\n]+\Z")
 _CSV_LINEBREAK_RE = re.compile(r"[\r\n]+")
 # Numero "puro" (segno opzionale + decimale con . o ,): es. Handicap "-1"/"+1,5", Price
 # "1.85". Un numero legittimo NON va prefissato, altrimenti XTrader leggerebbe "'-1" come
@@ -415,6 +420,13 @@ def _sanitize_cell(value):
       una sanificazione condizionata l'avrebbe lasciato passare con l'a-capo dentro. L'esenzione
       numerica non ne soffre: nessun numero valido contiene un a-capo, quindi qui non cambia mai
       un numero;
+    - **bordi tolti, interni sostituiti** (bloccante Fable 5 + follow-up Fugu Ultra sulla #250):
+      collassare *tutto* in uno spazio lasciava un residuo in coda, e `"1.85\\r\\n"` finiva nel
+      file come `"1.85 "` — che per `_NUMERIC_RE` **non è più un numero**, quindi XTrader
+      l'avrebbe letto come testo. Il ramo interno non se ne accorgeva perché decide su
+      `s.strip()`, dove lo spazio residuo sparisce: la cella risultava «numerica» e usciva senza
+      apostrofo, ma scritta non lo era più. Ora un a-capo in testa o in coda viene **rimosso**,
+      e solo quelli in mezzo diventano uno spazio;
     - **prima degli altri controlli**: un `"\\r\\n=1+1"` prendeva già l'apice dal ramo
       control-char, ma l'a-capo restava nella cella e la riga si spezzava lo stesso. Neutralizzando
       per primo si tiene la riga intatta e la formula resta comunque intercettata dal ramo che
@@ -427,9 +439,13 @@ def _sanitize_cell(value):
     s = "" if value is None else str(value)
     if not s:
         return s
-    # `\r\n` è UN a-capo, non due: `+` lo collassa in un solo spazio (« Inter Milan», non
+    # Prima i BORDI (via del tutto), poi gli INTERNI (uno spazio): vedi le due regex.
+    s = _CSV_LINEBREAK_EDGE_RE.sub("", s)
+    # `\r\n` è UN a-capo, non due: `+` lo collassa in un solo spazio («Inter Milan», non
     # «Inter  Milan») senza cambiare il numero di campi della riga.
     s = _CSV_LINEBREAK_RE.sub(" ", s)
+    if not s:
+        return s        # la cella era SOLO a-capo: resta vuota, niente da apostrofare
     if s[0] in _CSV_CTRL_CHARS:
         return "'" + s
     nudo = s.strip()
