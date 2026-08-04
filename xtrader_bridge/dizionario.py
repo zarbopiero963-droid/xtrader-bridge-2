@@ -11,8 +11,9 @@ proprio (alias → riga) e l'integrazione in `build_csv_row` sono PR-08.
 import csv
 import functools
 import os
-import re
 import sys
+
+from . import validators
 
 
 def resource_path(relative: str) -> str:
@@ -194,7 +195,6 @@ def market_types(rows: list) -> set:
 # conosca il formato del CSV/del dizionario. Mercati e selezioni sono restituiti
 # nell'ordine del file: stabile e prevedibile per l'utente.
 
-_PLACEHOLDER_RE = re.compile(r"\{[A-Z_]+\}")
 # Valori della colonna SelezioneDinamica che marcano una riga come dinamica.
 _DYNAMIC_FLAG = frozenset({"sì", "si", "yes", "true", "1"})
 
@@ -326,8 +326,19 @@ def selections_for_market(market, rows=None) -> list:
 
 
 def has_placeholder(value) -> bool:
-    """True se nel valore restano placeholder non risolti (es. ``{HOME_TEAM}``)."""
-    return bool(_PLACEHOLDER_RE.search(str(value)))
+    """True se nel valore restano placeholder non risolti (es. ``{HOME_TEAM}``).
+
+    Delega alla fonte unica `validators.has_unresolved_placeholder` (#194 PR-I, B10). Prima
+    usava `_PLACEHOLDER_RE` (`\\{[A-Z_]+\\}`), che riconosce **solo la forma scritta bene**:
+    `{HOME_TEAM`, `HOME_TEAM}`, `{home_team}`, `{Home_Team}` e `{TEAM_1}` risultavano tutti
+    «nessun placeholder» — fail-OPEN. Questo predicato calcola il flag `dynamic`, cioè
+    *«è sicuro persistere questo come valore FISSO?»*, e `fill_placeholders` non sostituisce
+    nessuna di quelle forme: sarebbero finite **verbatim** come nome mercato o selezione.
+
+    Il dizionario **spedito** con l'app è pulito (le 15 righe con graffe usano tutte la forma
+    stretta), quindi l'allargamento non cambia nulla su di esso: chiude il caso del dizionario
+    editato a mano o esteso, e il refuso di manutenzione."""
+    return validators.has_unresolved_placeholder(value)
 
 
 def compose_event_name(home, away) -> str:
@@ -347,13 +358,12 @@ def fill_placeholders(value, home="", away="") -> str:
     composto (solo se entrambe le squadre sono note). I placeholder privi di valore
     restano invariati: il chiamante può rilevarli con `has_placeholder` e scartare
     una selezione non completabile."""
-    out = str(value)
     h = str(home or "").strip()
     a = str(away or "").strip()
-    if h:
-        out = out.replace("{HOME_TEAM}", h)
-    if a:
-        out = out.replace("{AWAY_TEAM}", a)
-    if h and a:
-        out = out.replace("{EVENT_NAME}", compose_event_name(h, a))
-    return out
+    return validators.substitute_placeholders(value, {
+        "HOME_TEAM": h,
+        "AWAY_TEAM": a,
+        # `{EVENT_NAME}` si compone SOLO con entrambe le squadre: con una sola resta
+        # placeholder, così il chiamante lo rileva e scarta invece di scrivere un nome monco.
+        "EVENT_NAME": compose_event_name(h, a) if (h and a) else "",
+    })

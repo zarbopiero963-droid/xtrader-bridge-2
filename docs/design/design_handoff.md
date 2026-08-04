@@ -1204,7 +1204,12 @@ Sezioni (colonna destra, dall'alto):
   Il verdetto onora anche il **gate di contenuto** del runtime: un parser a soli valori fissi (che
   non estrae nulla dal messaggio) mostra `⛔ Non pronto (NO_CONTENT_MATCH) · nessun contenuto
   estratto dal messaggio` invece di `✅ Pronto`, sia in single-row sia in multi-riga — come lo
-  scarterebbe il bridge. Per un `ID_ONLY` **a riga singola** con ID obbligatori lasciati vuoti il
+  scarterebbe il bridge. **Dalla #194 PR-I lo stesso verdetto compare anche quando il valore
+  estratto è un placeholder non risolto** (`{HOME_TEAM}`, o una forma rotta come `HOME_TEAM}`):
+  il caso reale è un bot che pubblica il proprio template non riempito — `Match: {HOME_TEAM} v
+  {AWAY_TEAM}` — che prima mostrava `✅ Pronto` perché l'estrazione «riusciva». Nessuna label
+  nuova e nessun controllo nuovo nella GUI: cambia **quando** il verdetto esistente appare, e
+  anteprima e runtime restano allineati. Per un `ID_ONLY` **a riga singola** con ID obbligatori lasciati vuoti il
   verdetto resta `⛔ Non pronto` (l'arricchimento ID dal dizionario è funzione multi-riga; coerente
   col runtime che non lo piazzerebbe).
 

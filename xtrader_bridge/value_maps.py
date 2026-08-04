@@ -19,7 +19,7 @@ Regole di sicurezza:
   lato di scommessa (PUNTA/BANCA) o una selezione.
 """
 
-from . import dizionario, mapping
+from . import dizionario, mapping, validators
 
 # Normalizzazione del lookup: usa quella shorthand di `mapping` (minuscolo,
 # spazi, virgola→punto, suffisso FT rimosso). È un superset sicuro della
@@ -50,9 +50,14 @@ def _is_placeholder(value: str) -> bool:
     #318 L2-2: usa `or`, non `and`. Un placeholder PARZIALE/troncato («{HOME_TEAM» senza `}`,
     o «HOME_TEAM}») deve comunque essere escluso dalla value-map: i valori betting reali non
     contengono MAI graffe, quindi la presenza di UNA sola graffa è già segno di placeholder
-    non sostituito (fail-closed: mai un placeholder rotto usato come valore reale)."""
-    v = value or ""
-    return "{" in v or "}" in v
+    non sostituito (fail-closed: mai un placeholder rotto usato come valore reale).
+
+    Alias di `validators.has_unresolved_placeholder` (#194 PR-I): questa era la versione
+    **corretta** dei quattro predicati, ed è quella che è stata promossa a fonte unica. Il
+    nome resta perché è già usato altrove nel modulo; l'implementazione non è più qui, così
+    non può tornare a divergere dagli altri tre siti — che è esattamente ciò che era successo
+    dopo la #16 L2-2, corretta qui e mai propagata."""
+    return validators.has_unresolved_placeholder(value)
 
 
 def value_map_from_pairs(pairs) -> dict:

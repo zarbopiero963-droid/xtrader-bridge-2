@@ -18,6 +18,7 @@ Modulo **puro**: nessuna dipendenza da GUI/CSV/Telegram, testabile headless.
 """
 
 import math
+import re
 
 # Nomi device riservati di Windows: un file con questo nome-base (anche con
 # estensione) non è creabile. Match ESATTO, case-insensitive (es. "con" sì,
@@ -114,6 +115,74 @@ def require_finite_now(now) -> float:
     if not math.isfinite(f):
         raise ValueError(f"now deve essere finito (ricevuto {now!r})")
     return f
+
+
+def has_unresolved_placeholder(value) -> bool:
+    """`True` se il valore contiene un placeholder dinamico **non sostituito**.
+
+    FONTE UNICA del predicato (#194 PR-I, regola 3). Prima ne esistevano **quattro**, e tre
+    erano più permissivi del quarto — con effetti diversi ma la stessa causa:
+
+    | sito | predicato | difetto |
+    |---|---|---|
+    | `value_maps._is_placeholder` | `"{" or "}"` | nessuno: indurito dalla #16 L2-2 |
+    | `dizionario.has_placeholder` | `\\{[A-Z_]+\\}` | **B10**: cieco su `{HOME_TEAM`, `HOME_TEAM}`, `{home_team}` |
+    | `mapping.resolve_selection` | `"{" in nome` | **B18**: vede `{`, mai `}` |
+    | `custom_parser_engine.matches_message` | *nessuno* | **B16**: il placeholder contava come contenuto |
+
+    **La regola: UNA sola graffa basta.** I valori betting reali — nomi squadra, mercati,
+    selezioni, quote — non contengono **mai** graffe, quindi la presenza di una `{` o di una
+    `}` è già segno di sostituzione non avvenuta. Un placeholder troncato (`{HOME_TEAM` senza
+    chiusura, o `HOME_TEAM}` senza apertura) è un template rotto, non un nome: trattarlo come
+    dato reale significa scrivere spazzatura nel CSV, o peggio far scattare un parser con ID
+    fissi su un messaggio che non porta alcun dato. Fail-closed per costruzione.
+
+    Un match per *forma esatta* (`\\{[A-Z_]+\\}`) sarebbe più elegante e sarebbe **sbagliato**:
+    riconosce solo i placeholder scritti bene, cioè esattamente quelli che non fanno danno.
+
+    Non solleva mai: il valore arriva da JSON e da CSV editabili a mano, e questo predicato
+    decide se **scartare** una selezione — un'eccezione qui trasformerebbe una guardia in un
+    crash.
+
+    **Non-stringa: `str(value)`, non `str(value or "")`** (rilievo GPT-5.5 sulla #252). La
+    seconda forma collassa ogni valore *falsy* a stringa vuota, e su un `dict` produceva una
+    risposta che dipendeva dal contenuto: `{}` → `False` (falsy → `""`) ma `{"a": 1}` → `True`
+    (`str` dà `"{'a': 1}"`). Due risposte diverse per lo stesso tipo, e quella permissiva sul
+    caso vuoto. Con `str(value)` un non-stringa che *si scrive* con graffe è coerentemente un
+    placeholder → scartato: se una struttura arriva fin qui è un errore di programmazione, e
+    fail-closed è la direzione giusta. È anche l'idioma già usato in `csv_writer._sanitize_cell`
+    (`"" if value is None else str(value)`), quindi il repository ne ha uno solo."""
+    s = "" if value is None else str(value)
+    return "{" in s or "}" in s
+
+
+_PLACEHOLDER_TOKEN_RE = re.compile(r"\{([A-Z_]+)\}")
+
+
+def substitute_placeholders(value, valori: dict) -> str:
+    """Sostituisce i placeholder `{NOME}` in **una sola passata**, senza mai riesaminare
+    il testo inserito. FONTE UNICA della sostituzione (#194 PR-I, B19).
+
+    Un nome assente da `valori`, o mappato a stringa vuota, lascia il placeholder
+    **invariato**: è il contratto su cui i chiamanti contano per accorgersi che il valore non
+    è completabile e scartare la selezione, invece di scrivere un nome vuoto.
+
+    **Perché una passata sola.** Prima c'erano due implementazioni, entrambe a `replace`
+    concatenati (`mapping._subst` e `dizionario.fill_placeholders`), e i nomi squadra arrivano
+    **verbatim dal messaggio Telegram**. Con le sostituzioni in sequenza un `home` che
+    *contiene* `{AWAY_TEAM}` veniva inserito al posto di `{HOME_TEAM}` e poi riesaminato dal
+    passaggio successivo, che lo trasformava nella squadra **avversaria**:
+
+        _subst("{HOME_TEAM}", home="{AWAY_TEAM}", away="Milan")  ->  "Milan"   # PRIMA
+        _subst("{HOME_TEAM}", home="{AWAY_TEAM}", away="Milan")  ->  "{AWAY_TEAM}"  # ORA
+
+    La selezione «vittoria casa» diventava «vittoria trasferta» — il lato invertito, che è la
+    prima invariante che `CLAUDE.md` protegge. Con `re.sub` e una callback ogni occorrenza è
+    sostituita una volta e il risultato è finale."""
+    def _sostituisci(m):
+        return str(valori.get(m.group(1), "") or "") or m.group(0)
+
+    return _PLACEHOLDER_TOKEN_RE.sub(_sostituisci, str(value))
 
 
 def safe_filename_core(name: str) -> str:

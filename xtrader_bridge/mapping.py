@@ -14,6 +14,7 @@ Alias sconosciuto → None (il chiamante decide; il blocco duro è PR-10).
 
 import threading
 
+from . import validators
 from .dizionario import alias_key, assert_no_duplicate_aliases, load_dizionario
 
 
@@ -95,12 +96,20 @@ _norm_shorthand = normalize_shorthand  # alias interno storico
 
 
 def _subst(value: str, home: str, away: str) -> str:
-    out = str(value)
-    if home:
-        out = out.replace("{HOME_TEAM}", home)
-    if away:
-        out = out.replace("{AWAY_TEAM}", away)
-    return out
+    """Sostituisce i placeholder squadra in **una sola passata** (#194 PR-I, B19).
+
+    Prima erano due `str.replace` in sequenza, e i nomi squadra arrivano **verbatim dal
+    messaggio Telegram**: un `home` che *conteneva* `{AWAY_TEAM}` veniva prima inserito al
+    posto di `{HOME_TEAM}`, e poi il secondo `replace` lo riesaminava trasformandolo nella
+    squadra **avversaria**. La selezione «vittoria casa» diventava «vittoria trasferta» —
+    il lato invertito, che è l'invariante che `CLAUDE.md` protegge per prima.
+
+    Con `re.sub` e una callback il testo inserito non viene mai riesaminato: ogni
+    occorrenza è sostituita una volta e il risultato è finale. Una squadra mancante lascia
+    il placeholder intatto, come prima, così il chiamante lo rileva e scarta la selezione
+    invece di scrivere un nome vuoto."""
+    return validators.substitute_placeholders(
+        value, {"HOME_TEAM": home, "AWAY_TEAM": away})
 
 
 def resolve_selection(market_alias: str, selection_alias: str, home: str = "", away: str = ""):
@@ -121,7 +130,10 @@ def resolve_selection(market_alias: str, selection_alias: str, home: str = "", a
         return None
     market_name = _subst(row["MarketName_XTrader"], home, away)
     selection_name = _subst(row["SelectionName_XTrader"], home, away)
-    if "{" in selection_name or "{" in market_name:
+    # Fonte unica del predicato (#194 PR-I, B18): prima si guardava solo `"{"`, quindi una
+    # graffa CHIUSA orfana (`HOME_TEAM}`) sopravviveva come nome di selezione reale.
+    if (validators.has_unresolved_placeholder(selection_name)
+            or validators.has_unresolved_placeholder(market_name)):
         return None     # placeholder non risolto (dati squadra incompleti)
     return {
         "MarketType":    row["MarketType_XTrader"],
