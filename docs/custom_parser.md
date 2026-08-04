@@ -436,6 +436,17 @@ primo tempo) è tracciata a parte l'estrazione dinamica per-riga dal messaggio (
 > senza via d'uscita. Il valore già salvato non viene modificato e la validazione non cambia: un
 > parser esistente si comporta esattamente come prima.
 
+> 📐 **Whitelist per-colonna delle tendine avanzate (ordine proprietario 2026-08-04).** Le
+> tendine compaiono solo dove hanno senso — dedotto dal codice, non deciso a tavolino:
+> **Trasformazione** su `SelectionName`, `MarketType`, `MarketName` (le trasformazioni
+> `score_to_over`/`score_to_over_ht` producono «Over N,5»/«over N,5 ht», forme risolte solo
+> dalle value-map di quelle tre famiglie); **Value-map** sulle stesse tre **più `BetType`**
+> (mappa built-in `bettype`: BACK→PUNTA / LAY→BANCA). Sulle altre righe compare un «—» che
+> tiene allineate le colonne. **Via di fuga** (stesso principio dell'avviso valore-fisso): una
+> regola salvata con transform/value-map su una colonna fuori lista mostra comunque la sua
+> tendina, così la si vede e la si può riparare — niente comportamento invisibile. Il motore
+> NON cambia: un parser salvato si comporta esattamente come prima.
+
 **MarketType / MarketName / SelectionName** hanno in colonna **«Valore fisso»** una **tendina
 editabile** (`CTkComboBox`) popolata da questi valori permanenti, **filtrati per lo sport del
 parser** (la tendina Sport in alto). A differenza della riga **Provider** (tendina a scelta

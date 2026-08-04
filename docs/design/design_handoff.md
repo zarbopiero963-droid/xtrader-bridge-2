@@ -1204,6 +1204,12 @@ Sezioni (colonna destra, dall'alto):
 > Questa è la schermata che più beneficerebbe di un redesign: è densa, tabellare, con molte
 > colonne e concetti (delimitatori, trasformazioni, value-map, mapping, multi-riga). Vedi §14.
 
+> **Whitelist tendine avanzate (2026-08-04).** In modalità «Avanzate» le tendine
+> Trasformazione/Value-map della griglia compaiono solo sulle righe dove hanno senso
+> (Trasformazione: SelectionName·MarketType·MarketName; Value-map: le stesse + BetType);
+> sulle altre un «—» grigio da 150px mantiene l'allineamento delle colonne. Regola salvata
+> fuori lista → tendina comunque visibile (riparabilità, come per il valore fisso).
+
 ### 7.2 📡 Chat sorgenti (`source_chats_gui.py`)
 Titolo **"📡  Chat sorgenti (multi-chat)"**. Tabella con colonne: **Attiva · Nome · Chat ID
 · Modalità (PRE/LIVE) · Provider · Parser · Traduzioni** · ✕ (elimina). Pulsanti
