@@ -449,3 +449,29 @@ def test_registro_ASSENTE_e_registro_LOCKATO_non_si_confondono(registro, monkeyp
 
     with pytest.raises(PermissionError):
         registry.remove_record("LIC-AAA", directory=registro)
+
+
+def test_il_serial_eliminato_e_QUELLO_confermato_anche_se_il_registro_cambia(registro, monkeypatch):
+    """Secondo rilievo di Fable 5 sulla PR #246: «fra dialogo e scrittura il record può cambiare
+    e si elimina una riga diversa da quella confermata».
+
+    Misurato: **non può**. `_on_delete` legge il serial UNA volta dal campo e passa la stessa
+    stringa a entrambe le chiamate; `remove_record` elimina per `normalize_serial(serial)`.
+    L'identità è il serial, ed è fissa. Un rinnovo concorrente per giunta crea un serial NUOVO
+    (il token cambia → cambia lo sha256): non trasforma il vecchio in un altro.
+
+    Ciò che può essere stantio è il **nome mostrato** nella conferma, non cosa viene eliminato.
+    """
+    app = _app(registro)
+
+    # Fra l'anteprima e la scrittura, un'altra istanza "rinnova": nuovo serial, il vecchio resta.
+    app._evaluate_delete("LIC-BBB")                       # anteprima (non scrive)
+    with open(registry.registry_path(registro), "a", encoding="utf-8") as f:
+        f.write(json.dumps(_record("LIC-RINNOVATO")) + "\n")
+
+    app._evaluate_delete("LIC-BBB", conferma=True)
+
+    rimasti = _serials(registro)
+    assert "LIC-BBB" not in rimasti, "non ha eliminato il serial confermato"
+    assert "LIC-RINNOVATO" in rimasti, "ha eliminato una riga diversa da quella confermata"
+    assert "LIC-AAA" in rimasti and "LIC-CCC" in rimasti

@@ -202,9 +202,20 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
     riscritto. È la stessa forma usata per il file-chiave in `core.save_signing_key`, ed è
     obbligatoria qui: a differenza di un append, questa operazione riscrive TUTTO il file.
 
-    **Solleva `ConcurrentModification`** se il registro cambia fra la lettura e la riscrittura
-    (un'altra istanza ha appena registrato una licenza): il file resta **invariato** e nessun
-    record viene perso. Vedi sotto.
+    **Solleva `ConcurrentModification`** se il registro è cambiato fra la lettura e il momento
+    subito prima di `os.replace` — tipicamente un'altra istanza che ha appena registrato una
+    licenza: il file resta invariato e quel record non viene perso.
+
+    **Fin dove arriva, detto con precisione** (rilievo bloccante di Fable 5 sulla PR #246). Non è
+    un lock: fra `os.stat` e `os.replace` resta una finestra di **microsecondi** in cui un append
+    concorrente verrebbe comunque sovrascritto. Il controllo **riduce** l'esposizione, non la
+    azzera — e la riduce di molto: prima copriva l'intero intervallo lettura→scrittura, che
+    include il **dialogo di conferma** e quindi può durare minuti; ora copre solo la coda finale.
+
+    Chiuderla davvero richiede un lock **inter-processo**, che è la issue **#185** (e il **B42**
+    del piano #194) e ha il suo scope. Qui il residuo è **accettato deliberatamente**, non
+    ignorato: è la scelta fra un rischio da microsecondi e allargare a un redesign della
+    concorrenza una PR sul tool delle licenze.
 
     Serial vuoto/non trovato → `0`, nessuna scrittura (non si riscrive un file per nulla).
     Gli altri errori di I/O **propagano**, come in `append_record`."""
