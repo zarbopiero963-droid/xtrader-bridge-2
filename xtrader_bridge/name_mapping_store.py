@@ -396,7 +396,14 @@ def _chiamanti_massimali(righe) -> set:
     sano e basta dichiarare lo scope nel parser.
 
     Sottoinsieme di `_chiamanti_plausibili` (che include anche gli scope parziali, e serve a
-    decidere **se** avvisare): qui interessano solo i più specifici."""
+    decidere **se** avvisare): qui interessano solo i più specifici. L'inclusione è verificata
+    da un test, ed è anche ciò che rende sondarli gratuito — l'unione dei due insiemi è il primo.
+
+    Invariante da tenere presente (rilievo Fable 5): un massimale che risolve a ``None`` —
+    nessuna riga eleggibile per quella combinazione — conta come «risolvibile», ed è corretto:
+    `None` significa «questo alias non esiste in quello scope», non «non so scegliere». È
+    `_AMBIGUOUS`, sentinella distinta, a segnalare il conflitto. Se un domani `None` e conflitto
+    collassassero sullo stesso valore, questa funzione tacerebbe sui conflitti veri."""
     dimensioni = []
     for d in _SCOPE_DIMENSIONS:
         valori = {e.get(d, "") or "" for e in righe}

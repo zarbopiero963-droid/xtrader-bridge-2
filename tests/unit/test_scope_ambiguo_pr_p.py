@@ -555,3 +555,40 @@ def test_b21bis_caso_MISTO_uno_scope_risolve_ma_un_altro_resta_rotto():
     [avviso] = nms.ambiguous_alias_warnings(misto)
     assert "NEMMENO" in avviso, f"consiglia di dichiarare lo scope, ma su Calcio non basta: {avviso}"
     assert "Correggi il Dizionario nomi" in avviso
+
+
+def test_b21bis_le_due_costruzioni_di_chiamanti_restano_allineate_alle_DIMENSIONI():
+    """Guardia contro una rottura silenziosa (rilievo GPT-5.5 sulla #253).
+
+    `_chiamanti_plausibili` e `_chiamanti_massimali` costruiscono a mano una **tripla**
+    `(sport, entity_type, language)` che `_resolve_scoped` riceve posizionalmente. Aggiungere
+    una quarta dimensione a `_SCOPE_DIMENSIONS` — o cambiarne l'ordine — non farebbe fallire
+    nulla: le due funzioni continuerebbero a produrre triple, semplicemente **cieche** alla
+    nuova dimensione, e l'avviso tornerebbe a tacere su conflitti veri. È esattamente il modo
+    in cui questo predicato si è già rotto tre volte in questa PR.
+
+    Se questo test diventa rosso, vanno aggiornate ENTRAMBE le costruzioni e la firma di
+    `_resolve_scoped`, non solo la costante."""
+    assert nms._SCOPE_DIMENSIONS == ("sport", "entity_type", "language")
+    righe = [_riga_nome("X", "A", sport="Calcio", entity_type="team", language="IT"),
+             _riga_nome("X", "B", sport="Tennis", entity_type="player", language="EN")]
+    for costruttore in (nms._chiamanti_plausibili, nms._chiamanti_massimali):
+        for chiamante in costruttore(righe):
+            assert len(chiamante) == len(nms._SCOPE_DIMENSIONS), (
+                f"{costruttore.__name__} produce {len(chiamante)} dimensioni"
+            )
+
+
+def test_b21bis_i_massimali_non_costano_sondaggi_in_piu():
+    """I massimali sono un **sottoinsieme** dei plausibili, quindi sondarli non aggiunge
+    lavoro: `chiamanti | massimali` è `chiamanti` (rilievo GPT-5.5 sul costo del prodotto
+    cartesiano). Misurato sul worst-case: 90 massimali dentro 168 plausibili, unione identica.
+
+    L'invariante è anche ciò che rende sicuro l'accesso diretto `esiti[c]` sui massimali."""
+    righe = [_riga_nome("X", "A", sport="Calcio", entity_type="team", language="IT"),
+             _riga_nome("X", "B", sport="Tennis", entity_type="player", language="EN"),
+             _riga_nome("X", "C")]
+    plausibili = nms._chiamanti_plausibili(righe)
+    massimali = nms._chiamanti_massimali(righe)
+    assert massimali <= plausibili, sorted(massimali - plausibili)
+    assert (plausibili | massimali) == plausibili
