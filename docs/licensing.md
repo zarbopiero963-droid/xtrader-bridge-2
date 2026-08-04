@@ -612,7 +612,39 @@ bridge deve **raggiungere e verificare** l'URL per operare).
   ri-valutano il lock — una licenza revocata a sessione viva → **STOP fail-closed** (stesso path del PR
   4). L'Hardware ID è **memoizzato** (niente WMI/subprocess a ogni tick sul thread GUI). Con l'URL
   **placeholder** il gate sarebbe **bypassato** (dev, come la chiave di TEST) — **oggi non è il caso**:
-  l'URL è reale, quindi il gate è **attivo e fail-closed**.
+  l'URL è reale, quindi il gate è **attivo**. Resta **fail-OPEN** (decisione 2026-07-30): blocca solo
+  una licenza **esplicitamente revocata** in una lista verificata — lista assente/stantia/URL
+  irraggiungibile NON bloccano (`_revocation_gate_ok` ritorna True in quei casi). Il **fail-CLOSED**
+  riguarda la *validità* della licenza, non la disponibilità del dato di revoca.
+
+- **Visibilità del blocco** (incidente del collaudo 2026-08-03/04 (notte)). Il blocco funzionava ma era **invisibile**: la
+  scheda «🔑 Licenza» mostrava **verde** «✅ Licenza attiva · scade tra N giorni» a un utente
+  **revocato**, e l'unico segnale era una riga di log. Causa strutturale:
+  `license_status.compute_status()` riceve solo `(token, hardware_id, now, last_seen,
+  public_key_hex)` e non ha **alcun** input sulla revoca, mentre la scheda Licenza è esclusa
+  apposta dal lock (deve restare usabile). Due livelli che si contraddicevano, e quello che
+  l'utente guarda era quello sbagliato. Correzioni:
+  - **fonte unica** `app._revoca_nega()` — «la revoca sta negando» ha ora **una sola** definizione,
+    usata dalla diagnosi del lock, dal banner e — cablata come seam `revoked_provider` — dalla
+    scheda Licenza: ciò che si **mostra** e ciò che si **fa** non possono più divergere;
+  - **banner rosso persistente** con testo distinto per revoca / licenza non valida (i rimedi sono
+    opposti: il fornitore contro la scheda Licenza);
+  - **chiusura delle finestre figlie operative** (`🧰 Strumenti`, `🧙 Wizard`): erano fail-open —
+    i pulsanti erano grigi, ma una finestra **già aperta** restava operativa e permetteva di
+    continuare a configurare (il Wizard scrive token e filtro chat) con licenza negata.
+
+  **Le due policy restano quelle di prima, e sono diverse fra loro** — la distinzione va tenuta
+  ferma perché è facile confonderle: la **validità della licenza** è **fail-CLOSED** (assenza,
+  errore o stato non determinabile → bloccato), mentre il **dato di revoca** è **fail-OPEN**
+  (lista irraggiungibile, stantia o errore nel gate → **non** blocca; l'unico blocco ammesso è
+  quello dimostrato da una revoca esplicita, decisione 2026-07-30). Nessuna delle due è toccata.
+
+  Cambia invece, oltre alla visibilità: la **chiusura delle finestre operative già aperte**, che
+  è un cambiamento di **comportamento** — la superficie fail-open descritta sopra — non di sola
+  presentazione. La verifica della firma
+  (`verify_license`, Ed25519) **non è toccata**: la revoca è una sovrapposizione di presentazione
+  su una licenza altrimenti valida, e una licenza già invalida di suo conserva il proprio
+  messaggio. Tutti i percorsi fail-safe: un seam difettoso → **nessuna** accusa di revoca.
 
 - **Visibilità del blocco** (incidente del collaudo 2026-08-03/04 (notte)). Il blocco funzionava ma era **invisibile**: la
   scheda «🔑 Licenza» mostrava **verde** «✅ Licenza attiva · scade tra N giorni» a un utente

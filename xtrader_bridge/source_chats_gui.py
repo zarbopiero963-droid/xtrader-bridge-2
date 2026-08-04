@@ -25,7 +25,7 @@ import copy
 
 import customtkinter as ctk
 
-from . import config_store, config_summary, custom_parser, gui_utils, i18n, ui_theme
+from . import config_store, config_summary, custom_parser, gui_utils, i18n, ui_cards, ui_theme
 from .source_editor import SourceEditor, _clean_names
 
 # Chip «Traduzioni» per canale (#293 slice 6): mostra se il parser del canale ha mappature
@@ -209,7 +209,7 @@ class SourceChatsPanel(ctk.CTkFrame):
             ctk.CTkLabel(head, text=text, width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=320)
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=320, **ui_cards.card_style())
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         btns = ctk.CTkFrame(self, fg_color="transparent")
@@ -371,7 +371,7 @@ class _ParserListDialog(ctk.CTkToplevel):
                                "le cui condizioni combaciano (una riga CSV per parser che scatta)."),
             wraplength=440, justify="left", font=ctk.CTkFont(size=11),
             text_color="gray", anchor="w").pack(anchor="w", padx=12, pady=(10, 6))
-        self._list_frame = ctk.CTkScrollableFrame(self, height=220)
+        self._list_frame = ctk.CTkScrollableFrame(self, height=220, **ui_cards.card_style())
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=6)
         add = ctk.CTkFrame(self, fg_color="transparent")
         add.pack(fill="x", padx=12, pady=4)

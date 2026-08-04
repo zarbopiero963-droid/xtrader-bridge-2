@@ -27,7 +27,7 @@ import sys
 
 import customtkinter as ctk
 
-from . import event_journal, i18n, journal_view
+from . import event_journal, i18n, journal_view, ui_cards, ui_theme
 
 # Scelte numeriche del filtro «Ultimi N» (quantità sensate per una lettura a colpo
 # d'occhio); l'ultima voce «tutti» (nessun taglio) è aggiunta TRADOTTA alla costruzione.
@@ -64,7 +64,7 @@ class JournalPanel(ctk.CTkFrame):
             self, text=i18n.tr("📒  Diario eventi (locale, sola lettura)"),
             font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
 
-        bar = ctk.CTkFrame(self)
+        bar = ctk.CTkFrame(self, **ui_cards.card_style())
         bar.pack(fill="x", padx=12, pady=6)
         ctk.CTkLabel(bar, text=i18n.tr("Tipo")).pack(side="left", padx=(8, 4))
         ctk.CTkOptionMenu(bar, variable=self._type, width=200,
@@ -83,7 +83,7 @@ class JournalPanel(ctk.CTkFrame):
 
         self._header = ctk.CTkFrame(self, fg_color="transparent")
         self._header.pack(fill="x", padx=12)
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=400,
+        self._rows_frame = ctk.CTkScrollableFrame(self, height=400, **ui_cards.card_style(),
                                                   label_text=i18n.tr("Eventi del diario"))
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 

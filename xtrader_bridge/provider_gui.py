@@ -22,7 +22,7 @@ coperta da `tests/unit/test_provider_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import config_store, custom_parser, gui_utils, i18n, provider_store, ui_theme
+from . import config_store, custom_parser, gui_utils, i18n, provider_store, ui_cards, ui_theme
 
 
 class ProviderPanel(ctk.CTkFrame):
@@ -73,8 +73,10 @@ class ProviderPanel(ctk.CTkFrame):
         ctk.CTkButton(add, text=i18n.tr("➕  Aggiungi"), width=120, fg_color=ui_theme.SUCCESS,
                       hover_color=ui_theme.SUCCESS_HOV, command=self._add).pack(side="left")
 
-        self._rows_frame = ctk.CTkScrollableFrame(self, height=360,
-                                                  label_text=i18n.tr("Provider salvati"))
+        # #182 restyle: l'elenco vive in una card (bordo + raggio dei token), come lo sketch.
+        self._rows_frame = ctk.CTkScrollableFrame(
+            self, height=360, label_text=i18n.tr("Provider salvati"),
+            **ui_cards.card_style())
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
@@ -144,15 +146,15 @@ class ProviderPanel(ctk.CTkFrame):
             ctk.CTkButton(row, text=i18n.tr("🗑  Rimuovi"), width=110, fg_color=ui_theme.DANGER,
                           hover_color=ui_theme.DANGER_HOV,
                           command=lambda n=name: self._remove(n)).pack(side="right", padx=3)
+            # #182 restyle: il marcatore diventa badge-pillola (ui_cards). Testi INVARIATI.
             if uso is None:
-                testo, colore = i18n.tr("⚠ uso ignoto"), ui_theme.STATUS_ERR
+                testo, kind = i18n.tr("⚠ uso ignoto"), "danger"
             else:
                 quanti = self._quanti_usano(uso, name)
                 testo = (i18n.tr("🧩 {n} parser").format(n=quanti) if quanti
                          else i18n.tr("— non usato"))
-                colore = "gray" if quanti else ui_theme.STATUS_WARN
-            ctk.CTkLabel(row, text=testo, font=ctk.CTkFont(size=11),
-                         text_color=colore).pack(side="right", padx=6)
+                kind = "ok" if quanti else "warn"
+            ui_cards.badge(ctk, row, testo, kind=kind, side="right", padx=6)
 
     # ── azioni (persistono subito, come il builder) ─────────────────────────
     def _persist(self, cfg: dict, ok_msg: str, fail_msg: str):

@@ -191,12 +191,30 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
         # `trace_add`, così quei rollback continuano a funzionare senza essere toccati —
         # altrimenti il codice sarebbe tornato al profilo vecchio mentre l'elenco continuava a
         # evidenziare quello nuovo (è la classe di difetto della PR N: il consumatore, non il sito).
-        prof = ctk.CTkFrame(self, fg_color="transparent")
-        prof.pack(fill="x", padx=12, pady=(0, 6))
-        ctk.CTkLabel(prof, text=i18n.tr("Profilo:"), anchor="w").pack(anchor="w", padx=(6, 4))
+        # #182 restyle (sketch = specifica): DUE COLONNE — card profili fissa a sinistra
+        # (bordo ACCENT), tabella a destra. Stessa composizione della scheda Parser.
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        for _metodo, _args in (("grid_columnconfigure", (1,)), ("grid_rowconfigure", (0,))):
+            _fn = getattr(body, _metodo, None)
+            if callable(_fn):
+                _fn(*_args, weight=1)
+        side = ctk.CTkFrame(body, width=252, **ui_cards.card_style(border=ui_theme.ACCENT))
+        if callable(getattr(side, "grid", None)):
+            side.grid(row=0, column=0, sticky="ns", padx=(12, 4), pady=(0, 8))
+        if callable(getattr(side, "pack_propagate", None)):
+            side.pack_propagate(False)   # larghezza decisa dalla card, non dal contenuto
+        destra = ctk.CTkFrame(body, fg_color="transparent")
+        if callable(getattr(destra, "grid", None)):
+            destra.grid(row=0, column=1, sticky="nsew", padx=(4, 12), pady=(0, 8))
+
+        prof = ctk.CTkFrame(side, fg_color="transparent")
+        prof.pack(fill="both", expand=True, padx=4, pady=4)
+        ctk.CTkLabel(prof, text=i18n.tr("Profilo:"), anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
-        self._profile_list = ctk.CTkScrollableFrame(prof, height=104)
-        self._profile_list.pack(fill="x", padx=4, pady=(2, 4))
+        self._profile_list = ctk.CTkScrollableFrame(prof, fg_color="transparent")
+        self._profile_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._profile_rows = {}          # nome profilo → frame della riga (per l'evidenziazione)
         try:
             self._profile_var.trace_add("write", lambda *_a: self._highlight_profiles())
@@ -204,27 +222,28 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
             pass
         riga_azioni = ctk.CTkFrame(prof, fg_color="transparent")
         riga_azioni.pack(fill="x", padx=4)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🆕 Nuovo"), width=74, command=self._new_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("✏️ Rinomina"), width=84, command=self._rename_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🗑 Elimina"), width=76, fg_color=ui_theme.DANGER,
                       hover_color=ui_theme.DANGER_HOV, command=self._delete_profile).pack(side="left", padx=3)
-        ctk.CTkLabel(riga_azioni, text=i18n.tr("(clicca un profilo per aprirlo)"),
-                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=8)
+        ctk.CTkLabel(prof, text=i18n.tr("(clicca un profilo per aprirlo)"),
+                     font=ctk.CTkFont(size=11), text_color=ui_theme.TEXT3,
+                     anchor="w").pack(fill="x", padx=6, pady=(2, 0))
 
         # Intestazione tabella. Etichette colonna (costanti `_HEADER_COLUMNS`) tradotte alla
         # resa; la chiave dati e i test di regressione usano la costante IT invariata.
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=12, pady=(4, 0))
+        head = ctk.CTkFrame(destra, fg_color="transparent")
+        head.pack(fill="x", padx=4, pady=(0, 0))
         for text, w in _HEADER_COLUMNS:
             ctk.CTkLabel(head, text=i18n.tr(text), width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
         self._rows_frame = ctk.CTkScrollableFrame(
-            self, height=380, label_text=i18n.tr("Righe del profilo"))
-        self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
+            destra, height=380, label_text=i18n.tr("Righe del profilo"))
+        self._rows_frame.pack(fill="both", expand=True, padx=4, pady=6)
 
-        actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.pack(fill="x", padx=12, pady=(0, 4))
+        actions = ctk.CTkFrame(destra, fg_color="transparent")
+        actions.pack(fill="x", padx=4, pady=(0, 4))
         ctk.CTkButton(actions, text=i18n.tr("➕ Aggiungi riga"), width=140,
                       command=self._add_row).pack(side="left", padx=3)
         # Il pulsante «📥 Precompila da Betfair» è NASCOSTO (#182 PR N): precompilava la colonna
@@ -239,9 +258,9 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
         ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color=ui_theme.SUCCESS,
                       hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
-        self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
+        self._status = ctk.CTkLabel(destra, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=720, anchor="w", justify="left")
-        self._status.pack(fill="x", padx=12, pady=(0, 10))
+        self._status.pack(fill="x", padx=4, pady=(0, 10))
 
     # ── stato/config ─────────────────────────────────────────────────────────
     def _load_cfg(self):
@@ -743,12 +762,30 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
         # illeggibile o il salvataggio fallisce. L'evidenziazione lo SEGUE via `trace_add`, così
         # quei rollback continuano a funzionare senza essere toccati — altrimenti il codice
         # tornerebbe al profilo vecchio mentre l'elenco evidenzia quello nuovo.
-        prof = ctk.CTkFrame(self, fg_color="transparent")
-        prof.pack(fill="x", padx=12, pady=(0, 6))
-        ctk.CTkLabel(prof, text=i18n.tr("Profilo:"), anchor="w").pack(anchor="w", padx=(6, 4))
+        # #182 restyle (sketch = specifica): DUE COLONNE — card profili fissa a sinistra
+        # (bordo ACCENT), tabella a destra. Stessa composizione della scheda Parser.
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        for _metodo, _args in (("grid_columnconfigure", (1,)), ("grid_rowconfigure", (0,))):
+            _fn = getattr(body, _metodo, None)
+            if callable(_fn):
+                _fn(*_args, weight=1)
+        side = ctk.CTkFrame(body, width=252, **ui_cards.card_style(border=ui_theme.ACCENT))
+        if callable(getattr(side, "grid", None)):
+            side.grid(row=0, column=0, sticky="ns", padx=(12, 4), pady=(0, 8))
+        if callable(getattr(side, "pack_propagate", None)):
+            side.pack_propagate(False)   # larghezza decisa dalla card, non dal contenuto
+        destra = ctk.CTkFrame(body, fg_color="transparent")
+        if callable(getattr(destra, "grid", None)):
+            destra.grid(row=0, column=1, sticky="nsew", padx=(4, 12), pady=(0, 8))
+
+        prof = ctk.CTkFrame(side, fg_color="transparent")
+        prof.pack(fill="both", expand=True, padx=4, pady=4)
+        ctk.CTkLabel(prof, text=i18n.tr("Profilo:"), anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=(6, 4))
         self._profile_var = ctk.StringVar(value=self._NO_PROFILE)
-        self._profile_list = ctk.CTkScrollableFrame(prof, height=104)
-        self._profile_list.pack(fill="x", padx=4, pady=(2, 4))
+        self._profile_list = ctk.CTkScrollableFrame(prof, fg_color="transparent")
+        self._profile_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._profile_rows = {}
         try:
             self._profile_var.trace_add("write", lambda *_a: self._highlight_profiles())
@@ -756,33 +793,34 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
             pass
         riga_azioni = ctk.CTkFrame(prof, fg_color="transparent")
         riga_azioni.pack(fill="x", padx=4)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("🆕 Nuovo"), width=84, command=self._new_profile).pack(side="left", padx=3)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("✏️ Rinomina"), width=96, command=self._rename_profile).pack(side="left", padx=3)
-        ctk.CTkButton(riga_azioni, text=i18n.tr("🗑 Elimina"), width=90, fg_color=ui_theme.DANGER,
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🆕 Nuovo"), width=74, command=self._new_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("✏️ Rinomina"), width=84, command=self._rename_profile).pack(side="left", padx=3)
+        ctk.CTkButton(riga_azioni, text=i18n.tr("🗑 Elimina"), width=76, fg_color=ui_theme.DANGER,
                       hover_color=ui_theme.DANGER_HOV, command=self._delete_profile).pack(side="left", padx=3)
-        ctk.CTkLabel(riga_azioni, text=i18n.tr("(clicca un profilo per aprirlo)"),
-                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left", padx=8)
+        ctk.CTkLabel(prof, text=i18n.tr("(clicca un profilo per aprirlo)"),
+                     font=ctk.CTkFont(size=11), text_color=ui_theme.TEXT3,
+                     anchor="w").pack(fill="x", padx=6, pady=(2, 0))
 
-        head = ctk.CTkFrame(self, fg_color="transparent")
-        head.pack(fill="x", padx=12, pady=(4, 0))
+        head = ctk.CTkFrame(destra, fg_color="transparent")
+        head.pack(fill="x", padx=4, pady=(0, 0))
         for text, w in _MARKET_HEADER_COLUMNS:
             ctk.CTkLabel(head, text=i18n.tr(text), width=w, anchor="w",
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
         self._rows_frame = ctk.CTkScrollableFrame(
-            self, height=360, label_text=i18n.tr("Righe del profilo"))
-        self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
+            destra, height=360, label_text=i18n.tr("Righe del profilo"))
+        self._rows_frame.pack(fill="both", expand=True, padx=4, pady=6)
 
-        actions = ctk.CTkFrame(self, fg_color="transparent")
-        actions.pack(fill="x", padx=12, pady=(0, 4))
+        actions = ctk.CTkFrame(destra, fg_color="transparent")
+        actions.pack(fill="x", padx=4, pady=(0, 4))
         ctk.CTkButton(actions, text=i18n.tr("➕ Aggiungi riga"), width=140,
                       command=self._add_row).pack(side="left", padx=3)
         ctk.CTkButton(actions, text=i18n.tr("💾 Salva profilo"), width=140, fg_color=ui_theme.SUCCESS,
                       hover_color=ui_theme.SUCCESS_HOV, command=self._save).pack(side="left", padx=3)
 
-        self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
+        self._status = ctk.CTkLabel(destra, text="", font=ctk.CTkFont(size=11),
                                     text_color="gray", wraplength=720, anchor="w", justify="left")
-        self._status.pack(fill="x", padx=12, pady=(0, 10))
+        self._status.pack(fill="x", padx=4, pady=(0, 10))
 
     # ── stato/config ─────────────────────────────────────────────────────────
     def _load_cfg(self):

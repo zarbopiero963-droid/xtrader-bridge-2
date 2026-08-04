@@ -29,6 +29,10 @@ _PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.absp
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
+    "ui_cards.py": (4, "composizione visiva #182 (card/badge/hint): helper best-effort "
+                       "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
+                       "su widget gia distrutti — la cornice non deve MAI far cadere un "
+                       "pannello; nessun dato/flusso dentro, solo presentazione"),
     "dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
@@ -45,7 +49,7 @@ _ALLOWLIST = {
                    "incidente 2026-08-04 (revoca invisibile + Strumenti fail-open), 4 handler: "
                    "`_revoca_nega` fail-safe su False — in dubbio NON si accusa di revoca, l'unico "
                    "blocco legittimo e' quello dimostrato da una lista firmata; "
-                   "`_chiudi_strumenti_per_lock` gira a OGNI giro da bloccato e deve tollerare una "
+                   "`_chiudi_finestre_operative_per_lock` gira a OGNI giro da bloccato e deve tollerare una "
                    "finestra gia' distrutta: un errore qui romperebbe il lock che deve proteggere; "
                    "`_mostra_license_banner` e `_set_license_banner` sono render Tk best-effort — un "
                    "widget distrutto non puo' impedire il BLOCCO, che resta applicato comunque; "

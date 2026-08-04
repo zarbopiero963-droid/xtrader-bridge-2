@@ -19,7 +19,7 @@ coperta da `tests/unit/test_profile_store.py`. Verifica manuale su Windows.
 
 import customtkinter as ctk
 
-from . import gui_utils, i18n, profile_store, ui_theme
+from . import gui_utils, i18n, profile_store, ui_cards, ui_theme
 
 
 class ProfilesPanel(ctk.CTkFrame):
@@ -67,7 +67,7 @@ class ProfilesPanel(ctk.CTkFrame):
 
         ctk.CTkLabel(self, text=i18n.tr("Profili salvati"), anchor="w",
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=12, pady=(6, 2))
-        self._list_frame = ctk.CTkScrollableFrame(self, height=300)
+        self._list_frame = ctk.CTkScrollableFrame(self, height=300, **ui_cards.card_style())
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=(0, 6))
 
         self._status = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=11),
