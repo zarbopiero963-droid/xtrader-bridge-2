@@ -67,6 +67,10 @@ def test_whitelist_value_map_coerente_con_le_mappe_reali(gui):
     # vengono da `dizionario_value_maps([])` (righe vuote → mappe vuote ma nomi
     # presenti), i built-in da `registry()`.
     nomi_mappe = set(value_maps.registry()) | set(value_maps.dizionario_value_maps([]))
+    # Rilievo GPT #244 (giro 2): se l'API tornasse {} con righe vuote, il loop
+    # passerebbe con le sole built-in e la copertura sparirebbe IN SILENZIO —
+    # l'assert la rende rumorosa.
+    assert {"markettype", "marketname", "selectionname", "bettype"} <= nomi_mappe
     for nome in nomi_mappe:
         assert nome in per_colonna, f"value-map `{nome}` senza colonna associata"
         assert per_colonna[nome] in gui.VALUE_MAP_COLS
