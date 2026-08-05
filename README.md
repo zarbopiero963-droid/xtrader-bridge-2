@@ -183,6 +183,16 @@ azione file** (selettori «📁 Sfoglia…»/«📄 Crea CSV», avviso «bridge 
 sovrascrittura file/segnale attivo, e l'export «Esporta audit modalità reale») e — dalla slice 4aa —
 il **log di successo del cambio-lingua** («🌐 Lingua del bridge impostata: …», con la nota
 attualizzata: il riavvio applica la lingua all'**intera interfaccia**) sono localizzati.
+Dalla **#269** sono localizzati anche i **quattro punti che erano sfuggiti** pur non essendo
+nell'elenco «per contratto» qui sotto: l'indicatore **«Righe attive: N/M»** in header (sempre a
+schermo), le tre voci del **selettore Modalità bridge**, tutti i semafori della scheda
+**🚦 Salute** (etichette e dettagli statici; i dettagli dinamici — percorso CSV, ultimo messaggio,
+errore del runtime — restano tali e quali) e la riga **«Il bridge ascolterà queste N chat:»**.
+Il selettore Modalità merita una nota: le sue etichette non sono solo display — la GUI riconverte
+la voce scelta nella modalità canonica — quindi il riconoscimento accetta ora l'etichetta
+**tradotta**, quella **italiana** e il **nome canonico** (una config scritta altrove continua a
+caricarsi; una stringa sconosciuta resta rifiutata). La parola da digitare per confermare la
+modalità REALE resta **`REALE`** in ogni lingua, come sopra.
 Restano in italiano **per contratto**: il dialogo «già in esecuzione» all'avvio (renderizza prima
 della scelta lingua) e i **log di puro dominio** (errori di validazione/store, `save_status_message`,
 la parola-quando dei recovery «all'avvio», `{exc}`/`{err}`/`{warn}` interpolati, log `_dbg`).

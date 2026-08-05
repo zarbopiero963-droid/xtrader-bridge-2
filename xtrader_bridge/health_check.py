@@ -19,7 +19,7 @@ Principi:
 import os
 from dataclasses import dataclass
 
-from . import bridge_mode
+from . import bridge_mode, i18n
 
 GREEN = "GREEN"
 YELLOW = "YELLOW"
@@ -39,6 +39,51 @@ class HealthItem:
     label: str
     state: str
     detail: str = ""
+
+
+#: Unico posto in cui vive il template del dettaglio interpolato «ultimo errore» (Regola 3):
+#: `build_semaphores` lo riempie in italiano canonico, `localized` lo ri-traduce alla
+#: presentazione. Scriverlo in due punti significherebbe due copie che divergono.
+DETTAGLIO_ERRORE = "nessun segnale; ultimo errore: {err}"
+
+
+def localized(item: "HealthItem") -> "HealthItem":
+    """Copia di `item` con etichetta e dettaglio tradotti nella lingua attiva (#269).
+
+    **Passo di PRESENTAZIONE, separato di proposito da `build_semaphores`**, che resta puro e
+    canonico: le decisioni (`state`) e le chiavi (`message`, `csv`, …) sono identificatori
+    stabili su cui girano i test esistenti, l'assistente (`explain_health`) e il pannello, che
+    cerca le label per `item.key`. Tradurre là dentro avrebbe cambiato l'identità dei semafori
+    insieme al loro testo.
+
+    `key` e `state` non si toccano mai: se cambiassero, il pannello dipingerebbe il colore
+    sbagliato o non troverebbe più il semaforo. I dettagli dinamici (percorso CSV, ultimo
+    messaggio, errore del runtime) non sono catalogabili: `tr` è fail-safe e li restituisce
+    tali e quali.
+
+    L'unico dettaglio **interpolato** (`DETTAGLIO_ERRORE`) non è una chiave di catalogo una
+    volta riempito, quindi si riconosce dal prefisso e si ri-traduce come template. È la
+    ragione per cui `build_semaphores` NON deve tradurlo in costruzione: farlo lo rendeva non
+    canonico e produceva una doppia traduzione qui (bloccante ② di Claude Fable 5 sulla
+    #281)."""
+    prefisso = DETTAGLIO_ERRORE.split("{err}")[0]
+    dettaglio = str(item.detail or "")
+    if dettaglio.startswith(prefisso):
+        try:
+            reso = i18n.tr(DETTAGLIO_ERRORE).format(err=dettaglio[len(prefisso):])
+        except (KeyError, IndexError, ValueError, AttributeError):
+            # Traduzione col segnaposto sbagliato, con una graffa non chiusa o con un accesso
+            # ad attributo (`{err.qualcosa}`): refusi plausibili in un catalogo scritto a mano
+            # (rilievi Fable e GPT-5.5 sulla #281). Il pannello si dichiara diagnostica
+            # BEST-EFFORT: degrada al testo canonico invece di spegnersi.
+            # `except` STRETTO di proposito — non è un blind-except: le quattro eccezioni sono
+            # state MISURATE una per una su `str.format`, non indovinate.
+            #   {sbagliato} → KeyError · {0} → IndexError · {err!z} → ValueError
+            #   {err.inesistente} → AttributeError  ← mancava alla prima stesura
+            reso = dettaglio
+    else:
+        reso = i18n.tr(dettaglio)
+    return HealthItem(item.key, i18n.tr(item.label), item.state, reso)
 
 
 def csv_writable(path, *, platform=None) -> "tuple[str, str]":
@@ -120,7 +165,7 @@ def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parse
     elif err:
         # Nessun segnale ma un errore recente: il motivo va MOSTRATO (mai nascosto).
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
-                                f"nessun segnale; ultimo errore: {err}"))
+                                DETTAGLIO_ERRORE.format(err=err)))
     else:
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
                                 "nessun segnale in questa sessione"))

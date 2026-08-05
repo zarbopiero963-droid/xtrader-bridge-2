@@ -106,6 +106,22 @@ _CONFIRM_TEXTS = {bridge_mode.COLLAUDO_CONFIRM_TEXT}
 # REALE/autostart restano tr-constant di app.py, già in `_APP_TR`).
 _MODE_TR = _tr_constants("multi_signal.py")
 
+# #269 — i quattro punti che restavano in italiano. Tre sorgenti nuovi per l'anti-drift:
+#   · `health_check.py`: le etichette e i dettagli dei sette semafori sono literal DENTRO le
+#     `HealthItem(...)`, tradotti alla presentazione da `health_check.localized` (non sono
+#     tr-constant → vanno cercati verbatim nel sorgente, come Wizard/Mapping);
+#   · `bridge_mode.LABELS`: le tre voci del selettore Modalità sono rese via `i18n.tr(label)`
+#     (indiretto) — legate ai VALORI reali come i banner, così rinominarne una fa fallire qui;
+#   · le tr-constant di `bridge_mode.py`/`health_check.py` (il template «ultimo errore: {err}»).
+# Senza queste tre righe l'anti-drift direbbe stantie 21 chiavi vive, e — più utile — NON
+# vedrebbe una chiave scritta con un refuso: è successo scrivendo questa PR, la chiave ES
+# «…non configurada» (spagnolo) invece di «…non configurata» (la chiave italiana) è rimasta
+# orfana e la traduzione non si applicava. La guardia sui frammenti italiani non l'ha vista;
+# questa sì.
+_HEALTH_SRC = _read("health_check.py")
+_MODE_LABELS = set(bridge_mode.LABELS.values())
+_MODE_CONST_TR = _tr_constants("bridge_mode.py", "health_check.py")
+
 
 @pytest.fixture(autouse=True)
 def _ripristina_lingua():
@@ -153,7 +169,8 @@ def test_catalogo_anti_drift_chiavi_verbatim_nel_sorgente():
             assert (key in _APP_SRC or key in _APP_TR or key in _DASH_SRC or key in _SECONDARY_TR
                     or key in _BANNER_TEXTS or key in _WIZARD_SRC or key in _NAMEMAP_SRC
                     or key in _TOOLS_SRC or key in _CONFIRM_TEXTS or key in _MODE_TR
-                    or key in _UIWIDGETS_SRC), (
+                    or key in _UIWIDGETS_SRC or key in _HEALTH_SRC or key in _MODE_LABELS
+                    or key in _MODE_CONST_TR), (
                 f"{lang}: chiave stantia, non in app.py/dashboard_stats.py, nelle finestre "
                 f"secondarie localizzate, nei banner, nel wizard, nel Mapping, nell'hub "
                 f"Strumenti né nei dialoghi di conferma modalità: {key!r}")

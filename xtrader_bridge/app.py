@@ -2165,7 +2165,8 @@ class App(ctk.CTk):
         lines = [f"• {r['name']}  ({r['chat_id']})" if r["name"] else f"• {r['chat_id']}"
                  for r in rows]
         self._chats_lbl.configure(
-            text=f"Il bridge ascolterà queste {len(rows)} chat:\n" + "\n".join(lines),
+            text=i18n.tr("Il bridge ascolterà queste {n} chat:").format(n=len(rows))
+                 + "\n" + "\n".join(lines),
             text_color="gray")
 
     # ── DASHBOARD (PR-14) ─────────────────────
@@ -2471,7 +2472,11 @@ class App(ctk.CTk):
             if lbl is None:
                 continue
             dot, color = self._HEALTH_DOT[item.state]
-            lbl.configure(text=f"{dot} {item.label}: {item.detail}", text_color=color)
+            # #269: la traduzione avviene QUI, alla presentazione — `_live_health_items` resta
+            # canonico (chiavi e stati sono identità, non testo). `lbls` è indicizzato per
+            # `item.key`, che `localized` non tocca.
+            reso = health_check.localized(item)
+            lbl.configure(text=f"{dot} {reso.label}: {reso.detail}", text_color=color)
 
     def _refresh_dashboard(self) -> None:
         """Aggiorna le label dei contatori dai valori correnti. Thread Tk."""
