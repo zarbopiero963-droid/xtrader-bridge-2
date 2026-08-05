@@ -17,6 +17,7 @@ import pytest
 from xtrader_bridge import dictionary_health as dh
 from xtrader_bridge import health_check
 from xtrader_bridge import market_mapping_store as mms
+from xtrader_bridge import name_mapping_store as nms
 
 # Due righe che mandano lo stesso alias a due nomi Betfair diversi: `resolve_team` fail-closa.
 _CFG_CONFLITTO_NOMI = {"name_mappings": {"P": [
@@ -245,27 +246,36 @@ def test_258_le_righe_malformate_non_vengono_contate_DUE_volte(monkeypatch):
     assert totale == 1, f"la stessa voce malformata contata {totale} volte: {esito['dettagli']}"
 
 
-def test_258_i_nomi_non_hanno_tetti_quindi_non_c_e_asimmetria_da_correggere():
-    """Rilievo Fable 5, che chiedeva di chiudere l'asimmetria **o dimostrarne l'inapplicabilità**.
+def test_258_il_controllo_sui_NOMI_non_salta_profili_grandi(monkeypatch):
+    """Rilievo Fable 5 (asimmetria nomi/mercati), con la guardia rifatta dopo GPT-5.5.
 
-    La separazione fra «malformate» e «ambiguità» esiste per i mercati perché lì il controllo
-    ambiguità **ha dei tetti** e può saltare profili: escluderne uno nasconderebbe anche le
-    malformate, che sono sempre complete.
+    La separazione fra «malformate» e «ambiguità» serve ai mercati perché lì il controllo ha
+    dei tetti e può saltare interi profili. Sui nomi non serve **se e solo se** nessun profilo
+    viene mai saltato.
 
-    Sui nomi il problema non esiste: `name_mapping_store` non ha alcun tetto né budget, quindi
-    nessun profilo viene mai saltato e non c'è nulla da escludere. L'asimmetria nel codice
-    riflette un'asimmetria **reale** fra i due store, non una svista.
+    Una prima stesura lo verificava cercando `_MAX_VOCI` nel **sorgente** del modulo. GPT-5.5
+    ha fatto notare che è il livello sbagliato: un tetto introdotto con un altro nome avrebbe
+    lasciato il test verde — una guardia che sembra sorvegliare e si aggira rinominando, cioè
+    lo stesso difetto che questa PR insegue.
 
-    Questo test lo blocca: se un domani anche i nomi guadagnassero un tetto, `profili_non_
-    controllati` dovrebbe esistere anche lì e questa dimostrazione cadrebbe — meglio scoprirlo
-    da un rosso che da un giallo che nasconde righe malformate note.
+    Qui si verifica il **comportamento**: un profilo nomi grande, ben oltre i tetti che i
+    mercati applicano (300 per profilo), con un conflitto vero in fondo. Se un domani i nomi
+    guadagnassero un tetto — con qualunque nome — quel conflitto smetterebbe di essere
+    riportato e questo test diventerebbe rosso.
     """
-    import inspect
+    righe = [{"provider": f"Squadra{i}", "betfair": f"Team{i}"} for i in range(400)]
+    righe.append({"provider": "Ambiguo", "betfair": "Alfa"})
+    righe.append({"provider": "Ambiguo", "betfair": "Beta"})      # conflitto, in FONDO
+    cfg = {"name_mappings": {"Grande": righe}}
 
-    from xtrader_bridge import name_mapping_store as nms_mod
+    avvisi = nms.ambiguous_alias_warnings(cfg)
 
-    sorgente = inspect.getsource(nms_mod)
-    assert "_MAX_VOCI" not in sorgente and "saltati_per_budget" not in sorgente, (
-        "name_mapping_store ha guadagnato un tetto: ora anche i nomi possono avere profili "
-        "NON controllati, e le righe malformate vanno separate dall'ambiguità come per i "
-        "mercati (vedi il commento in dictionary_health.stato_dizionari)")
+    assert any("Ambiguo" in a for a in avvisi), (
+        f"il conflitto in fondo a un profilo di {len(righe)} righe non è stato riportato: il "
+        "controllo sui nomi ha guadagnato un tetto, e allora anche per i nomi le righe "
+        "malformate vanno separate dall'ambiguità come per i mercati "
+        "(vedi il commento in dictionary_health.stato_dizionari)")
+
+    # …e il pannello lo vede come ROSSO, non come un «non so»: e' la conseguenza che conta.
+    esito = dh.stato_dizionari(cfg, _usati(nomi=["Grande"]))
+    assert esito["stato"] == health_check.RED, esito
