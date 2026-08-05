@@ -434,8 +434,15 @@ _ALLOWLIST = {
 def _siti_attuali():
     """Siti attuali, con la STESSA scansione del generatore del baseline.
 
-    `scansiona_tutte` e non una singola radice, dalla #263: il gate copre **due** radici
-    (`xtrader_bridge/` e `license_manager/`), e le chiavi sono qualificate con la radice.
+    `scansiona_tutte` e non una singola radice: l'elenco vive in `RADICI` (generatore) e
+    comprende sia cartelle sia file singoli; le chiavi sono qualificate con la radice.
+
+    Qui NON si ripete l'elenco. Ci era già scritto «due radici», rimasto tale quando ne sono
+    diventate tre e poi sei — due volte in due PR (#264, #265). Un elenco duplicato in un
+    docstring è una copia che nessun test verifica, e diverge appena qualcuno tocca l'originale:
+    la copertura effettiva la impone
+    `test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate`, che è l'unico posto
+    dove l'affermazione può essere controllata invece che dichiarata.
     """
     return _GEN.scansiona_tutte()
 
@@ -497,9 +504,24 @@ def test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate():
 
     Si misura su `git ls-files`, non su un `os.walk`: così un file **non tracciato** (venv,
     build, scratch) non fa fallire il gate, e un file tracciato non può sfuggirgli.
+
+    `-z` e non `.split()` (rilievo GPT-5.5): l'output riga-per-riga si spezza su un path con
+    **spazi**, e senza `-z` git *cita* i nomi con caratteri speciali (`core.quotePath`) — in
+    entrambi i casi il file risulterebbe «non coperto» per un difetto del parsing, o peggio
+    verrebbe scomposto in pezzi che combaciano per caso con una radice. Con `-z` i path sono
+    separati da NUL e mai citati.
+
+    Se `git` manca si FALLISCE dicendolo, non si salta: un gate che smette di controllare in
+    silenzio è il difetto che questo file intero esiste per chiudere.
     """
-    tracciati = subprocess.run(["git", "ls-files", "*.py"], cwd=_RADICE,
-                               capture_output=True, text=True, check=True).stdout.split()
+    try:
+        res = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=_RADICE,
+                             capture_output=True, text=True)
+    except OSError as exc:      # NON blind: `git` assente/non eseguibile, niente altro
+        pytest.fail(f"`git` non disponibile ({exc}): questo gate non può verificare la "
+                    f"copertura, e non deve fingere di averlo fatto.")
+    assert res.returncode == 0, f"git ls-files fallito ({res.returncode}): {res.stderr.strip()}"
+    tracciati = [p for p in res.stdout.split("\0") if p]
     assert tracciati, "git ls-files non ha prodotto nulla: misura non attendibile"
     fuori = sorted(f for f in tracciati
                    if not any(f == voce or f.startswith(voce + "/") for voce in _GEN.RADICI))
