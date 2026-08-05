@@ -30,6 +30,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# L'accoppiamento esiste già nello stesso senso in `publish_store.py`: qui serve per confrontare
+# ciò che si sta per pubblicare con ciò che i bridge scaricano davvero (#234). Si importa il
+# MODULO, non la costante: `REVOCATION_LIST_URL` va letta al momento della chiamata, altrimenti
+# un `from … import` la congelerebbe all'import e il confronto guarderebbe un valore stantio.
+from xtrader_bridge.licensing import revocation_client
+
 GITHUB_API = "https://api.github.com"
 
 # Fonte UNICA del messaggio «manca il token» (rilievo Sourcery #215): `publish` e `check_access`
@@ -54,6 +60,124 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     path = urllib.parse.quote(str(path or "").strip().lstrip("/"))
     branch = urllib.parse.quote(str(branch or "").strip())
     return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
+
+
+def _case_normalizzata_dove_il_server_lo_e(u: str) -> str:
+    """`u` con schema, host, owner e repository in minuscolo — **branch e percorso intatti**.
+
+    Serve a un solo confronto, e la sua correttezza sta tutta in dove si ferma: su
+    `raw.githubusercontent.com` owner e repository sono case-INsensitive (200 con qualunque
+    grafia), branch e percorso sono case-sensitive (404 alla prima maiuscola fuori posto).
+    Estendere questa normalizzazione oltre il quinto segmento **silenzierebbe** un 404 reale,
+    cioè il difetto che `disallineamento_bridge` esiste per intercettare.
+
+    Fail-safe: se l'URL non ha la forma attesa (meno di cinque segmenti) torna invariato, e il
+    confronto a valle fallisce → si avvisa. Nel dubbio rumore, mai silenzio.
+    """
+    parti = str(u).split("/")          # ['https:', '', 'host', 'owner', 'repo', 'branch', ...]
+    if len(parti) < 5:
+        return str(u)
+    return "/".join([p.lower() for p in parti[:5]] + parti[5:])
+
+
+def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
+    """Avviso se si sta per pubblicare a un indirizzo **diverso** da quello che i bridge leggono,
+    altrimenti stringa vuota. Puro: nessuna rete, nessuna scrittura.
+
+    **Da un incidente reale del proprietario (2026-08-03), #234.** Il campo Repository puntava a
+    `xtrader-bridge-2` mentre il token aveva `Contents: Read and write` su `xtrader-revocation`:
+    403, auto-pubblicazione ferma. Il messaggio del 403 suggeriva — correttamente ma
+    **parzialmente** — di allargare il token. Seguirlo alla lettera avrebbe fatto **riuscire** la
+    pubblicazione su un repository che **nessun bridge legge**, sostituendo un fallimento
+    rumoroso con uno silenzioso su una funzione di sicurezza: le revoche avrebbero smesso di
+    propagarsi senza un solo errore a video.
+
+    Il confronto è possibile perché entrambi i valori vivono nello stesso processo: la
+    configurazione di pubblicazione da una parte, la costante che i bridge compilano dall'altra.
+
+    Due precisazioni che ne determinano la correttezza:
+
+    - si confronta l'URL **quotato** prodotto da `raw_url`, non i campi grezzi. `raw_url`
+      codifica `path`/`branch` apposta (rilievo Fugu #158), quindi un confronto sul testo grezzo
+      darebbe un disallineamento **falso** su ogni path con spazi o accenti — e un avviso falso
+      su una configurazione giusta insegna a ignorare l'avviso vero;
+    - **gated su `is_placeholder_url`**: con l'URL placeholder di sviluppo la revoca online è
+      inattiva per costruzione, quindi non esiste un termine di paragone e avvisare sarebbe
+      rumore su uno stato che non è un errore.
+
+    NON blocca: segnala. Ma il chiamante deve renderlo visibile **anche sul successo**, perché è
+    esattamente il caso in cui il difetto si manifesta — «✅ Pubblicato» e nessuno che se ne
+    accorga.
+    """
+    atteso = revocation_client.REVOCATION_LIST_URL
+    if revocation_client.is_placeholder_url(atteso):
+        return ""
+    configurato = raw_url(repo, path, branch)
+    # Confronto ESATTO, nessuna normalizzazione (secondo rilievo Fable 5, che ha corretto il
+    # primo). Una stesura intermedia toglieva spazi e slash finali «perché servono lo stesso
+    # file»: falso. Su `raw.githubusercontent.com` un file con slash finale
+    # (`…/revocation_list.txt/`) risponde **404**, e uno spazio in coda pure — e
+    # `REVOCATION_LIST_URL` non è una preferenza, è la stringa che i bridge **scaricano
+    # davvero**. Normalizzarle silenziava un bridge realmente rotto, dentro la funzione che
+    # esiste per non silenziare nulla: il difetto originale, riprodotto nella sua correzione.
+    #
+    # Quindi si avvisa SEMPRE su qualunque differenza. Ma il messaggio deve **nominarla**: due
+    # URL che differiscono per uno spazio finale o per una maiuscola si leggono come identici, e
+    # un avviso che sembra sbagliato è un avviso che la volta dopo nessuno legge.
+    a, b = str(configurato), str(atteso or "")
+    if a == b:
+        return ""
+    # UNICA normalizzazione ammessa, e per la ragione esattamente contraria a quella respinta per
+    # spazi e slash (rilievo Fable 5 sull'intera PR). Non è dedotta: è misurata sul server reale.
+    #
+    #   …/python/cpython/main/README.rst  → 200      …/python/cpython/Main/README.rst → 404
+    #   …/Python/CPython/main/README.rst  → 200      …/python/cpython/main/readme.rst → 404
+    #
+    # Owner e repository sono case-INsensitive; branch e percorso no. Un `Tizio/XTrader-Revocation`
+    # al posto di `tizio/xtrader-revocation` è quindi un bridge che **funziona**: avvisare sarebbe
+    # un falso allarme, e la tesi di questa PR è che un avviso falso su una configurazione giusta
+    # insegna a ignorare quello vero. Là la misura diceva 404 (bridge rotto → silenziarlo è il
+    # difetto), qui dice 200 (bridge sano → avvisarlo è rumore).
+    if _case_normalizzata_dove_il_server_lo_e(a) == _case_normalizzata_dove_il_server_lo_e(b):
+        return ""
+    # Il testo deve nominare ESATTAMENTE ciò che il ramo copre, senza allargarsi né stringersi:
+    # `strip()` è bilaterale sugli spazi, `rstrip("/")` agisce SOLO in coda sugli slash. Le due
+    # stesure precedenti hanno sbagliato una volta per lato — «SPAZI o SLASH finali» ignorava lo
+    # spazio in testa (rilievo Fable 5 + GPT-5.5), e «in eccesso (a inizio o fine)» prometteva uno
+    # slash iniziale che il codice non tratta (rilievo indipendente di Fable 5 e Fugu Ultra). È la
+    # stessa classe di difetto che questa funzione esiste per intercettare, applicata a se stessa:
+    # un testo che dichiara qualcosa di diverso da ciò che il codice fa.
+    #
+    # Lo slash iniziale non serve trattarlo qui: `"/https://…"` non ha host, quindi
+    # `is_placeholder_url` lo ferma in cima a questa funzione (fail-closed) e il gate di release
+    # legge lo stesso predicato e BLOCCA il tag — barriera più severa di un avviso.
+    if a.strip().rstrip("/") == b.strip().rstrip("/"):
+        return (
+            "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono solo "
+            f"per SPAZI (a inizio o fine) o SLASH finali.\nConfigurato:      {a!r}\n"
+            f"Atteso dai bridge: {b!r}\n"
+            "Sembrano identici ma non lo sono, e i bridge NON scaricherebbero la lista: su "
+            "raw.githubusercontent.com un file con slash o spazio in coda risponde 404, e uno "
+            "spazio iniziale rende la richiesta non valida. Correggi REVOCATION_LIST_URL o la "
+            "configurazione. NON allargare il token.")
+    if a.lower() == b.lower():
+        # Arrivare qui significa che il case differisce **fuori** da owner/repo — quelli li ha già
+        # assorbiti il confronto sopra. Quindi è branch o percorso, che il server tratta come
+        # case-sensitive: 404 per tutti i bridge, si avvisa. Il messaggio nomina i segmenti che
+        # contano invece di dire «l'URL è case-sensitive», che per owner/repo è falso e manderebbe
+        # a correggere una grafia che funziona già.
+        return (
+            "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono SOLO "
+            f"per maiuscole/minuscole.\nConfigurato:      {configurato}\nAtteso dai bridge: "
+            f"{atteso}\nSu raw.githubusercontent.com branch e percorso sono case-sensitive "
+            "(owner e repository no): allinea la grafia esatta di branch e percorso. NON "
+            "allargare il token — non è un problema di permessi.")
+    return (
+        "⚠️ Stai pubblicando a un indirizzo DIVERSO da quello da cui i bridge scaricano la "
+        f"lista.\nConfigurato:      {configurato}\nAtteso dai bridge: {atteso}\n"
+        "Pubblicare qui NON propagherà alcuna revoca. Correggi Repository/Branch/Percorso — "
+        "NON allargare il token: allargarlo farebbe riuscire la pubblicazione nel posto "
+        "sbagliato, e il problema diventerebbe invisibile.")
 
 
 def _quote_repo(repo: str) -> str:
@@ -218,9 +342,21 @@ def _error_message(status: int, action: str, repo: str = "", payload=None) -> st
             return ("GitHub ha applicato un limite di frequenza (403): non è un problema del token "
                     "né dei permessi — aspetta qualche minuto e riprova.")
         dove = f" su «{repo}»" if str(repo or "").strip() else ""
-        return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Se è un token "
-                "fine-grained: in «Repository access» dev'esserci questo repository, e in "
-                "«Permissions → Repository permissions» serve «Contents: Read and write».")
+        # DUE ipotesi, non una (#234, incidente del proprietario 2026-08-03). Questo messaggio
+        # ne nominava una sola — «il token è troppo stretto» — e chi lo seguiva alla lettera
+        # quando la causa vera era l'altra allargava il token, faceva RIUSCIRE la pubblicazione
+        # nel repository sbagliato, e le revoche smettevano di propagarsi in silenzio. Il 403
+        # era più sicuro del successo che il messaggio suggeriva di ottenere: qui si mette
+        # per PRIMA l'ipotesi che, se ignorata, produce il danno peggiore.
+        return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Due cause "
+                "possibili, e vanno controllate IN QUEST'ORDINE:\n"
+                "1) il REPOSITORY configurato non è quello giusto — dev'essere lo stesso da cui "
+                "i bridge scaricano la lista. Se è questo il caso, NON allargare il token: la "
+                "pubblicazione riuscirebbe nel posto sbagliato e nessuna revoca si "
+                "propagherebbe, senza più alcun errore visibile;\n"
+                "2) il token è troppo stretto — se è fine-grained: in «Repository access» "
+                "dev'esserci questo repository, e in «Permissions → Repository permissions» "
+                "serve «Contents: Read and write».")
     if status == 404:
         return "Repository, branch o percorso non trovati (controlla «owner/nome» e il branch)."
     if status in (409, 422):

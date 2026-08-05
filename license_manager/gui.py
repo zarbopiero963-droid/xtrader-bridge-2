@@ -771,9 +771,18 @@ class LicenseManagerApp(ctk.CTk):
         # entrambe le strade (🚀 «Pubblica ora» e tick automatico), quindi l'etichetta non può
         # divergere fra le due. Best-effort: `save_last_publish` non solleva.
         self._save_last_publish(int(self._now()), directory=self._key_dir)
-        return {"ok": True,
-                "message": (f"{result.get('message', '')} "
-                            f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")}
+        messaggio = (f"{result.get('message', '')} "
+                     f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")
+        # L'avviso di disallineamento va IN TESTA al messaggio di successo (#234). Qui accanto
+        # veniva già stampato «URL per il bridge: …» — cioè proprio l'indirizzo che dovrebbe
+        # combaciare con `REVOCATION_LIST_URL` — ma nessuno li confrontava, e la riga si leggeva
+        # come una conferma. Una pubblicazione riuscita nel posto sbagliato è il fallimento
+        # silenzioso che questa issue esiste per rendere rumoroso: se resta in coda a «✅
+        # Pubblicato» non lo legge nessuno.
+        avviso = publisher.disallineamento_bridge(cfg["repo"], cfg["path"], cfg["branch"])
+        if avviso:
+            messaggio = f"{avviso}\n\n{messaggio}"
+        return {"ok": True, "message": messaggio}
 
     # La pubblicazione fa **rete** (GET+PUT, fino a `DEFAULT_TIMEOUT_S` ciascuna): eseguirla sul
     # thread Tk **congelerebbe la finestra** con GitHub lento o irraggiungibile (rilievo GPT-5.5
@@ -846,7 +855,15 @@ class LicenseManagerApp(ctk.CTk):
             return {"ok": False,
                     "message": "Token assente nel keyring: salvalo nelle impostazioni di pubblicazione."}
         esito = self._check_access(cfg["repo"], cfg["path"], cfg["branch"], token=token)
-        return {"ok": bool(esito.get("ok")), "message": str(esito.get("message", ""))}
+        messaggio = str(esito.get("message", ""))
+        # Il disallineamento va detto ANCHE (anzi: soprattutto) quando la verifica RIESCE (#234):
+        # un token con i permessi giusti sul repository sbagliato passa ogni controllo di accesso
+        # e pubblica felicemente dove nessun bridge legge. È il caso che l'incidente del
+        # 2026-08-03 avrebbe prodotto se il rimedio suggerito dal 403 fosse stato seguito.
+        avviso = publisher.disallineamento_bridge(cfg["repo"], cfg["path"], cfg["branch"])
+        if avviso:
+            messaggio = f"{avviso}\n\n{messaggio}" if messaggio else avviso
+        return {"ok": bool(esito.get("ok")), "message": messaggio}
 
     def _check_access_worker(self) -> None:
         """Corpo del thread della verifica (stessa forma di `_publish_worker`). Non solleva mai."""

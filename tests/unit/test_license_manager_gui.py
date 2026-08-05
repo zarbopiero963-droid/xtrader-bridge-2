@@ -2389,3 +2389,96 @@ def test_verifica_accesso_non_raddoppia_il_simbolo_di_avviso(gui, tmp_path):
     assert anomalia.startswith("⚠️ ANOMALIA")
     assert generico.startswith("⚠️ Token"), "il messaggio senza simbolo deve riceverlo"
     assert positivo.startswith("✅"), "un esito positivo non deve prendere il simbolo di avviso"
+
+
+# ── #234: disallineamento fra dove si pubblica e dove i bridge leggono ────────
+# Incidente reale del proprietario (2026-08-03): il 403 suggeriva di allargare il token, ma la
+# causa era il repository sbagliato. Seguire quel rimedio avrebbe fatto RIUSCIRE la
+# pubblicazione dove nessun bridge legge — fallimento silenzioso su una funzione di sicurezza.
+# Qui si blocca il cablaggio GUI: l'avviso deve arrivare all'occhio, anche (soprattutto) quando
+# l'operazione RIESCE.
+
+def _allinea_url_bridge(monkeypatch, repo=_PUB_OK["repo"], path=_PUB_OK["path"], branch="main"):
+    """Fa combaciare `REVOCATION_LIST_URL` con la config di test (caso SANO)."""
+    from xtrader_bridge.licensing import revocation_client
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL",
+                        f"https://raw.githubusercontent.com/{repo}/{branch}/{path}")
+
+
+def test_234_pubblicazione_RIUSCITA_su_repo_sbagliato_lo_DICE(gui, tmp_path, monkeypatch):
+    """Il caso che l'issue esiste per rendere rumoroso: `ok=True`, e l'avviso in TESTA.
+
+    Se restasse in coda a «✅ Pubblicato … URL per il bridge: …» non lo leggerebbe nessuno — ed è
+    precisamente com'era prima: l'URL configurato veniva già stampato lì accanto, ma nessuno lo
+    confrontava con quello che i bridge scaricano.
+    """
+    from xtrader_bridge.licensing import revocation_client
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL",
+                        "https://raw.githubusercontent.com/altro/xtrader-revocation/main/revocation_list.txt")
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_publish_now()
+
+    assert out["ok"] is True, out                      # la pubblicazione RIESCE: è il punto
+    assert out["message"].startswith("⚠️"), out["message"]
+    assert "NON propagherà alcuna revoca" in out["message"], out["message"]
+    assert "altro/xtrader-revocation" in out["message"], out["message"]   # atteso dai bridge
+    assert "tizio/xtrader-revocation" in out["message"], out["message"]   # configurato
+
+
+def test_234_pubblicazione_ALLINEATA_non_mostra_alcun_avviso(gui, tmp_path, monkeypatch):
+    """Contro-guardia. Un avviso su una configurazione corretta insegna a ignorarlo, e quando
+    arriva quello vero non lo legge più nessuno."""
+    _allinea_url_bridge(monkeypatch)
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_publish_now()
+
+    assert out["ok"] is True
+    assert "⚠️" not in out["message"], out["message"]
+    assert "NON propagherà" not in out["message"], out["message"]
+
+
+def test_234_la_VERIFICA_ACCESSO_riuscita_segnala_comunque_il_disallineamento(gui, tmp_path,
+                                                                              monkeypatch):
+    """Un token con i permessi giusti sul repository SBAGLIATO passa ogni controllo di accesso.
+
+    `check_access` risponde `ok=True` — legittimamente, perché la domanda che pone è «questo
+    token può scrivere qui?» e la risposta è sì. La domanda che nessuno poneva è «*qui* è il
+    posto giusto?».
+    """
+    from xtrader_bridge.licensing import revocation_client
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL",
+                        "https://raw.githubusercontent.com/altro/xtrader-revocation/main/revocation_list.txt")
+    fake = _fake(gui, tmp_path)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_check_access()
+
+    assert out["ok"] is True, out                       # la verifica passa: è il punto
+    assert out["message"].startswith("⚠️"), out["message"]
+    assert "OK finto" in out["message"], "l'esito originale non va perso"
+
+
+def test_234_verifica_accesso_allineata_resta_pulita(gui, tmp_path, monkeypatch):
+    """Contro-guardia della precedente."""
+    _allinea_url_bridge(monkeypatch)
+    fake = _fake(gui, tmp_path)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_check_access()
+
+    assert out["ok"] is True
+    assert out["message"] == "OK finto", out["message"]
