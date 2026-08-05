@@ -226,29 +226,58 @@ def chiave_pubblica_di_test(monkeypatch):
 #
 # Regola 3 di CLAUDE.md: se la stessa cosa va scritta in due posti, il posto giusto è **zero**.
 # Qui sta la fonte unica, e non guarda l'indentazione: trova l'inizio di ogni blocco di lingua e
-# conta le graffe, saltando quelle che stanno **dentro le stringhe** (ce ne sono: `{` compare nel
-# testo tradotto). Un blocco riformattato su una riga sola verrebbe letto lo stesso.
-def _fine_blocco(testo: str, inizio: int) -> int:
-    """L'indice della graffa che chiude quella aperta in `inizio`, ignorando le stringhe."""
-    profondita, i, apice, fuga = 0, inizio, "", False
-    while i < len(testo):
+# conta le graffe. Un blocco riformattato su una riga sola verrebbe letto lo stesso.
+#
+# Il punto delicato è che **dentro le stringhe e dentro i commenti c'è di tutto**: `{` compare nel
+# testo tradotto, e una frase come «scrivi `es: {` nel file» o un commento di esempio farebbero
+# partire un blocco che non esiste (rilievo Claude Fable 5 sulla #289). Perciò si lavora su una
+# **maschera**: una copia del sorgente in cui stringhe e commenti sono sostituiti da spazi, stessa
+# lunghezza quindi stessi indici. Le posizioni si cercano sulla maschera, il testo si legge
+# dall'originale.
+def _maschera_codice(testo: str) -> str:
+    """Il sorgente con stringhe e commenti resi spazi: stessa lunghezza, solo codice visibile."""
+    fuori, i, n = [], 0, len(testo)
+    while i < n:
         c = testo[i]
-        if apice:
-            if fuga:
-                fuga = False
-            elif c == "\\":
-                fuga = True
-            elif c == apice:
-                apice = ""
-        elif c in "\"'":
+        if c in "\"'`":                                   # stringa (anche template literal)
             apice = c
-        elif c == "{":
+            j = i + 1
+            while j < n:
+                if testo[j] == "\\":
+                    j += 2
+                    continue
+                if testo[j] == apice:
+                    j += 1
+                    break
+                j += 1
+            fuori.append(" " * (j - i))
+            i = j
+        elif c == "/" and i + 1 < n and testo[i + 1] == "/":   # commento di riga
+            j = testo.find("\n", i)
+            j = n if j == -1 else j
+            fuori.append(" " * (j - i))
+            i = j
+        elif c == "/" and i + 1 < n and testo[i + 1] == "*":   # commento a blocco
+            j = testo.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            fuori.append(" " * (j - i))
+            i = j
+        else:
+            fuori.append(c)
+            i += 1
+    return "".join(fuori)
+
+
+def _fine_blocco(maschera: str, inizio: int) -> int:
+    """L'indice della graffa che chiude quella aperta in `inizio`, contata sulla maschera."""
+    profondita = 0
+    for i in range(inizio, len(maschera)):
+        if maschera[i] == "{":
             profondita += 1
-        elif c == "}":
+        elif maschera[i] == "}":
             profondita -= 1
             if profondita == 0:
                 return i
-        i += 1
     raise AssertionError("graffa non chiusa in i18n.js a partire dall'indice %d" % inizio)
 
 
@@ -283,12 +312,18 @@ def dizionari_i18n_sito(percorso=None) -> dict:
     with open(percorso, encoding="utf-8") as f:
         testo = f.read()
 
+    maschera = _maschera_codice(testo)
     fuori = {}
-    for m in _re.finditer(r"\b([a-z]{2})\s*:\s*\{", testo):
-        apertura = testo.index("{", m.start())
-        blocco = testo[apertura:_fine_blocco(testo, apertura) + 1]
+    # le POSIZIONI si cercano sulla maschera (niente stringhe, niente commenti); il TESTO si
+    # legge dall'originale, agli stessi indici.
+    for m in _re.finditer(r"\b([a-z]{2})\s*:\s*\{", maschera):
+        apertura = maschera.index("{", m.start())
+        blocco = testo[apertura:_fine_blocco(maschera, apertura) + 1]
         coppie = _re.findall(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"', blocco)
         if coppie:                       # scarta i `xx: {` che non sono dizionari di lingua
-            fuori[m.group(1)] = {k: _testo_js(v) for k, v in coppie}
+            # gli escape si sciolgono anche nelle CHIAVI: una chiave scritta `"a.b"` è la
+            # stessa cosa di `"a.b"` per il browser, e se la lasciassi grezza non combacerebbe
+            # col `data-i18n` dell'HTML (rilievo Claude Fable 5 sulla #289).
+            fuori[m.group(1)] = {_testo_js(k): _testo_js(v) for k, v in coppie}
     assert fuori, "nessun dizionario di lingua trovato in i18n.js"
     return fuori

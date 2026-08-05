@@ -201,3 +201,37 @@ def test_le_sequenze_di_escape_diventano_il_testo_che_si_vede(grezzo, atteso):
     problema che vuole prevenire.
     """
     assert _testo_js(grezzo) == atteso
+
+
+def test_il_lettore_ignora_stringhe_e_commenti_che_sembrano_dizionari(tmp_path):
+    """Un `xx: {` dentro una stringa o un commento non è un dizionario.
+
+    Rilievo Claude Fable 5 sulla #289: la ricerca dei blocchi girava sul sorgente grezzo, quindi
+    una frase tradotta che contenesse `es: {` — o un commento di esempio — avrebbe fatto partire
+    un blocco inesistente, sfasando tutto quello che viene dopo. Ora le posizioni si cercano su
+    una maschera in cui stringhe e commenti sono spazi.
+    """
+    finto = tmp_path / "i18n.js"
+    finto.write_text(
+        '// esempio nel commento: es: { "finta": "roba" }\n'
+        'var T = {\n'
+        '  en: {"vero.a": "scrivi es: { così", "vero.b": "due"},\n'
+        '  /* blocco: fr: { "mai": "letta" } */\n'
+        '  es: {"vero.a": "uno", "vero.b": "dos"}\n'
+        '};', encoding="utf-8")
+    letti = dizionari_i18n_sito(finto)
+    assert sorted(letti) == ["en", "es"], letti
+    assert "finta" not in letti["en"] and "mai" not in letti.get("fr", {})
+    assert letti["en"]["vero.a"] == "scrivi es: { così"
+
+
+def test_anche_le_chiavi_hanno_gli_escape_sciolti(tmp_path):
+    """Una chiave con `\\u2026` nel sorgente è la stessa chiave che l'HTML scrive per esteso.
+
+    Se il lettore la lasciasse grezza, il gate di classe direbbe «questa chiave non è tradotta»
+    su una chiave che invece c'è — e si cercherebbe il problema nel dizionario invece che nel
+    lettore (rilievo Claude Fable 5 sulla #289).
+    """
+    finto = tmp_path / "i18n.js"
+    finto.write_text('var T={en:{"a\\u002eb":"x","c":"y"}};', encoding="utf-8")
+    assert dizionari_i18n_sito(finto)["en"]["a.b"] == "x"
