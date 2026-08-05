@@ -215,6 +215,58 @@ def malformed_entry_warnings(cfg: dict) -> list:
     return warnings
 
 
+def _piano_controllo_ambiguita(cfg: dict):
+    """Chi viene esaminato dal controllo frasi ambigue e chi **no**, e perché.
+
+    Ritorna ``(esaminati, oltre_tetto, saltati_per_budget)``: il primo è una lista di
+    ``(profilo_grezzo, voci)``, gli altri due contengono i nomi **normalizzati** dei profili
+    esclusi — dal tetto per profilo il primo, dal budget globale il secondo.
+
+    Estratta da `ambiguous_phrase_warnings` (#258) perché la stessa decisione serve a due
+    chiamanti: gli avvisi, che la spiegano all'utente, e il semaforo Dizionari del pannello
+    🚦 Salute, che **non deve mostrare verde** su profili mai controllati. Scriverla due volte
+    significherebbe due copie che divergono, e la seconda direbbe «pulito» dove la prima dice
+    «non guardato»: esattamente il difetto che questi avvisi esistono per togliere.
+
+    L'ordine dei due tetti è parte del contratto (rilievo Fable 5 + GPT-5.5 sulla #261): il
+    tetto per profilo va valutato **prima** del budget, altrimenti un profilo troppo grande —
+    quindi mai esaminato — scalerebbe comunque il suo peso e farebbe saltare profili successivi
+    sani con un «budget esaurito» che non è vero.
+    """
+    esaminati, oltre_tetto, saltati_per_budget = [], [], []
+    voci_esaminate = 0
+    for profile, righe in sorted(_store(cfg).items(),
+                                 key=lambda kv: (_norm_profile_name(kv[0]), repr(kv[0]))):
+        if not isinstance(righe, (list, tuple)):
+            continue
+        voci = [e for e in righe if isinstance(e, dict)]
+        if not voci:
+            continue
+        if len(voci) > _MAX_VOCI_CONTROLLO_AMBIGUITA:
+            oltre_tetto.append((_norm_profile_name(profile), len(voci)))
+            continue
+        if voci_esaminate + len(voci) > _MAX_VOCI_TOTALI_CONTROLLO:
+            saltati_per_budget.append(_norm_profile_name(profile))
+            continue
+        voci_esaminate += len(voci)
+        esaminati.append((profile, voci))
+    return esaminati, oltre_tetto, saltati_per_budget
+
+
+def profili_non_controllati(cfg: dict) -> list:
+    """I profili mercati su cui il controllo frasi ambigue **non è stato eseguito** (#258).
+
+    Nomi normalizzati, in ordine deterministico. Serve al semaforo Dizionari: su questi profili
+    l'assenza di conflitti elencati **non** significa che siano puliti — significa che nessuno
+    ha guardato. Un semaforo verde lì sarebbe una rassicurazione senza copertura.
+
+    Pura e totale come le funzioni di avviso: non solleva, così un chiamante che la interroga
+    all'avvio non può essere bloccato da una config manomessa.
+    """
+    _esaminati, oltre_tetto, saltati = _piano_controllo_ambiguita(cfg)
+    return [nome for nome, _voci in oltre_tetto] + list(saltati)
+
+
 def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     """Avvisi **non bloccanti** (#254): voci mercato che combaciano con la **stessa frase** ma
     indicano mercati **diversi**. Su queste `resolve_market` ritorna ``ambiguous`` e il segnale
@@ -254,66 +306,20 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     # Separati perché il troncamento degli avvisi non deve mai mangiarsi la riga che spiega una
     # copertura parziale: sarebbe il cap muto travestito.
     struttura, conflitti = [], []
-    voci_esaminate = 0
-    saltati_per_budget = []
-    # Ordine STABILE dei profili (rilievo GPT-5.5 sulla #261). Il budget decide *quali* profili
-    # vengono controllati, quindi l'ordine di iterazione diventa parte del risultato: su una
-    # config rigenerata o mergiata con ordine diverso, gli stessi identici dati darebbero avvisi
-    # diversi. Ordinare per nome rende il taglio riproducibile e spiegabile.
-    #
-    # La chiave è `_norm_profile_name`, non la chiave grezza (secondo rilievo GPT-5.5 sulla
-    # #261, sul primo fix): `sorted()` sulle chiavi grezze SOLLEVA `TypeError` se la config ne
-    # contiene di tipi non confrontabili (`{"A": ..., 3: ...}` → «'<' not supported between
-    # instances of 'int' and 'str'»), e il chiamante in `app.py` itera questi avvisi allo START
-    # **senza try/except**: un dizionario manomesso avrebbe rotto il pulsante START. Sarebbe
-    # stata una regressione della promessa scritta due paragrafi sopra — «un avviso diagnostico
-    # non deve mai impedire l'avvio» — introdotta dalla correzione stessa.
-    # `_norm_profile_name` è totale (`str(name or "").strip()`) ed è già il nome mostrato in
-    # ogni messaggio, quindi l'ordine del taglio coincide con l'ordine che l'utente legge.
-    # Chiave secondaria `repr`: due chiavi grezze diverse possono normalizzare uguali
-    # (`"Prof"` e `" Prof "`, config legacy — P3-22 #76) e pareggerebbero, ricadendo
-    # sull'ordine di inserimento, cioè proprio la non-determinismo che questo fix toglie.
-    for profile, righe in sorted(_store(cfg).items(),
-                                 key=lambda kv: (_norm_profile_name(kv[0]), repr(kv[0]))):
-        if not isinstance(righe, (list, tuple)):
-            continue
-        voci = [e for e in righe if isinstance(e, dict)]
-        if not voci:
-            continue
-        # TETTO PER PROFILO **prima** del budget globale (rilievo Fable 5 e GPT-5.5 sulla #261,
-        # indipendentemente). All'inverso, un profilo troppo grande — quindi mai esaminato —
-        # scalava comunque il suo peso dal budget, e poteva far saltare profili successivi SANI
-        # con un «budget esaurito» che non era vero. Il budget deve contare le voci **davvero
-        # esaminate**, altrimenti mente sul motivo per cui si è fermato: che è lo stesso difetto
-        # — una diagnostica che dice una cosa diversa da quella che è successa — per cui questa
-        # PR esiste.
-        # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
-        # (e per lingua), quindi il costo cresce col quadrato. Misure allo START **col tetto
-        # disattivato**, prima e dopo la cache dei pattern della #256 — dalle 400 voci in su
-        # sono IPOTETICHE, cioè il costo che si eviterebbe (vedi `_MAX_VOCI_CONTROLLO_AMBIGUITA`):
-        #
-        #     100 voci  0,09 s -> 0,09 s   ·   400 voci  1,2 s -> 1,15 s
-        #     800 voci  54   s -> 4,53 s   ·  1200 voci    —   -> 9,35 s
-        #
-        # Il dirupo a 800 (54 s) era il thrashing della cache di `re`, ed è chiuso. Ma il
-        # quadrato resta: a 1200 voci sarebbero ancora 9 s di finestra bloccata all'avvio, un danno
-        # peggiore del difetto che questo avviso diagnostica. Oltre il tetto il controllo si
-        # ferma e **lo dice**: un cap che tace si legge come «nessun conflitto», che è
-        # esattamente la bugia da evitare.
-        if len(voci) > _MAX_VOCI_CONTROLLO_AMBIGUITA:
-            struttura.append(
-                f"Mappatura mercati «{_norm_profile_name(profile)}»: {len(voci)} voci, oltre il "
-                f"tetto di {_MAX_VOCI_CONTROLLO_AMBIGUITA} per il controllo delle frasi ambigue "
-                f"-> controllo NON eseguito su questo profilo (l'avvio resterebbe bloccato per "
-                f"decine di secondi). Le frasi ambigue restano fail-closed a runtime, ma qui non "
-                f"vengono elencate: se sospetti un conflitto, riduci il profilo o dividilo.")
-            continue
-        # BUDGET GLOBALE (#256 punto 2), valutato SOLO su profili che verrebbero davvero
-        # esaminati — vedi il commento sopra sul perché l'ordine dei due controlli conta.
-        if voci_esaminate + len(voci) > _MAX_VOCI_TOTALI_CONTROLLO:
-            saltati_per_budget.append(_norm_profile_name(profile))
-            continue
-        voci_esaminate += len(voci)
+    # Chi viene esaminato e chi no lo decide `_piano_controllo_ambiguita`, **fonte unica**
+    # condivisa con `profili_non_controllati` (#258): il semaforo Dizionari del pannello
+    # 🚦 Salute deve sapere esattamente quali profili non sono stati guardati, e una seconda
+    # copia di questa decisione finirebbe per dire «pulito» dove questa dice «non controllato».
+    # I due tetti, il loro ordine e le misure che li giustificano sono documentati lì.
+    esaminati, oltre_tetto, saltati_per_budget = _piano_controllo_ambiguita(cfg)
+    for nome_profilo, n_voci in oltre_tetto:
+        struttura.append(
+            f"Mappatura mercati «{nome_profilo}»: {n_voci} voci, oltre il "
+            f"tetto di {_MAX_VOCI_CONTROLLO_AMBIGUITA} per il controllo delle frasi ambigue "
+            f"-> controllo NON eseguito su questo profilo (l'avvio resterebbe bloccato per "
+            f"decine di secondi). Le frasi ambigue restano fail-closed a runtime, ma qui non "
+            f"vengono elencate: se sospetti un conflitto, riduci il profilo o dividilo.")
+    for profile, voci in esaminati:
         profili = [voci]
         # I chiamanti plausibili: senza filtro-lingua, più ogni lingua che il dizionario
         # stesso contiene. Sono le sole lingue-fonte per cui un parser può interrogare
