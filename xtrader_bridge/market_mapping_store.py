@@ -256,21 +256,23 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     struttura, conflitti = [], []
     voci_esaminate = 0
     saltati_per_budget = []
-    warnings = conflitti                 # i conflitti veri; la struttura ha la sua lista
-    for profile, righe in _store(cfg).items():
+    # Ordine STABILE dei profili (rilievo GPT-5.5 sulla #261). Il budget decide *quali* profili
+    # vengono controllati, quindi l'ordine di iterazione diventa parte del risultato: su una
+    # config rigenerata o mergiata con ordine diverso, gli stessi identici dati darebbero avvisi
+    # diversi. Ordinare per nome rende il taglio riproducibile e spiegabile.
+    for profile, righe in sorted(_store(cfg).items()):
         if not isinstance(righe, (list, tuple)):
             continue
         voci = [e for e in righe if isinstance(e, dict)]
         if not voci:
             continue
-        # BUDGET GLOBALE (#256 punto 2). Il tetto per profilo qui sotto non limita il TOTALE:
-        # il costo è lineare nelle voci esaminate (~2,2 ms l'una), quindi 8 profili al tetto
-        # costavano 5,4 s allo START. Si salta il profilo che non ci sta e lo si dice a fine
-        # elenco — anche se quel profilo era sano, perché chi legge non può saperlo.
-        if voci_esaminate + len(voci) > _MAX_VOCI_TOTALI_CONTROLLO:
-            saltati_per_budget.append(_norm_profile_name(profile))
-            continue
-        voci_esaminate += len(voci)
+        # TETTO PER PROFILO **prima** del budget globale (rilievo Fable 5 e GPT-5.5 sulla #261,
+        # indipendentemente). All'inverso, un profilo troppo grande — quindi mai esaminato —
+        # scalava comunque il suo peso dal budget, e poteva far saltare profili successivi SANI
+        # con un «budget esaurito» che non era vero. Il budget deve contare le voci **davvero
+        # esaminate**, altrimenti mente sul motivo per cui si è fermato: che è lo stesso difetto
+        # — una diagnostica che dice una cosa diversa da quella che è successa — per cui questa
+        # PR esiste.
         # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
         # (e per lingua), quindi il costo cresce col quadrato. Misure allo START **col tetto
         # disattivato**, prima e dopo la cache dei pattern della #256 — dalle 400 voci in su
@@ -292,6 +294,12 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                 f"decine di secondi). Le frasi ambigue restano fail-closed a runtime, ma qui non "
                 f"vengono elencate: se sospetti un conflitto, riduci il profilo o dividilo.")
             continue
+        # BUDGET GLOBALE (#256 punto 2), valutato SOLO su profili che verrebbero davvero
+        # esaminati — vedi il commento sopra sul perché l'ordine dei due controlli conta.
+        if voci_esaminate + len(voci) > _MAX_VOCI_TOTALI_CONTROLLO:
+            saltati_per_budget.append(_norm_profile_name(profile))
+            continue
+        voci_esaminate += len(voci)
         profili = [voci]
         # I chiamanti plausibili: senza filtro-lingua, più ogni lingua che il dizionario
         # stesso contiene. Sono le sole lingue-fonte per cui un parser può interrogare
@@ -384,7 +392,7 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                 # a un solo nome di mercato elencato due volte si legge come un errore
                 # dell'avviso (GPT-5.5 e Fable 5, indipendentemente): il conteggio deve dire
                 # esattamente cosa conta.
-                warnings.append(
+                conflitti.append(
                     f"Mappatura mercati «{_norm_profile_name(profile)}», frase «{ph}»: "
                     f"combacia con {len(contesi)} coppie mercato/selezione diverse ({dove}) -> il mercato "
                     f"NON viene risolto e il segnale è scartato (fail-closed). Rendi le frasi "

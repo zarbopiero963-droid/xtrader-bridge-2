@@ -5377,7 +5377,7 @@ tolto — cioè fallisce nello stesso modo, per una ragione diversa. Da qui due 
 profili non controllati**, il troncamento dice **quanti** conflitti restano fuori.
 
 **Il caso che il test fail-first ha reso visibile** è quello a zero conflitti: 1500 voci su 5
-profili, di cui 3 saltati per budget, producevano **zero avvisi** — cioè «tutto pulito» su una
+profili, di cui 2 saltati per budget, producevano **zero avvisi** — cioè «tutto pulito» su una
 config controllata a metà. Un profilo saltato va detto **anche se era sano**, perché chi legge
 non può saperlo.
 

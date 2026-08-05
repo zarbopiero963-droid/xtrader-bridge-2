@@ -108,3 +108,59 @@ def test_256_i_tetti_sono_deterministici():
     ogni avvio non si legge (stessa garanzia della #254)."""
     cfg = _cfg_molti_profili(8, 150)
     assert mms.ambiguous_phrase_warnings(cfg) == mms.ambiguous_phrase_warnings(cfg)
+
+
+def test_256_il_taglio_per_budget_non_dipende_dall_ORDINE_della_config():
+    """Rilievo GPT-5.5 sulla #261.
+
+    Il budget decide *quali* profili vengono controllati, quindi finché si itera nell'ordine di
+    inserimento del dict l'ordine diventa **parte del risultato**: la stessa identica config,
+    riscritta o mergiata con le chiavi in ordine diverso, taglierebbe profili diversi e
+    segnalerebbe conflitti diversi. Un avviso che cambia senza che i dati siano cambiati non è
+    una diagnostica, è rumore — ed è la stessa classe di difetto (la vista che non corrisponde
+    ai fatti) per cui questa PR esiste.
+
+    Qui: quattro profili identici a coppie, inseriti in ordine opposto nei due dict.
+    """
+    profili = {f"P{k}": _profilo_in_conflitto(f"f{k}_", 150) for k in range(4)}   # 1200 voci
+    assert sum(len(v) for v in profili.values()) > mms._MAX_VOCI_TOTALI_CONTROLLO, \
+        "senza superare il budget il taglio non avviene e il test non dimostra nulla"
+
+    diretto = {"market_mappings": dict(profili.items())}
+    inverso = {"market_mappings": dict(reversed(list(profili.items())))}
+    assert list(diretto["market_mappings"]) != list(inverso["market_mappings"]), "stesso ordine"
+
+    assert mms.ambiguous_phrase_warnings(diretto) == mms.ambiguous_phrase_warnings(inverso)
+
+
+def test_256_un_profilo_SALTATO_non_consuma_il_budget_globale():
+    """Rilievo Fable 5 sulla #261, ed è un difetto logico, non di stile.
+
+    Il budget globale veniva scalato **prima** del controllo sul tetto per-profilo: un profilo
+    troppo grande — quindi mai esaminato — consumava comunque il suo peso, e poteva far saltare
+    profili successivi **sani** con un «budget esaurito» che non era vero. Il budget deve
+    contare le voci **davvero esaminate**, altrimenti mente sul motivo per cui si è fermato.
+
+    Qui: un profilo da 400 voci (oltre il tetto per-profilo di 300, quindi saltato) seguito da
+    uno da 600 con conflitti veri. 400 + 600 = 1000 > 900, quindi col difetto il secondo veniva
+    saltato per budget — pur essendo il solo dei due che il controllo poteva davvero guardare.
+    """
+    # «Grosso» oltre il tetto PER PROFILO (quindi mai esaminato); «Sano» sotto entrambi i
+    # tetti. I numeri sono scelti perche' il difetto MORDA: 700 + 280 = 980 > 900, quindi col
+    # bug «Sano» veniva saltato per budget; da solo (280) ci sta comodamente.
+    grosso = [_voce(f"g{i}") for i in range(700)]
+    conflitti = _profilo_in_conflitto("b", 140)          # 280 voci, 140 conflitti
+    assert len(grosso) > mms._MAX_VOCI_CONTROLLO_AMBIGUITA, "«Grosso» deve saltare per tetto profilo"
+    assert len(conflitti) <= mms._MAX_VOCI_CONTROLLO_AMBIGUITA, "«Sano» deve essere esaminabile"
+    assert len(grosso) + len(conflitti) > mms._MAX_VOCI_TOTALI_CONTROLLO, "il difetto non morderebbe"
+    assert len(conflitti) <= mms._MAX_VOCI_TOTALI_CONTROLLO
+
+    avvisi = mms.ambiguous_phrase_warnings({"market_mappings": {"Grosso": grosso,
+                                                               "Sano": conflitti}})
+    testo = "\n".join(avvisi)
+    # il profilo grosso è saltato per il TETTO PER PROFILO, e lo dice
+    assert "«Grosso»" in testo and "oltre il tetto" in testo, testo
+    # ...ma «Sano» dev'essere stato CONTROLLATO: i suoi conflitti ci sono
+    assert any("«Sano»" in a and "combacia" in a for a in avvisi), testo
+    # e nessuno lo accusa di essere fuori budget
+    assert "«Sano»" not in testo.split("budget complessivo")[-1] if "budget complessivo" in testo else True
