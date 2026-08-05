@@ -304,7 +304,7 @@ def _persist_key_file(path: str, data: str, *, overwrite: bool) -> None:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp, path)
-        except BaseException:
+        except BaseException:   # noqa: BLE001 — cleanup del temporaneo su QUALSIASI errore, anche KeyboardInterrupt/SystemExit, e poi RILANCIA: il seed privato non deve restare in un .tmp orfano a permessi non garantiti
             try:
                 os.remove(tmp)
             except OSError:
@@ -325,7 +325,7 @@ def _persist_key_file(path: str, data: str, *, overwrite: bool) -> None:
             f.write(encoded)
             f.flush()
             os.fsync(f.fileno())
-    except BaseException:
+    except BaseException:   # noqa: BLE001 — create fallita a meta': rimuove il file PARZIALE appena creato e RILANCIA. Non c'era una chiave prima (O_EXCL), quindi non si distrugge nulla di irrecuperabile
         # create fallita a metà: rimuovi il file parziale appena creato (non c'era una chiave
         # prima, quindi non si distrugge nulla di irrecuperabile) e propaga.
         try:

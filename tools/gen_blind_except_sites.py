@@ -11,7 +11,23 @@ import sys
 # Path ancorati alla posizione DI QUESTO FILE, non alla cartella da cui si lancia: uno script
 # che scrive un baseline in un posto che dipende dalla CWD è un modo silenzioso di sbagliare.
 _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PKG = os.path.join(_RADICE, "xtrader_bridge")
+
+# DUE radici, non una (#263). Fino alla #262 il gate guardava solo `xtrader_bridge`: era verde
+# perché non guardava, non perché non ci fosse niente da vedere. `license_manager/` — 57
+# blind-except — ne restava fuori, ed è il codice che **firma le licenze**. È la stessa
+# posizione in cui erano Fable e Fugu prima della #247, con la stessa morale: un controllo che
+# tace è indistinguibile da uno che approva.
+#
+# `tests/` resta FUORI deliberatamente (#263): i suoi handler ciechi senza motivo sono tutti
+# worker thread di stress concorrenti (`writer_loop`, `clear_loop`, `_expirer`). Meritano un
+# esame a sé — un except cieco in un worker di stress può mascherare proprio la corruzione che
+# il test cerca — ma è una caccia al bug, non un lavoro di documentazione, e infilarla qui
+# significherebbe nasconderla dentro un cambiamento di copertura.
+RADICI = ("xtrader_bridge", "license_manager")
+
+# Manteniamo il nome storico per i chiamanti che importano `PKG` (il test lo usa per il
+# controllo di allineamento).
+PKG = os.path.join(_RADICE, RADICI[0])
 OUT = os.path.join(_RADICE, "tests", "safety", "blind_except_sites.py")
 
 def is_broad(node):
@@ -103,8 +119,29 @@ def scansiona(radice):
     return siti
 
 
+def scansiona_tutte(base=None, radici=RADICI):
+    """Siti di TUTTE le radici sorvegliate, con chiavi relative alla radice del REPOSITORY.
+
+    `scansiona(radice)` resta invariata — chiavi relative alla radice che riceve — perché è il
+    contratto che il test del rilevatore esercita su una cartella temporanea. Qui sopra ci si
+    limita a unire le radici e a qualificare le chiavi.
+
+    Le chiavi sono qualificate (`xtrader_bridge/app.py`, non `app.py`) **su entrambe** le
+    radici, non solo sulla nuova. Prefissare la sola `license_manager` avrebbe prodotto un
+    baseline in cui una chiave nuda significa «xtrader_bridge» per convenzione implicita: in un
+    gate l'asimmetria è precisamente il tipo di dettaglio che un lettore futuro legge male, e
+    due file omonimi in radici diverse si sarebbero sovrascritti in silenzio.
+    """
+    base = base or _RADICE
+    fuori = {}
+    for radice in radici:
+        for rel, trovati in scansiona(os.path.join(base, radice)).items():
+            fuori[f"{radice}/{rel}"] = trovati
+    return fuori
+
+
 def main():
-    siti = scansiona(PKG)
+    siti = scansiona_tutte()
     tot = sum(len(v) for v in siti.values())
     senza = sum(1 for v in siti.values() for _f, m in v if not m)
     righe = ['"""Baseline PER-SITO del gate blind-except (#224) — dati, non logica.',

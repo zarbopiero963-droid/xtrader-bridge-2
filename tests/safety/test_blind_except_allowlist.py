@@ -98,15 +98,15 @@ _GEN = _carica_generatore()
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "ui_cards.py": (5, "composizione visiva #182 (card/badge/hint) + tune_scrolling: helper best-effort "
+    "xtrader_bridge/ui_cards.py": (5, "composizione visiva #182 (card/badge/hint) + tune_scrolling: helper best-effort "
                        "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
                        "su widget gia distrutti — la cornice non deve MAI far cadere un "
                        "pannello; nessun dato/flusso dentro, solo presentazione"),
-    "dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
+    "xtrader_bridge/dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "app.py": (53, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
+    "xtrader_bridge/app.py": (53, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
                    "gate revoca (#159): la traccia diagnostica del ramo fail-open è essa stessa "
                    "protetta — `_dbg` può sollevare (GUI non costruita, istanza parziale) e "
                    "l'eccezione USCIREBBE dal gate, che `_license_is_valid` non assorbe: una riga "
@@ -170,13 +170,13 @@ _ALLOWLIST = {
                    "errore nel determinare token/hwid o nel calcolo → bloccato, mai aperto); "
                    "(2) ciclo del supervisore `_revocation_loop` non deve morire per un errore "
                    "imprevisto (ritenta al giro dopo con l'intervallo di refresh)"),
-    "guided_mapping_gui.py": (3, "GUI Tk «Mapping guidato» best-effort (Fase 3): lettura config "
+    "xtrader_bridge/guided_mapping_gui.py": (3, "GUI Tk «Mapping guidato» best-effort (Fase 3): lettura config "
                                  "illeggibile → messaggio; lettura competizioni/squadre Betfair "
                                  "con DB assente/illeggibile → tendina/elenco vuoti; nessuno di "
                                  "questi deve crashare la finestra Strumenti (il caso 'sync in "
                                  "corso' è gestito a parte, non-blind, con DictionaryBusy)"),
-    "atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
-    "wizard_gui.py": (4, "vista Wizard (#311 §3.4, review Fable #354): (1) sonda in thread "
+    "xtrader_bridge/atomic_io.py": (1, "cleanup del temporaneo su QUALSIASI errore di scrittura/rename (BaseException)"),
+    "xtrader_bridge/wizard_gui.py": (4, "vista Wizard (#311 §3.4, review Fable #354): (1) sonda in thread "
                          "che solleva → esito FAIL-CLOSED con la sola classe dell'errore e "
                          "flag _probe_running SEMPRE rilasciato (mai ⏳ eterna); (2) after() "
                          "su finestra/Tk distrutti durante la sonda → niente da aggiornare; "
@@ -185,51 +185,51 @@ _ALLOWLIST = {
                          "contesto; P2-8 #76, review #82 round 2 GPT/Fugu + final Fable) che "
                          "solleva → esito FAIL-CLOSED sanificato (StepResult ⛔ e return, MAI "
                          "degrado al parser nudo: sarebbe fail-open), mai crash del wizard"),
-    "wizard.py": (3, "sonde one-shot del Wizard (#311 §3.4): getMe/getUpdates/scrittura "
+    "xtrader_bridge/wizard.py": (3, "sonde one-shot del Wizard (#311 §3.4): getMe/getUpdates/scrittura "
                      "di prova — qualsiasi errore diventa un esito FAIL-CLOSED col messaggio "
                      "SANIFICATO (mai il token/URL nell'errore), lo step non passa e il "
                      "wizard non crasha"),
-    "parser_builder.py": (1, "isolamento PER-MESSAGGIO del tester batch (#311 §3.2, CodeRabbit "
+    "xtrader_bridge/parser_builder.py": (1, "isolamento PER-MESSAGGIO del tester batch (#311 §3.2, CodeRabbit "
                              "#350): un messaggio patologico non deve abortire il batch "
                              "nascondendo gli altri report — l'errore resta VISIBILE nel "
                              "verdetto ❌ di quel messaggio (fail-visible, mai silenzioso)"),
-    "instance_lock.py": (2, "#311-1.1 single-instance: fail-open CONSAPEVOLE su errore imprevisto "
+    "xtrader_bridge/instance_lock.py": (2, "#311-1.1 single-instance: fail-open CONSAPEVOLE su errore imprevisto "
                          "del SO nella creazione del lock (un bridge inavviabile per un guasto raro "
                          "è peggio del caso limite; warning nei log) + release best-effort (a morte "
                          "processo rilascia comunque il SO: mutex named / flock)"),
-    "config_store.py": (3, "backup config corrotta best-effort + rollback keyring best-effort + "
+    "xtrader_bridge/config_store.py": (3, "backup config corrotta best-effort + rollback keyring best-effort + "
                            "gate #311-2.3 `_default_recognition_mode` fail-safe → NAME_ONLY"),
-    "config_summary_gui.py": (1, "GUI Tk scheda Riepilogo (#293 slice 3, sola lettura): il "
+    "xtrader_bridge/config_summary_gui.py": (1, "GUI Tk scheda Riepilogo (#293 slice 3, sola lettura): il "
                              "summary_provider che solleva mostra un avviso invece di rompere "
                              "la finestra (stesso pattern best-effort degli altri pannelli)"),
-    "csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
+    "xtrader_bridge/csv_writer.py": (1, "callback diagnostico best-effort di clear_stale_csv: un sink log/GUI che "
                          "solleva non deve rompere il cleanup anti-segnale-stantio all'avvio/STOP (#241)"),
-    "dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
+    "xtrader_bridge/dizionario.py": (1, "gate #311-2.3 `is_validated` fail-safe: dizionario assente/header rotto → "
                          "non validato (False) → default recognition_mode resta NAME_ONLY, mai BOTH su "
                          "dati inaffidabili"),
-    "custom_parser_gui.py": (21, "GUI Tk del costruttore parser: render/azioni best-effort (#182 PR A, 4 nuovi: `_parser_usage` config illeggibile = nessun marcatore ma elenco usabile — l'except copre SOLO la lettura del file, le tre letture di routing di `parser_manager` stanno FUORI così un nome di API sbagliato esplode invece di svuotare il badge in silenzio (rilievo Fugu #223); `_autoload_active_parser` parser attivo corrotto = editor vuoto, non un pannello che non si apre; `_open_provider_registry` hub irraggiungibile = fallback all'aggiunta rapida; `_highlight_saved` widget distrutto durante un refresh; #182 PR A ⑥, 2 nuovi: `_riga_ha_valore_fisso` widget assente = nessun avviso, `_mostra_avviso_valore_fisso` widget distrutto durante un refresh; review Fugu/GPT-5.5 #223: `bind_accetta_add` firma non ispezionabile = si assume il Tk vero e si sceglie la forma NON distruttiva `add="+"`, più `_segui_valore_fisso`, 2 — variabile non tracciabile, widget non legabile: nessun ri-aggancio su quell'evento ma si prova comunque il successivo e la riga si disegna) (P3-28 #76: _builder_snapshot fail-safe — stato non fotografabile = modificato, meglio una conferma in più che una perdita silenziosa); "
+    "xtrader_bridge/custom_parser_gui.py": (21, "GUI Tk del costruttore parser: render/azioni best-effort (#182 PR A, 4 nuovi: `_parser_usage` config illeggibile = nessun marcatore ma elenco usabile — l'except copre SOLO la lettura del file, le tre letture di routing di `parser_manager` stanno FUORI così un nome di API sbagliato esplode invece di svuotare il badge in silenzio (rilievo Fugu #223); `_autoload_active_parser` parser attivo corrotto = editor vuoto, non un pannello che non si apre; `_open_provider_registry` hub irraggiungibile = fallback all'aggiunta rapida; `_highlight_saved` widget distrutto durante un refresh; #182 PR A ⑥, 2 nuovi: `_riga_ha_valore_fisso` widget assente = nessun avviso, `_mostra_avviso_valore_fisso` widget distrutto durante un refresh; review Fugu/GPT-5.5 #223: `bind_accetta_add` firma non ispezionabile = si assume il Tk vero e si sceglie la forma NON distruttiva `add="+"`, più `_segui_valore_fisso`, 2 — variabile non tracciabile, widget non legabile: nessun ri-aggancio su quell'evento ma si prova comunque il successivo e la riga si disegna) (P3-28 #76: _builder_snapshot fail-safe — stato non fotografabile = modificato, meglio una conferma in più che una perdita silenziosa); "
                              "(incl. resolver ID anteprima fail-open, #192; termini Betfair "
                              "per le tendine MarketType/MarketName/SelectionName best-effort, "
                              "#283 PR 13: sync in corso/DB assente → nessun suggerimento; "
                              "risoluzione profili nomi + lingua-fonte anteprima da config, "
                              "#3 slice 5b: config illeggibile → nessun filtro, fail-safe)"),
-    "custom_pipeline.py": (3, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open); "
+    "xtrader_bridge/custom_pipeline.py": (3, "id_resolver iniettato: un resolver che solleva NON blocca la riga (fail-open); "
                               "_default_registry (P3-14 #76): dizionario bundled corrotto/mancante -> fallback "
                               "built-in in cache con warning, MAI eccezione per-messaggio nell'handler Telegram; "
                               "ultimo-resort sul ramo built-in (follow-up nota Fable PR #108): anche se il "
                               "fallback stesso solleva -> registro VUOTO cacheato con error log, ogni value-map "
                               "risolve a vuoto (fail-closed), mai un crash per-messaggio"),
-    "dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
+    "xtrader_bridge/dpi_awareness.py": (3, "#311 §3.5 fail-open per contratto: un fallimento DPI "
                             "(ctypes/windll assente, shcore mancante su Win<8.1, "
                             "awareness già impostata, API che solleva) non deve MAI "
                             "impedire l'avvio del bridge — esito testuale, mai raise"),
-    "gui_utils.py": (3, "helper GUI best-effort; ask_confirm FAIL-CLOSED (P3-27/28 #76): dialog rotto/headless → False, un'azione distruttiva non parte mai senza conferma esplicita · +1 #176 running_edit_notice: la sonda `is_running` è iniettata dal chiamante e solo INFORMATIVA (decide un avviso, non una scrittura); se solleva si assume bridge fermo e si ritorna \"\" — una sonda difettosa non deve né impedire un salvataggio né inventare un avviso"),
-    "journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
+    "xtrader_bridge/gui_utils.py": (3, "helper GUI best-effort; ask_confirm FAIL-CLOSED (P3-27/28 #76): dialog rotto/headless → False, un'azione distruttiva non parte mai senza conferma esplicita · +1 #176 running_edit_notice: la sonda `is_running` è iniettata dal chiamante e solo INFORMATIVA (decide un avviso, non una scrittura); se solleva si assume bridge fermo e si ritorna \"\" — una sonda difettosa non deve né impedire un salvataggio né inventare un avviso"),
+    "xtrader_bridge/journal_view_gui.py": (2, "GUI Tk scheda Diario (#236): lettura ledger best-effort "
                             "(avviso invece di crash) e apertura cartella best-effort"),
-    "known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "
+    "xtrader_bridge/known_teams_gui.py": (2, "GUI Tk ripulitura nomi Betfair (#282 PR 11-bis): lettura e "
                            "eliminazione best-effort (avviso invece di crash; DictionaryBusy "
                            "gestita a parte per il fail-fast durante la sync)"),
-    "name_mapping_gui.py": (11, "GUI Tk mapping: render/azioni best-effort; "
+    "xtrader_bridge/name_mapping_gui.py": (11, "GUI Tk mapping: render/azioni best-effort; "
                             "precompila nomi Betfair best-effort (#282 PR 11: provider "
                             "che solleva → avviso, nessun crash); #182 PR B, 3 nuovi nella "
                             "colonna profili sempre visibile: `_profile_var.trace_add` "
@@ -238,21 +238,21 @@ _ALLOWLIST = {
                             "illeggibile = nessun badge 🧩 ma i profili si aprono comunque) e "
                             "`_highlight_profiles` (widget distrutto durante un refresh); #182 PR C, 1 nuovo: "
                             "il `trace_add` gemello nel pannello 🎯 Mercati, stessa ragione"),
-    "provider_gui.py": (5, "GUI Tk provider: render/azioni best-effort; #182 PR E, 2 nuovi: "
+    "xtrader_bridge/provider_gui.py": (5, "GUI Tk provider: render/azioni best-effort; #182 PR E, 2 nuovi: "
                         "`_provider_usage` (cartella parser illeggibile → nessun marcatore "
                         "«🧩 N parser», ma l'anagrafica resta gestibile) e l'elenco dei parser "
                         "colpiti nella conferma di rimozione (parser illeggibili → conferma "
                         "senza elenco invece di bloccare la rimozione)"),
-    "ui_widgets.py": (2, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
+    "xtrader_bridge/ui_widgets.py": (2, "#182: `rendi_attivabile` mette la riga-elenco nel giro del Tab; "
                       "`configure(takefocus=1)` è best-effort perché su un widget-spia dei "
                       "test o su un widget distrutto durante un refresh può sollevare, e non "
                       "poter rendere focusabile una riga non deve impedire di DISEGNARLA "
                       "(resta comunque cliccabile col mouse). PR C, 1 nuovo: `evidenzia_profilo` "
                       "ricolora le righe e un widget distrutto durante un refresh non deve far "
                       "saltare l'evidenziazione delle altre"),
-    "reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
-    "source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
-    "config_agent.py": (12, "assistente di configurazione (#41 PR-1): dispatch di un tool "
+    "xtrader_bridge/reconnect_policy.py": (1, "classificazione errore di reconnect tollerante"),
+    "xtrader_bridge/source_chats_gui.py": (2, "GUI Tk sorgenti: best-effort (refresh-options + modal transient/grab_set)"),
+    "xtrader_bridge/config_agent.py": (12, "assistente di configurazione (#41 PR-1): dispatch di un tool "
                            "sola-lettura best-effort (un handler che solleva NON deve crashare "
                            "l'agente → errore restituito come contenuto); logging dell'audit "
                            "best-effort (un logger che solleva non deve far fallire il dispatch); "
@@ -270,7 +270,7 @@ _ALLOWLIST = {
                            "l'assistente → si degrada alla sola redazione dei segreti. Accettabile "
                            "perché quella nel dispatcher è la SECONDA rete: la prima "
                            "(`_redact_config`, redazione strutturata del JSON) resta in piedi"),
-    "config_agent_controller.py": (7, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
+    "xtrader_bridge/config_agent_controller.py": (7, "controller assistente (#41 PR-3/PR-4): emit di un evento verso "
                                       "la view best-effort (un handler della GUI che solleva non deve "
                                       "rompere il controller); un turno che solleva nel worker non "
                                       "uccide il loop (errore restituito come turno); persistenza "
@@ -283,43 +283,43 @@ _ALLOWLIST = {
                                       "dell'assistente (default lingua IT, #41 PR-7 Blocco A); in "
                                       "redact_for_log un config_loader difettoso non impedisce di "
                                       "loggare la riga coi soli segreti registrati redatti (AC-M9 #114)"),
-    "config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
+    "xtrader_bridge/config_agent_gui.py": (3, "view assistente (#41 PR-3/PR-4): marshalling evento via after() su "
                                "root Tk distrutta/assente (teardown) best-effort; log della riga di "
                                "trascritto best-effort; nascondere il banner di conferma su widget "
                                "già distrutto (teardown) best-effort"),
-    "token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
+    "xtrader_bridge/token_store.py": (8, "soft-import/fallback keyring: qualsiasi errore = backend non disponibile "
                           "(bot token + API key Anthropic #41: save/load-status/delete per la chiave)"),
-    "tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),
-    "write_path.py": (3, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
+    "xtrader_bridge/tools_gui.py": (3, "GUI Tk finestra strumenti: apertura sotto-finestre best-effort"),
+    "xtrader_bridge/write_path.py": (3, "write-failure fail-safe: la scrittura CSV fallita non deve crashare → "
                          "rollback di coda/guardrail ed errore riportato, in commit_signal, "
                          "commit_signals (multi-riga #192) e nel riallineamento del disco stantio "
                          "(_realign_dirty_disk, D1 audit #114: la riscrittura di realign fallita è "
                          "riportata al chiamante, disco resta stantio col retry pendente)"),
-    "betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
+    "xtrader_bridge/betfair/dictionary_viewer_gui.py": (2, "GUI Tk viewer dizionario best-effort: lettura "
                                             "dizionario e stile Treeview (Fase 2) non devono "
                                             "crashare la finestra Strumenti"),
-    "licensing/ed25519.py": (1, "verifica firma Ed25519 (#140 PR 1) FAIL-CLOSED: qualunque input "
+    "xtrader_bridge/licensing/ed25519.py": (1, "verifica firma Ed25519 (#140 PR 1) FAIL-CLOSED: qualunque input "
                                 "malformato (punto non sulla curva, lunghezze errate, s fuori "
                                 "range) = firma NON valida → False, mai un'eccezione che aggiri il "
                                 "gate licenza"),
-    "licensing/hwid.py": (3, "impronta Hardware ID (#140 PR 1): le 3 sorgenti reali (MachineGuid "
+    "xtrader_bridge/licensing/hwid.py": (3, "impronta Hardware ID (#140 PR 1): le 3 sorgenti reali (MachineGuid "
                              "registro, seriale volume ctypes, MAC) sono best-effort e solo-Windows "
                              "→ sorgente assente/non leggibile = omessa, l'impronta resta stabile "
                              "sulle altre senza crashare"),
-    "licensing/license.py": (3, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
+    "xtrader_bridge/licensing/license.py": (3, "verifica licenza (#140 PR 1) FAIL-CLOSED: (1) token corrotto/"
                                 "incompleto = MALFORMED; (2) chiave pubblica hex malformata = "
                                 "INVALID_SIGNATURE → una licenza non verificabile non sblocca mai; "
                                 "(3) `_b64u_canonico` (B2, PR-C #194): una parte non decodificabile "
                                 "è per definizione non canonica → False, cioè MALFORMED. L'except "
                                 "è ampio di proposito perché il valore arriva da un token non "
                                 "fidato e QUALUNQUE errore deve valere «rifiuta», mai «accetta»"),
-    "licensing/revocation.py": (3, "lista di revoche (#140 revoca online) FAIL-CLOSED in "
+    "xtrader_bridge/licensing/revocation.py": (3, "lista di revoche (#140 revoca online) FAIL-CLOSED in "
                                    "verify_revocation_list: (1) envelope corrotto/non decodificabile, "
                                    "(2) chiave pubblica hex malformata, (3) payload non conforme "
                                    "(versione/tipi) → in tutti i casi la lista NON è fidata (ritorna "
                                    "None): una lista di revoche non verificabile non blocca né sblocca "
                                    "per errore, la policy è del bridge chiamante"),
-    "licensing/revocation_client.py": (1, "client bridge revoca online (#140 R3c) FAIL-CLOSED in "
+    "xtrader_bridge/licensing/revocation_client.py": (1, "client bridge revoca online (#140 R3c) FAIL-CLOSED in "
                                           "fetch_signed: qualunque errore di scarico dell'URL (rete, "
                                           "DNS, HTTP, timeout, TLS, decodifica, lista troppo grande) → "
                                           "None: mai una lista non verificata trattata come buona. "
@@ -329,10 +329,10 @@ _ALLOWLIST = {
                                           "`gate_allows`) — si ferma la propagazione delle revoche, "
                                           "non il bridge. Fail-closed resta il PARSING qui: un errore "
                                           "di rete/formato non produce mai una lista valida"),
-    "license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
+    "xtrader_bridge/license_store.py": (2, "persistenza licenza (#140 PR 2) FAIL-SAFE: (1) file corrotto/illeggibile "
                             "in load → (None, None) «nessuna licenza», mai crash; (2) rimozione "
                             "best-effort in clear. Coerente col fail-closed della verifica"),
-    "license_gui.py": (7, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
+    "xtrader_bridge/license_gui.py": (7, "schermata Licenza (#140 PR 2): (1) copia appunti best-effort, (2) lettura "
                           "campo in teardown/headless, (3) render Tk best-effort — non rompono la scheda; "
                           "(4) save all'ATTIVAZIONE FAIL-CHIUSA (persistenza fallita = attivazione non "
                           "riuscita, stato precedente intatto, CodeRabbit #144); (5) provider difettoso in "
@@ -342,12 +342,56 @@ _ALLOWLIST = {
                           "(7) `_revoca_nega` (incidente 2026-08-04): seam revoca difettoso → False, "
                           "cioè NESSUNA accusa di revoca non dimostrata. Un utente in regola mandato "
                           "dal fornitore per un bug nostro chiederebbe una licenza che ha già"),
+
+    # ---- license_manager/ (#263) --------------------------------------------------------
+    # Entrata nel gate con la #263. Fino ad allora il gate era verde su quest'area perché non
+    # la guardava: 57 handler ciechi mai fotografati, nel codice che FIRMA LE LICENZE. È la
+    # stessa posizione in cui erano Fable e Fugu prima della #247, con la stessa morale — un
+    # controllo che tace è indistinguibile da uno che approva.
+    "license_manager/gui.py": (39, "GUI Tk del License Manager, best-effort per contratto come "
+                                   "l'app: dialog/render/lettura widget su finestra distrutta o "
+                                   "headless, ri-arm di timer su root smontata, e worker che "
+                                   "«non devono morire in silenzio» (l'errore viene riportato, "
+                                   "non ingoiato). Nessuna firma, nessuna decisione di validità "
+                                   "qui dentro: solo presentazione e orchestrazione della UI"),
+    "license_manager/publisher.py": (7, "pubblicazione su GitHub: la RETE è inaffidabile per "
+                                        "definizione, quindi ogni chiamata degrada a un esito "
+                                        "STRUTTURATO invece di sollevare — incluso il caso "
+                                        "«rete caduta a metà verifica», dove si dichiara "
+                                        "esplicitamente ciò che si sa e non si finge un esito. "
+                                        "Più una pulizia best-effort che si limita a dirlo"),
+    "license_manager/publish_store.py": (5, "credential store del token di pubblicazione, stesso "
+                                            "pattern di `token_store` nel bridge: soft-import "
+                                            "della dipendenza opzionale, backend `fail`/non "
+                                            "configurato = non disponibile, lettura fallita "
+                                            "trattata come assente, rimozione di una voce "
+                                            "inesistente = niente da fare"),
+    "license_manager/log_safe.py": (3, "logger difensivo: il suo unico compito è non far cadere "
+                                       "il chiamante. Args incoerenti → si logga il grezzo, "
+                                       "traceback non formattabile → lo si dice invece di "
+                                       "perderlo. Un log che solleva romperebbe proprio il "
+                                       "percorso che stava cercando di documentare"),
+    "license_manager/core.py": (2, "scrittura ATOMICA del seed di firma: `except BaseException` "
+                                   "→ rimuove il temporaneo/parziale → **RILANCIA**. La cattura "
+                                   "è larga per coprire anche KeyboardInterrupt/SystemExit — un "
+                                   "Ctrl-C a metà scrittura non deve lasciare la chiave privata "
+                                   "in un `.tmp` orfano a permessi non garantiti — NON per "
+                                   "ingoiare l'errore, che infatti risale. Stesso identico "
+                                   "pattern di `atomic_io.atomic_write` (#262)"),
+    "license_manager/registry.py": (1, "scrittura atomica del registro licenze: come sopra — "
+                                       "cleanup del temporaneo su qualsiasi errore e RILANCIA, "
+                                       "così il registro precedente resta intatto e non si "
+                                       "accumulano `.tmp` orfani accanto"),
 }
 
 
 def _siti_attuali():
-    """Siti attuali, con la STESSA scansione del generatore del baseline."""
-    return _GEN.scansiona(_PKG)
+    """Siti attuali, con la STESSA scansione del generatore del baseline.
+
+    `scansiona_tutte` e non `scansiona(_PKG)` dalla #263: il gate copre **due** radici
+    (`xtrader_bridge/` e `license_manager/`), e le chiavi sono qualificate con la radice.
+    """
+    return _GEN.scansiona_tutte()
 
 
 def _siti_baseline():
