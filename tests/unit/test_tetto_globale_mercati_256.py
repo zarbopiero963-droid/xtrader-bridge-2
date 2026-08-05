@@ -133,6 +133,32 @@ def test_256_il_taglio_per_budget_non_dipende_dall_ORDINE_della_config():
     assert mms.ambiguous_phrase_warnings(diretto) == mms.ambiguous_phrase_warnings(inverso)
 
 
+def test_256_chiavi_profilo_NON_CONFRONTABILI_non_rompono_lo_START():
+    """Secondo rilievo GPT-5.5 sulla #261 — su una correzione della #261 stessa.
+
+    Il primo fix dell'ordine usava `sorted(_store(cfg).items())`, cioè ordinava sulle chiavi
+    **grezze**: con chiavi di tipi non confrontabili (`{"A": ..., 3: ...}`) `sorted` solleva
+    `TypeError`. Il chiamante — `app.py`, `_start` — itera questi avvisi **senza try/except**,
+    quindi un `config.json` manomesso avrebbe rotto il pulsante START: esattamente ciò che il
+    docstring della funzione promette non possa succedere («un avviso diagnostico non deve mai
+    impedire l'avvio»). La correzione che rendeva il taglio deterministico stava introducendo
+    un crash all'avvio.
+
+    La funzione si difende già da ogni altra forma malformata (righe non-lista, voci non-dict):
+    questa è la stessa difesa, sulla chiave.
+    """
+    voce = _voce("x")
+    casi = {
+        "chiavi miste str/int": {"A": [voce], 3: [voce]},
+        "chiave None": {None: [voce], "B": [voce]},
+        "chiave tupla": {("a",): [voce], "B": [voce]},
+        "chiavi solo int": {2: [voce], 1: [voce]},
+    }
+    for nome, mm in casi.items():
+        avvisi = mms.ambiguous_phrase_warnings({"market_mappings": mm})   # non deve sollevare
+        assert isinstance(avvisi, list), nome
+
+
 def test_256_un_profilo_SALTATO_non_consuma_il_budget_globale():
     """Rilievo Fable 5 sulla #261, ed è un difetto logico, non di stile.
 
@@ -141,8 +167,8 @@ def test_256_un_profilo_SALTATO_non_consuma_il_budget_globale():
     profili successivi **sani** con un «budget esaurito» che non era vero. Il budget deve
     contare le voci **davvero esaminate**, altrimenti mente sul motivo per cui si è fermato.
 
-    Qui: un profilo da 400 voci (oltre il tetto per-profilo di 300, quindi saltato) seguito da
-    uno da 600 con conflitti veri. 400 + 600 = 1000 > 900, quindi col difetto il secondo veniva
+    Qui: «Grosso» da 700 voci (oltre il tetto per-profilo di 300, quindi mai esaminato) seguito
+    da «Sano» da 280 con conflitti veri. 700 + 280 = 980 > 900, quindi col difetto «Sano» veniva
     saltato per budget — pur essendo il solo dei due che il controllo poteva davvero guardare.
     """
     # «Grosso» oltre il tetto PER PROFILO (quindi mai esaminato); «Sano» sotto entrambi i
@@ -162,5 +188,10 @@ def test_256_un_profilo_SALTATO_non_consuma_il_budget_globale():
     assert "«Grosso»" in testo and "oltre il tetto" in testo, testo
     # ...ma «Sano» dev'essere stato CONTROLLATO: i suoi conflitti ci sono
     assert any("«Sano»" in a and "combacia" in a for a in avvisi), testo
-    # e nessuno lo accusa di essere fuori budget
-    assert "«Sano»" not in testo.split("budget complessivo")[-1] if "budget complessivo" in testo else True
+    # ...e nessun avviso di budget lo accusa di essere fuori budget.
+    # Scritto come filtro esplicito e non come `assert X if cond else True` (rilievo Fable 5):
+    # quella forma vale `assert True` quando la riga di budget manca, cioè non verifica nulla
+    # proprio nel caso corretto — un assert che si spegne da solo è peggio di nessun assert,
+    # perché si legge come una garanzia.
+    righe_budget = [a for a in avvisi if "budget complessivo" in a]
+    assert not any("«Sano»" in a for a in righe_budget), righe_budget

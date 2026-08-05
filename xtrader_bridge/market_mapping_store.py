@@ -260,7 +260,21 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     # vengono controllati, quindi l'ordine di iterazione diventa parte del risultato: su una
     # config rigenerata o mergiata con ordine diverso, gli stessi identici dati darebbero avvisi
     # diversi. Ordinare per nome rende il taglio riproducibile e spiegabile.
-    for profile, righe in sorted(_store(cfg).items()):
+    #
+    # La chiave è `_norm_profile_name`, non la chiave grezza (secondo rilievo GPT-5.5 sulla
+    # #261, sul primo fix): `sorted()` sulle chiavi grezze SOLLEVA `TypeError` se la config ne
+    # contiene di tipi non confrontabili (`{"A": ..., 3: ...}` → «'<' not supported between
+    # instances of 'int' and 'str'»), e il chiamante in `app.py` itera questi avvisi allo START
+    # **senza try/except**: un dizionario manomesso avrebbe rotto il pulsante START. Sarebbe
+    # stata una regressione della promessa scritta due paragrafi sopra — «un avviso diagnostico
+    # non deve mai impedire l'avvio» — introdotta dalla correzione stessa.
+    # `_norm_profile_name` è totale (`str(name or "").strip()`) ed è già il nome mostrato in
+    # ogni messaggio, quindi l'ordine del taglio coincide con l'ordine che l'utente legge.
+    # Chiave secondaria `repr`: due chiavi grezze diverse possono normalizzare uguali
+    # (`"Prof"` e `" Prof "`, config legacy — P3-22 #76) e pareggerebbero, ricadendo
+    # sull'ordine di inserimento, cioè proprio la non-determinismo che questo fix toglie.
+    for profile, righe in sorted(_store(cfg).items(),
+                                 key=lambda kv: (_norm_profile_name(kv[0]), repr(kv[0]))):
         if not isinstance(righe, (list, tuple)):
             continue
         voci = [e for e in righe if isinstance(e, dict)]
