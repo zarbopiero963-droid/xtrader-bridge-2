@@ -115,20 +115,43 @@ def _nomi_di_isfinite(albero):
         import math as m                     → m.isfinite(v)         (attributo, alias modulo)
         from math import isfinite            → isfinite(v)           (nome)
         from math import isfinite as _isf    → _isf(v)               (nome, alias funzione)
+        from math import *                   → isfinite(v)           (nome, da star-import)
 
-    Ritorna `(alias_del_modulo, nomi_diretti)`. Rilievo CodeRabbit sulla PR #279: la
-    prima stesura accettava **solo** la forma ad attributo, quindi un modulo scritto
-    con `from math import isfinite` sarebbe passato inosservato — e il docstring della
-    guardia promette il contrario. Una guardia che dichiara più di quanto controlla è
-    esattamente il difetto che questa PR corregge, ripetuto nella sua stessa guardia.
+    Ritorna `(alias_del_modulo, nomi_diretti)`.
+
+    Rilievo CodeRabbit sulla PR #279: la prima stesura accettava **solo** la forma ad
+    attributo, quindi un modulo scritto con `from math import isfinite` sarebbe passato
+    inosservato — e il docstring della guardia promette il contrario. Una guardia che
+    dichiara più di quanto controlla è esattamente il difetto che questa PR corregge,
+    ripetuto nella sua stessa guardia.
+
+    Lo **star-import** è il rilievo di GPT-5.5 sullo stesso giro, e chiude un buco vero:
+    misurato che `F403` **non** è nel `select` di default di ruff, quindi
+    `from math import *` non viene fermato nemmeno dal linter del repository. Restava
+    l'unica forma capace di far entrare il difetto in silenzio.
+
+    Lo **shadowing** va nel verso opposto e va tolto, non aggiunto: se il modulo ridefinisce
+    in casa un `isfinite`, le sue chiamate non sono più quelle di `math` e segnalarle
+    sarebbe un falso positivo. Un falso positivo si annuncia da solo — qualcuno vede il
+    rosso e guarda — mentre un falso negativo tace; ma una guardia rumorosa si impara a
+    ignorare, ed è il modo in cui smette di servire.
     """
-    moduli, diretti = set(), set()
+    moduli, diretti, propri = set(), set(), set()
     for n in ast.walk(albero):
         if isinstance(n, ast.Import):
             moduli |= {a.asname or a.name for a in n.names if a.name == "math"}
         elif isinstance(n, ast.ImportFrom) and n.module == "math":
-            diretti |= {a.asname or a.name for a in n.names if a.name == "isfinite"}
-    return moduli, diretti
+            for a in n.names:
+                if a.name == "isfinite":
+                    diretti.add(a.asname or a.name)
+                elif a.name == "*":
+                    diretti.add("isfinite")
+    for n in albero.body:                      # solo il livello di modulo: qui avviene lo shadow
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            propri.add(n.name)
+        elif isinstance(n, ast.Assign):
+            propri |= {t.id for t in n.targets if isinstance(t, ast.Name)}
+    return moduli, diretti - propri
 
 
 def _siti_isfinite_su_int():
@@ -236,6 +259,7 @@ FORME_ISFINITE = (
     ("modulo_alias", "import math as m", "m.isfinite(v)"),
     ("nome", "from math import isfinite", "isfinite(v)"),
     ("nome_alias", "from math import isfinite as _isf", "_isf(v)"),
+    ("star", "from math import *", "isfinite(v)"),
 )
 
 
@@ -289,6 +313,30 @@ def test_278_un_isfinite_che_NON_viene_da_math_non_e_un_falso_positivo(tmp_path,
         "def coercizione(v, decimale):\n"
         "    if isinstance(v, (int, float)):\n"
         "        return isfinite(v) and decimale.isfinite() and v != 0\n"
+        "    return False\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert _siti_isfinite_su_int() == []
+
+
+def test_278_un_isfinite_RIDEFINITO_in_casa_non_e_un_falso_positivo(tmp_path, monkeypatch):
+    """Rilievo GPT-5.5 sulla PR #279: il caso più insidioso dei due omonimi — il modulo
+    **importa** `math.isfinite` e poi lo **ridefinisce**. Da quel punto in poi il nome
+    non è più quello di `math`, e segnalare le sue chiamate sarebbe un falso positivo.
+
+    Conta perché una guardia rumorosa si impara a ignorare, ed è così che smette di
+    servire — lo stesso motivo per cui il semaforo Dizionari della #258 non accende il
+    giallo sui profili orfani.
+    """
+    finto = tmp_path / "xtrader_bridge"
+    finto.mkdir()
+    (finto / "shadow.py").write_text(
+        "from math import isfinite\n\n\n"
+        "def isfinite(x):\n"                   # ridefinito: da qui in poi non è più math
+        "    return x is not None\n\n\n"
+        "def coercizione(v):\n"
+        "    if isinstance(v, (int, float)):\n"
+        "        return isfinite(v) and v != 0\n"
         "    return False\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
