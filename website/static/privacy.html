@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — BetRelay</title>
+<meta name="description" content="Quali dati raccoglie il sito BetRelay, dove vanno, per quanto restano e come esercitare i tuoi diritti.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/" data-i18n="nav.home">Home</a>
+    <a href="/demo" data-i18n="nav.demo">Demo interattiva</a>
+    <a href="/documentazione" data-i18n="nav.docs">Documentazione</a>
+    <a href="/faq" data-i18n="nav.faq">FAQ</a>
+    <a href="/contatti" data-i18n="nav.contact">Contatti</a>
+  </div>
+  <div class="lang-sw" role="group" aria-label="Lingua / Language / Idioma">
+    <button data-lang="it" aria-pressed="false">IT</button>
+    <button data-lang="en" aria-pressed="false">EN</button>
+    <button data-lang="es" aria-pressed="false">ES</button>
+  </div>
+</div></nav>
+
+<main class="wrap">
+  <h1 data-i18n="privacy.h1">Privacy</h1>
+  <p class="lead" data-i18n="privacy.lead">Questo sito raccoglie pochissimo, e quel poco è spiegato qui in modo che si capisca senza essere avvocati. Niente cookie di tracciamento, niente analytics, nessun database: le uniche cose che si muovono sono i messaggi che scrivi tu.</p>
+
+  <div class="card">
+    <h2 data-i18n="privacy.owner.h">Chi tratta i dati</h2>
+    <p data-i18n="privacy.owner.p">Titolare del trattamento: <b>BetRelay</b>. Per qualsiasi richiesta sui tuoi dati — sapere cosa c'è, farlo correggere o cancellare, opporti al trattamento — scrivi all'indirizzo che trovi nella pagina <a href="/contatti">Contatti</a>. Rispondiamo alla stessa casella da cui arriva la richiesta.</p>
+  </div>
+
+  <h2 data-i18n="privacy.what.h">Cosa raccogliamo, davvero</h2>
+
+  <div class="card">
+    <h3 data-i18n="privacy.chat.h">💬 Il chatbot di supporto</h3>
+    <p data-i18n="privacy.chat.p">Quando scrivi nella chat di supporto, il tuo messaggio e gli ultimi turni della conversazione vengono inviati ad <b>Anthropic</b> (il fornitore del modello AI) per generare la risposta. Non chiediamo mai nome, email o dati personali: se li scrivi tu nel messaggio, viaggiano con lui. <b>Non scrivere in chat token, password o dati di pagamento</b> — non servono, e la chat non è il posto giusto.</p>
+    <p data-i18n="privacy.chat.p2">Le conversazioni <b>non vengono salvate sul nostro server</b>: non c'è database, e la cronologia che vedi vive solo nella scheda del tuo browser finché non la chiudi. Se il servizio AI non è attivo, il chatbot risponde con risposte predefinite e <b>nulla esce dal server</b>.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.contact.h">✉️ Il modulo contatti</h3>
+    <p data-i18n="privacy.contact.p">Il modulo <b>non invia niente a questo sito</b>: prepara un messaggio e apre il tuo programma di posta, da cui sei tu a spedire. La tua email arriva quindi direttamente nella casella del supporto, come una mail qualsiasi, e resta lì il tempo necessario a risponderti e a tenere traccia della conversazione. Nessuna copia passa da qui.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.ip.h">🌐 Indirizzo IP e limite anti-abuso</h3>
+    <p data-i18n="privacy.ip.p">Per evitare che qualcuno inondi la chat di richieste, il server conta quanti messaggi arrivano da ciascun indirizzo IP in un'ora. Questo conteggio sta <b>solo nella memoria del processo</b>: non finisce su disco, si cancella da solo dopo un'ora e sparisce del tutto a ogni riavvio del sito. Non lo usiamo per profilare nessuno.</p>
+    <p data-i18n="privacy.ip.p2">Come ogni sito, il fornitore che ospita queste pagine (<b>Railway</b>) registra i dati tecnici di connessione nei propri log del server, per sicurezza e diagnostica.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.cookie.h">🍪 Cookie</h3>
+    <p data-i18n="privacy.cookie.p">Nessun cookie di profilazione, nessun analytics, nessun pulsante social che ti segue. L'unica cosa che il sito memorizza nel browser è la <b>lingua che hai scelto</b> (in <code>localStorage</code>), così non devi rimetterla ogni volta. La cancelli svuotando i dati del sito dal tuo browser.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.bridge.h">🖥️ Il programma BetRelay è un'altra cosa</h3>
+    <p data-i18n="privacy.bridge.p">Questa pagina parla del <b>sito</b>. Il programma che scarichi e installi gira sul tuo computer e <b>non manda niente a noi</b>: il token Telegram sta nel keyring di Windows, i segnali diventano un file CSV sul tuo disco, e non esiste alcun server nostro che li riceva. Non sappiamo se lo usi, quando, né con quali canali.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.detail.h">📌 Perché, per quanto tempo, e dove vanno</h3>
+    <p data-i18n="privacy.detail.why"><b>Perché.</b> I messaggi della chat servono solo a generare la risposta che leggi. Il conteggio per IP serve solo a impedire che qualcuno inondi la chat. La lingua nel browser serve solo a non chiedertela ogni volta. Non c'è nessun'altra finalità: niente profilazione, niente pubblicità, niente rivendita a terzi.</p>
+    <p data-i18n="privacy.detail.keep"><b>Per quanto tempo.</b> Le conversazioni: <b>non conservate</b> da noi, in nessun momento. Il conteggio per IP: <b>un'ora</b>, e comunque perso a ogni riavvio del sito. Le email che ci scrivi: restano nella casella di posta finché servono a gestire la richiesta. La lingua nel browser: finché non svuoti i dati del sito.</p>
+    <p data-i18n="privacy.detail.transfer"><b>Dove vanno.</b> Anthropic, il fornitore del modello AI, è una società <b>statunitense</b>: i messaggi che scrivi nella chat vengono quindi trasferiti <b>fuori dallo Spazio Economico Europeo</b>. È un motivo in più per non scriverci dentro dati personali o riservati — e per usare la pagina Contatti quando la domanda riguarda qualcosa di tuo.</p>
+  </div>
+
+  <h2 data-i18n="privacy.rights.h">I tuoi diritti</h2>
+  <div class="card">
+    <p data-i18n="privacy.rights.p">Puoi chiedere quali dati ti riguardano, farli correggere o cancellare, e opporti al trattamento. Scrivi dalla pagina <a href="/contatti">Contatti</a>: essendo la posta l'unico canale in cui restano tue informazioni, la richiesta si esaurisce quasi sempre con la cancellazione di quella corrispondenza. Se ritieni che i tuoi dati siano trattati in modo scorretto puoi rivolgerti al Garante per la protezione dei dati personali.</p>
+  </div>
+
+  <div class="card">
+    <h3 data-i18n="privacy.changes.h">Aggiornamenti</h3>
+    <p data-i18n="privacy.changes.p">Se il sito cambierà — per esempio se il modulo contatti passasse a un invio dal server — questa pagina verrà aggiornata prima che il cambiamento sia attivo. Ultima revisione: <b>agosto 2026</b>.</p>
+  </div>
+</main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span><a href="/contatti" data-i18n="footer.contact">Contatti e supporto</a></span>
+  <span><a href="/privacy" data-i18n="footer.privacy">Privacy</a></span>
+  <span><a href="/gioco-responsabile" data-i18n="footer.responsible">Gioco responsabile · 18+</a></span>
+  <span data-i18n="footer.age">18+ · Gioca responsabilmente.</span>
+  <span data-i18n="footer.independent">Progetto indipendente: BetRelay non è affiliato, associato, autorizzato né sponsorizzato da TradingSportivo (XTrader) né da Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader, Betting Toolkit, Betfair, Telegram e i relativi marchi appartengono ai rispettivi proprietari e sono citati solo a scopo descrittivo, per indicare la compatibilità.</span>
+</div></footer>
+
+<script src="/static/i18n.js" defer></script>
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

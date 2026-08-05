@@ -11,7 +11,38 @@ Questo documento è la vista **operativa**: cosa resta da fare, perché, e chi l
 
 ## 🔴 Prima di pubblicare — non opzionali
 
-### S1. Pagina privacy 👤 (bozza dell'agente, contenuti da validare)
+### S1. Pagina privacy ✅ scritta · ⚠️ un dato da completare
+La pagina è online su `/privacy`, trilingue, linkata dal footer di ogni pagina. Descrive i
+quattro flussi reali verificati nel codice: i messaggi del chatbot inoltrati ad **Anthropic**,
+il form contatti che **non invia nulla al sito** (apre il client dell'utente), l'**IP** tenuto
+in memoria per il rate limit e cancellato dopo un'ora, e la lingua in `localStorage`. Dice
+anche, esplicitamente, che il **programma** non manda niente a noi.
+
+La pagina dichiara anche **finalità**, **tempi di conservazione** (chat: mai conservate; IP:
+un'ora; email: finché serve alla richiesta) e il **trasferimento fuori dallo Spazio Economico
+Europeo**, perché Anthropic è una società statunitense — un fatto che l'utente ha diritto di
+sapere *prima* di scrivere nella chat.
+
+La frase «le conversazioni non vengono salvate» **non è più solo una promessa scritta**:
+[`test_website_chat_non_conserva.py`](../tests/unit/test_website_chat_non_conserva.py) la
+verifica sul codice. Blocca un `logging`/`print` del messaggio, una globale che lo accumuli, un
+errore che lo rimandi indietro, e — lato browser — `chat.js` che salvi la cronologia in
+`localStorage`. Rilievo GPT-5.5 sulla #284: un claim privacy senza un test è vero solo finché
+nessuno tocca il file. Resta fuori dal test ciò che non dipende da noi e che la pagina dichiara
+per quello che è: i log di connessione di Railway e la ritenzione lato Anthropic.
+
+⚠️ **Da chiudere col professionista**, due cose in una sola consulenza:
+
+1. la **base giuridica** di ciascun trattamento (art. 13 GDPR). Le finalità sono descritte, ma
+   qualificarle giuridicamente — legittimo interesse, consenso, esecuzione di un contratto — è
+   una valutazione legale, non una scrittura tecnica: non l'ho inventata;
+2. il **titolare del trattamento**, indicato come «**BetRelay**» per scelta del proprietario,
+   che non vuole nome e cognome su una pagina pubblica. Il GDPR però vuole un soggetto identificabile — persona fisica o giuridica — perché
+altrimenti non si sa a chi rivolgere una richiesta. È la **stessa consulenza** che serve per il
+punto S2: una domanda sola, non due. La soluzione probabile è indicare la ditta/P.IVA quando
+esisterà, così il nome personale non compare comunque.
+
+<details><summary>Testo originale del punto (prima che fosse scritta)</summary>
 Il **chatbot invia i messaggi degli utenti all'API di Anthropic** e il **form contatti raccoglie
 email**. Oggi il sito non lo dichiara da nessuna parte.
 
@@ -24,9 +55,17 @@ Nota tecnica utile per il testo: il rate limit tiene gli IP **in memoria di proc
 in `website/main.py`), quindi si azzerano al riavvio; non c'è database, non c'è profilazione,
 non ci sono cookie di tracciamento (solo `localStorage` per la lingua scelta).
 
-### S2. Gioco responsabile / 18+ 👤 — e una verifica legale
-Il sito parla di software di scommesse e **non ha una riga in merito**. Va aggiunto un richiamo
-18+ e al gioco responsabile, con i riferimenti giusti per il paese.
+</details>
+
+### S2. Gioco responsabile / 18+ ✅ fatto · ⚠️ resta la verifica legale
+Pagina dedicata `/gioco-responsabile` (trilingue) **più** il richiamo `18+ · Gioca
+responsabilmente` nel footer di **ogni** pagina, demo comprese. La pagina dice cosa BetRelay
+non fa (non piazza scommesse, non dà pronostici, **non fa vincere**), che l'automazione non
+riduce il rischio ma lo **accelera**, i segnali di allarme della dipendenza, e i recapiti di
+aiuto reali: Telefono Verde ISS **800 558822**, Ser.D., Giocatori Anonimi, GamCare e la linea
+spagnola. Un test verifica che quei recapiti restino identici in tutte e tre le lingue.
+
+⚠️ **La verifica legale resta aperta** — vedi sotto.
 
 ⚠️ **Da verificare con un professionista prima di pubblicare su dominio italiano**: il
 cosiddetto *decreto Dignità* vieta la pubblicità di giochi con vincite in denaro. BetRelay è uno
@@ -48,8 +87,17 @@ Resta da fare, quando il sito sarà pubblico: `/api/contact` con invio dal backe
 l'indirizzo non passa più dal client dell'utente — e un anti-abuso, visto che sarebbe un
 endpoint pubblico.
 
-### S4. Deploy su Railway 👤 (setup) + agente (verifica)
-Il sito **non è mai stato visto online**: tutto ciò che è stato verificato gira in locale.
+### S4. Deploy su Railway ✅ ONLINE
+Il sito è pubblicato su **https://betrelay.net** e collaudato dal vivo: `check_site.py` contro
+il dominio reale ha dato **65 controlli, 65 PASS**. `http://` reindirizza a `https://`.
+Configurazione applicata: Root Directory `website`, Builder `Dockerfile`, Watch Paths
+`/website/**` (così un push che non tocca il sito non ricostruisce nulla).
+
+Resta da fare: `www.betrelay.net` **non risponde** — va aggiunto come dominio separato in
+Railway se lo si vuole; e la `ANTHROPIC_API_KEY` fra le Variables per far uscire il chatbot
+dalla modalità demo.
+
+<details><summary>Requisiti originali del deploy (per riferimento)</summary>
 Servono: account Railway, **Root Directory = `website`** (obbligatorio: il Dockerfile sta lì e le
 sue `COPY` sono relative a quella cartella), `ANTHROPIC_API_KEY` fra le Variables, dominio
 generato.
@@ -65,10 +113,10 @@ apre il sito con un browser vero e prova pagine, demo, chatbot, favicon e footer
 Quello che **non** posso fare è entrare nel pannello Railway: setup, Variables e collegamento
 del dominio restano azioni del proprietario, e la `ANTHROPIC_API_KEY` non deve passarmi mai
 davanti.
+</details>
 
-### S5. Dominio 👤 — acquistato su Railway
-Il proprietario ha comprato il dominio direttamente da Railway. Resta da collegarlo al
-servizio e da attendere la propagazione DNS; poi va passato all'agente l'URL per il collaudo.
+### S5. Dominio ✅ collegato
+`betrelay.net` è attivo e serve il sito.
 
 ---
 
@@ -123,12 +171,12 @@ Telegram appare oggi senza anteprima. Mancano anche `robots.txt`, `sitemap.xml` 
 Verificato solo in modalità demo. Da provare: risposte reali sulla knowledge base, rifiuto del
 fuori-tema, rate limit, comportamento in tre lingue.
 
-### S13. Test end-to-end del sito ✅ fatto
+### S13. Test end-to-end del sito ✅ fatto — e usato in produzione
 [`tools/e2e/check_site.py`](../tools/e2e/check_site.py) ([README](../tools/e2e/README.md))
 guida Chromium contro un URL qualsiasi —
 locale o Railway — e verifica rotte, footer nelle tre lingue, errori JavaScript, asset, PDF,
 404, selettore lingua, i flussi completi delle due demo e il chatbot. **57 controlli, exit code
-0/1.** Verificato in locale: 57 PASS.
+0/1.** Verificato in locale e **sul dominio reale**: 65 PASS su 65.
 
 Sul dominio Railway va lanciato con `--base-url https://<dominio>`. Nell'ambiente agente il
 browser richiede tre accorgimenti di rete documentati nel README (proxy come flag, CA nel trust
