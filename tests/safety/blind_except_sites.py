@@ -84,6 +84,47 @@ SITI = {
     'license_manager/registry.py': (
         ('remove_record', 'cleanup del temporaneo su qualsiasi errore, anche keyboardinterrupt/systemexit, e poi rilancia: il registro vecchio resta intatto, mai un .tmp orfano accanto'),
     ),
+    'tests/conftest.py': (
+        ('_verifica_nessuno_shadowing_di_tests._dove_risolve_tests', 'diagnostica: non deve mai mascherare'),
+    ),
+    'tests/integration/test_app_runtime_glue.py': (
+        ('_avvia_e_raccogli', "`_start` muore piu' avanti (nessun listener reale)"),
+    ),
+    'tests/integration/test_reconnect_110.py': (
+        ('_start_fino_al_bump', "`_start` muore piu' avanti (nessun telegram reale)"),
+        ('_transient_exc', 'firma costruttore diversa → senza messaggio'),
+    ),
+    'tests/integration/test_resilience_109.py': (
+        ('test_expire_tick_vs_process_concorrenti_non_corrompono_csv._expirer', 'registra per assert, non nascondere'),
+        ('test_expire_tick_vs_process_concorrenti_non_corrompono_csv._producer', 'registra per assert, non nascondere'),
+    ),
+    'tests/safety/test_csv_atomic.py': (
+        ('test_clear_e_write_concorrenti_non_corrompono.clearer_t', "raccolto per l'assert"),
+        ('test_clear_e_write_concorrenti_non_corrompono.writer_t', "raccolto per l'assert"),
+        ('test_concorrenza_write_clear_non_corrompe.clear_loop', "raccolto per l'assert"),
+        ('test_concorrenza_write_clear_non_corrompe.writer_loop', "raccolto per l'assert"),
+        ('test_stress_write_clear_500_iterazioni_non_corrompe.clear_loop', "raccolto per l'assert"),
+        ('test_stress_write_clear_500_iterazioni_non_corrompe.writer_loop', "raccolto per l'assert"),
+    ),
+    'tests/safety/test_redazione_seed_205.py': (
+        ('_funzione_del_workflow', 'supporto opzionale, non deve rompere'),
+    ),
+    'tests/unit/test_betfair_local_db.py': (
+        ('test_scrittura_concorrente_aspetta_il_lock_e_non_fallisce._writer', "raccolto per l'assert"),
+    ),
+    'tests/unit/test_chatid_dispatcher_137.py': (
+        ('test_anche_gli_altri_builder_hanno_il_default_sola_lettura', 'qui interessa solo come legge la config'),
+    ),
+    'tests/unit/test_parser_file_avvelenato_b9.py': (
+        ('test_fuzz_strutturale_nessuna_classe_inattesa', 'è ciò che si sta misurando'),
+        ('test_il_veleno_e_davvero_veleno', 'è esattamente ciò che si misura'),
+    ),
+    'tests/unit/test_reconnect_policy.py': (
+        ('test_real_transient_types_non_solleva_ed_e_cache', "sonda d'ambiente: `telegram.error` non importabile e' uno dei due casi attesi, non un errore del test — decide quale asserzione applicare"),
+    ),
+    'tests/unit/test_store_temps_warn_dedup_76.py': (
+        ('test_warn_concorrente_sotto_lock._spara', "registra per l'assert `errori == []`: un thread che muore in silenzio farebbe passare il test senza aver misurato la contesa"),
+    ),
     'xtrader_bridge/app.py': (
         ('App._apply_license_lock', 'best-effort'),
         ('App._apply_license_lock', 'best-effort'),

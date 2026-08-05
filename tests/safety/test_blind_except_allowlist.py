@@ -381,6 +381,52 @@ _ALLOWLIST = {
                                        "cleanup del temporaneo su qualsiasi errore e RILANCIA, "
                                        "così il registro precedente resta intatto e non si "
                                        "accumulano `.tmp` orfani accanto"),
+
+    # ---- tests/ -------------------------------------------------------------------------
+    # Ultima radice a entrare, e con un'ipotesi SMENTITA alle spalle. La #263 sospettava che i
+    # worker di stress ingoiassero le eccezioni, mascherando proprio la corruzione che i test
+    # cercano. Falso: TUTTI raccolgono in una lista su cui il test poi asserisce. Verificato
+    # per sabotaggio, non per lettura — facendo sollevare `write_csv` nel 30% delle chiamate,
+    # `test_concorrenza_write_clear_non_corrompe` diventa rosso ed elenca ogni eccezione.
+    # La radice entra per il caso FUTURO: un `except Exception: pass` che ingoia davvero.
+    "tests/conftest.py": (1, "diagnostica di import-shadowing all'avvio della suite: dice DOVE "
+                             "risolve il nome `tests`, e non deve mai mascherare il problema "
+                             "che sta diagnosticando"),
+    "tests/integration/test_app_runtime_glue.py": (1, "`_start` muore più avanti (nessun "
+                                                     "listener reale nel doppio): l'eccezione "
+                                                     "attesa non deve fermare la raccolta di "
+                                                     "ciò che il test sta misurando"),
+    "tests/integration/test_reconnect_110.py": (2, "costruttori di eccezioni telegram con firme "
+                                                  "diverse fra versioni (si ripiega su quella "
+                                                  "senza messaggio), e `_start` che muore più "
+                                                  "avanti per assenza di un Telegram reale"),
+    "tests/integration/test_resilience_109.py": (2, "worker `_producer`/`_expirer` in contesa: "
+                                                   "registrano nella lista `errors` su cui il "
+                                                   "test asserisce (`assert errors == []`). Un "
+                                                   "thread che morisse in silenzio farebbe "
+                                                   "passare il test senza misurare la contesa"),
+    "tests/safety/test_csv_atomic.py": (6, "worker di stress write/clear concorrenti: ogni "
+                                           "handler RACCOGLIE in `errors`, e il test asserisce "
+                                           "`not errors`. Non ingoiano — dimostrato per "
+                                           "sabotaggio (write_csv che solleva nel 30% dei casi "
+                                           "→ test rosso con l'elenco delle eccezioni)"),
+    "tests/safety/test_redazione_seed_205.py": (1, "supporto opzionale del workflow assente: "
+                                                  "non deve rompere il test della redazione"),
+    "tests/unit/test_betfair_local_db.py": (1, "worker di scrittura concorrente: raccolto per "
+                                               "l'assert, stesso pattern di test_csv_atomic"),
+    "tests/unit/test_chatid_dispatcher_137.py": (1, "al test interessa solo COME il builder "
+                                                   "legge la config, non che costruisca"),
+    "tests/unit/test_parser_file_avvelenato_b9.py": (2, "fuzz sul parser: la classe "
+                                                       "dell'eccezione **è ciò che si sta "
+                                                       "misurando**, quindi va catturata larga "
+                                                       "per poterla poi classificare"),
+    "tests/unit/test_reconnect_policy.py": (1, "sonda d'ambiente: `telegram.error` non "
+                                               "importabile è UNO DEI DUE CASI ATTESI (dipende "
+                                               "dalla user-site, quindi da HOME), non un errore "
+                                               "del test — decide quale asserzione applicare"),
+    "tests/unit/test_store_temps_warn_dedup_76.py": (1, "worker `_spara` in contesa sul lock dei "
+                                                       "warning: raccolto per l'assert "
+                                                       "`errori == []`"),
 }
 
 

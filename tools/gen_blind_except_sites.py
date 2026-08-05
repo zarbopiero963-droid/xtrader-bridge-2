@@ -18,12 +18,17 @@ _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # posizione in cui erano Fable e Fugu prima della #247, con la stessa morale: un controllo che
 # tace è indistinguibile da uno che approva.
 #
-# `tests/` resta FUORI deliberatamente (#263): i suoi handler ciechi senza motivo sono tutti
-# worker thread di stress concorrenti (`writer_loop`, `clear_loop`, `_expirer`). Meritano un
-# esame a sé — un except cieco in un worker di stress può mascherare proprio la corruzione che
-# il test cerca — ma è una caccia al bug, non un lavoro di documentazione, e infilarla qui
-# significherebbe nasconderla dentro un cambiamento di copertura.
-RADICI = ("xtrader_bridge", "license_manager")
+# `tests/` è entrato con l'esame che la #263 aveva rimandato, e l'esito è che il sospetto era
+# INFONDATO: i suoi 19 handler ciechi non mascherano nulla. Tutti raccolgono l'eccezione in una
+# lista su cui il test poi asserisce (`assert errors == []`), oppure sono sonde d'ambiente
+# deliberate. Verificato per sabotaggio, non per lettura: facendo sollevare `write_csv` nel 30%
+# delle chiamate, `test_concorrenza_write_clear_non_corrompe` diventa ROSSO ed elenca ogni
+# singola eccezione raccolta.
+#
+# La radice entra lo stesso, per il caso FUTURO: un `except Exception: pass` in un worker —
+# che ingoia senza raccogliere — oggi non lo vedrebbe nessuno. È l'ultima radice del repository
+# a essere scoperta, quindi da qui il gate copre tutto ciò che contiene codice Python.
+RADICI = ("xtrader_bridge", "license_manager", "tests")
 
 # NIENTE costante `PKG` che punti a una sola radice (riserva Fable 5 sulla #263). Ce n'era una,
 # tenuta «per retrocompatibilità», e con essa un commento che diceva «il test la usa» — falso già

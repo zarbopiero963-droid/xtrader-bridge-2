@@ -150,7 +150,7 @@ def test_expire_tick_vs_process_concorrenti_non_corrompono_csv(make_app, app_mod
         try:
             for _ in range(300):
                 app_mod.App._expire_tick(a, path)
-        except Exception as ex:   # noqa: BLE001
+        except Exception as ex:   # noqa: BLE001 — registra per assert, non nascondere
             errors.append(("expire", repr(ex)))
 
     t1, t2 = threading.Thread(target=_producer), threading.Thread(target=_expirer)

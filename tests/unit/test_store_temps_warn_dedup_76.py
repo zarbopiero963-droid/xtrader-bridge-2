@@ -74,7 +74,7 @@ def test_warn_concorrente_sotto_lock(caplog):
         try:
             for _ in range(50):
                 name_mapping_store._warn_malformed("sport", "concorrente")
-        except Exception as exc:                         # pragma: no cover
+        except Exception as exc:                         # pragma: no cover  # noqa: BLE001 — registra per l'assert `errori == []`: un thread che muore in silenzio farebbe passare il test senza aver misurato la contesa
             errori.append(exc)
 
     with caplog.at_level("WARNING"):
