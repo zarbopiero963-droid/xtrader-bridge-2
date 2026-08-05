@@ -19,9 +19,10 @@ parte resta interamente testabile headless e a rischio zero per il CSV.
 
 import hashlib
 import logging
-import math
 import re
 import threading
+
+from . import validators
 
 _LOG = logging.getLogger(__name__)
 
@@ -58,12 +59,11 @@ def as_enabled_bool(value) -> bool:
     True per chiave ASSENTE resta al chiamante (`raw.get("enabled", True)`)."""
     if isinstance(value, bool):
         return value
-    if isinstance(value, int):
-        # Un int non può essere NaN/inf: basta `!= 0` (niente conversione a float,
-        # che su int fuori range solleverebbe OverflowError — lezione di #299).
-        return value != 0
-    if isinstance(value, float):
-        return math.isfinite(value) and value != 0
+    if isinstance(value, (int, float)):
+        # Niente conversione a float su un int: fuori range solleverebbe OverflowError
+        # (lezione di #299). Regola in `validators.numero_finito`, fonte unica dei quattro
+        # siti di questa coercizione (#278).
+        return validators.numero_finito(value) and value != 0
     if isinstance(value, str):
         return value.strip().lower() in _ENABLED_TRUE
     return False
@@ -76,10 +76,9 @@ def _is_recognized_off(value) -> bool:
     il flip fail-closed non deve essere silenzioso per l'operatore)."""
     if isinstance(value, bool):
         return value is False
-    if isinstance(value, int):
-        return value == 0
-    if isinstance(value, float):
-        return math.isfinite(value) and value == 0
+    if isinstance(value, (int, float)):
+        # Variante `== 0` dello stesso predicato: stessa fonte unica (#278), verso opposto.
+        return validators.numero_finito(value) and value == 0
     if isinstance(value, str):
         return value.strip().lower() in _ENABLED_FALSE
     return False

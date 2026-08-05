@@ -54,6 +54,42 @@ NUMERIC_ERRORS = (TypeError, ValueError, OverflowError)
 CORRUPT_JSON_ERRORS = (RecursionError, OverflowError)
 
 
+def numero_finito(value) -> bool:
+    """`True` se `value` è un numero **finito**, senza convertirlo. Non solleva **mai**.
+
+    Fonte UNICA (regola 3) del ramo numerico delle coercizioni booleane fail-closed:
+    `autostart.coerce_enabled`, `config_store.as_bool_optin`,
+    `source_manager.as_enabled_bool` e `source_manager._is_recognized_off`. Quei quattro
+    siti hanno vocabolari di **stringhe** diversi di proposito (``"si"`` è un sì per le
+    sorgenti e non per gli opt-in di privacy), ma sul **numero** devono dire tutti la
+    stessa cosa — e finché sono state quattro copie non l'hanno detta (#278).
+
+    Perché non basta `math.isfinite`, che sarebbe la scrittura ovvia: un `int` di Python
+    non ha limite di grandezza, un `float` sì, quindi `math.isfinite(10**400)` non
+    risponde «no», **solleva** ``OverflowError``. Un valore del genere entra da un
+    `config.json` **valido** (``json.loads`` lo accetta senza protestare), e il crash
+    arriva dentro `load_config`: l'app non si apre più e nessun recupero scatta, perché
+    non c'è nulla di corrotto da recuperare. Il difetto era stato corretto in tre siti su
+    quattro, ciascuno con il proprio commento — e il quarto, `autostart`, era proprio
+    quello sul percorso di avvio.
+
+    Un `int` è quindi **sempre** finito e va deciso senza conversione; solo il ramo
+    `float` può (e deve) chiedere la finitezza, perché lì ``inf``/``nan`` esistono davvero.
+
+    I `bool` sono esclusi di proposito, come negli altri validatori di questo modulo:
+    ``float(True)`` è ``1.0``, e trattare un ``true`` come il numero 1 nasconderebbe una
+    config malformata invece di segnalarla. I chiamanti gestiscono il caso `bool` **prima**
+    di interrogare questo predicato.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return False
+
+
 def finite_or_none(value):
     """`value` come float **finito**, oppure ``None``. Non solleva **mai**.
 

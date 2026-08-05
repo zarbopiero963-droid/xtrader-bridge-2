@@ -117,6 +117,29 @@ cioè un fallimento rumoroso sostituito da uno silenzioso. La regola è presidia
 (zero eccezioni ammesse) e verifica il comportamento reale di `_git` in un processo figlio con
 locale degradato.
 
+**Convenzione `math.isfinite` — mai su un valore grezzo di config (#278).** Un `int` di Python
+non ha limite di grandezza, un `float` sì: `math.isfinite(10**400)` non risponde «no», **solleva**
+`OverflowError`. Un numero del genere entra da un `config.json` **valido** (`json.loads` lo accetta
+senza protestare), quindi ogni coercizione che chieda la finitezza prima di aver separato `int` da
+`float` trasforma una configurazione ordinaria in un crash. La forma corretta decide l'`int` senza
+convertirlo (`!= 0` sul valore) e chiede la finitezza **solo** nel ramo `float`, dove `inf`/`nan`
+esistono davvero. La regola sta in `validators.numero_finito`, fonte unica dei quattro siti della
+coercizione booleana fail-closed (`autostart.coerce_enabled`, `config_store.as_bool_optin`,
+`source_manager.as_enabled_bool`, `source_manager._is_recognized_off`).
+
+Perché una fonte unica e non quattro commenti: per tre di quei quattro siti il commento c'era già,
+e il quarto era rimasto indietro lo stesso. Il sito mancante era `autostart.coerce_enabled`, cioè
+quello sul percorso di `load_config`: la conseguenza non era un valore sbagliato ma **l'app che non
+si apre**, e senza alcun recupero, perché il file non è corrotto — è solo enorme, quindi nessun
+`.bak` viene creato. La PR-E-overflow (#243) lo aveva mancato pur avendolo elencato per primo:
+cercava i `try` con `float()` e una tupla di `except` stretta, e questo sito non ha nessun `try`.
+La guardia è perciò sulla **forma del difetto** e non sulla forma della correzione precedente
+(`tests/unit/test_numero_finito_278.py`): fallisce su qualunque funzione del pacchetto in cui un
+`isinstance(x, (int, float))` ammetta a `math.isfinite` un valore che il codice stesso dichiara
+poter essere un intero. Distinzione non ovvia e imparata sbagliando: una scansione che si limiti a
+cercare la parola `float` dentro un `isinstance` marca **verde** proprio il sito rotto, perché
+`(int, float)` contiene `float`.
+
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
 `BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.
