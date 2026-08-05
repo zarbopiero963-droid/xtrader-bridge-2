@@ -30,6 +30,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# L'accoppiamento esiste già nello stesso senso in `publish_store.py`: qui serve per confrontare
+# ciò che si sta per pubblicare con ciò che i bridge scaricano davvero (#234). Si importa il
+# MODULO, non la costante: `REVOCATION_LIST_URL` va letta al momento della chiamata, altrimenti
+# un `from … import` la congelerebbe all'import e il confronto guarderebbe un valore stantio.
+from xtrader_bridge.licensing import revocation_client
+
 GITHUB_API = "https://api.github.com"
 
 # Fonte UNICA del messaggio «manca il token» (rilievo Sourcery #215): `publish` e `check_access`
@@ -54,6 +60,49 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     path = urllib.parse.quote(str(path or "").strip().lstrip("/"))
     branch = urllib.parse.quote(str(branch or "").strip())
     return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
+
+
+def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
+    """Avviso se si sta per pubblicare a un indirizzo **diverso** da quello che i bridge leggono,
+    altrimenti stringa vuota. Puro: nessuna rete, nessuna scrittura.
+
+    **Da un incidente reale del proprietario (2026-08-03), #234.** Il campo Repository puntava a
+    `xtrader-bridge-2` mentre il token aveva `Contents: Read and write` su `xtrader-revocation`:
+    403, auto-pubblicazione ferma. Il messaggio del 403 suggeriva — correttamente ma
+    **parzialmente** — di allargare il token. Seguirlo alla lettera avrebbe fatto **riuscire** la
+    pubblicazione su un repository che **nessun bridge legge**, sostituendo un fallimento
+    rumoroso con uno silenzioso su una funzione di sicurezza: le revoche avrebbero smesso di
+    propagarsi senza un solo errore a video.
+
+    Il confronto è possibile perché entrambi i valori vivono nello stesso processo: la
+    configurazione di pubblicazione da una parte, la costante che i bridge compilano dall'altra.
+
+    Due precisazioni che ne determinano la correttezza:
+
+    - si confronta l'URL **quotato** prodotto da `raw_url`, non i campi grezzi. `raw_url`
+      codifica `path`/`branch` apposta (rilievo Fugu #158), quindi un confronto sul testo grezzo
+      darebbe un disallineamento **falso** su ogni path con spazi o accenti — e un avviso falso
+      su una configurazione giusta insegna a ignorare l'avviso vero;
+    - **gated su `is_placeholder_url`**: con l'URL placeholder di sviluppo la revoca online è
+      inattiva per costruzione, quindi non esiste un termine di paragone e avvisare sarebbe
+      rumore su uno stato che non è un errore.
+
+    NON blocca: segnala. Ma il chiamante deve renderlo visibile **anche sul successo**, perché è
+    esattamente il caso in cui il difetto si manifesta — «✅ Pubblicato» e nessuno che se ne
+    accorga.
+    """
+    atteso = revocation_client.REVOCATION_LIST_URL
+    if revocation_client.is_placeholder_url(atteso):
+        return ""
+    configurato = raw_url(repo, path, branch)
+    if configurato == str(atteso or "").strip():
+        return ""
+    return (
+        "⚠️ Stai pubblicando a un indirizzo DIVERSO da quello da cui i bridge scaricano la "
+        f"lista.\nConfigurato:      {configurato}\nAtteso dai bridge: {atteso}\n"
+        "Pubblicare qui NON propagherà alcuna revoca. Correggi Repository/Branch/Percorso — "
+        "NON allargare il token: allargarlo farebbe riuscire la pubblicazione nel posto "
+        "sbagliato, e il problema diventerebbe invisibile.")
 
 
 def _quote_repo(repo: str) -> str:
@@ -218,9 +267,21 @@ def _error_message(status: int, action: str, repo: str = "", payload=None) -> st
             return ("GitHub ha applicato un limite di frequenza (403): non è un problema del token "
                     "né dei permessi — aspetta qualche minuto e riprova.")
         dove = f" su «{repo}»" if str(repo or "").strip() else ""
-        return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Se è un token "
-                "fine-grained: in «Repository access» dev'esserci questo repository, e in "
-                "«Permissions → Repository permissions» serve «Contents: Read and write».")
+        # DUE ipotesi, non una (#234, incidente del proprietario 2026-08-03). Questo messaggio
+        # ne nominava una sola — «il token è troppo stretto» — e chi lo seguiva alla lettera
+        # quando la causa vera era l'altra allargava il token, faceva RIUSCIRE la pubblicazione
+        # nel repository sbagliato, e le revoche smettevano di propagarsi in silenzio. Il 403
+        # era più sicuro del successo che il messaggio suggeriva di ottenere: qui si mette
+        # per PRIMA l'ipotesi che, se ignorata, produce il danno peggiore.
+        return (f"Token accettato ma senza permesso di SCRITTURA{dove} (403). Due cause "
+                "possibili, e vanno controllate IN QUEST'ORDINE:\n"
+                "1) il REPOSITORY configurato non è quello giusto — dev'essere lo stesso da cui "
+                "i bridge scaricano la lista. Se è questo il caso, NON allargare il token: la "
+                "pubblicazione riuscirebbe nel posto sbagliato e nessuna revoca si "
+                "propagherebbe, senza più alcun errore visibile;\n"
+                "2) il token è troppo stretto — se è fine-grained: in «Repository access» "
+                "dev'esserci questo repository, e in «Permissions → Repository permissions» "
+                "serve «Contents: Read and write».")
     if status == 404:
         return "Repository, branch o percorso non trovati (controlla «owner/nome» e il branch)."
     if status in (409, 422):

@@ -790,6 +790,30 @@ collaterale di questa PR.
   *fine-grained*: «Repository access» deve includerlo e serve «Contents: Read and write»). Il 403
   nomina anche **su quale** repository manca il permesso. Restano invariati 404 repo/branch,
   409/422 conflitto, 429 e 5xx.
+
+  ⚠️ **Il 403 ha DUE cause, e l'ordine in cui si controllano conta** (#234, incidente del
+  proprietario 2026-08-03). Il messaggio nomina per prima quella che, se ignorata, fa il danno
+  peggiore: **il repository configurato non è quello giusto**. Nell'incidente reale il campo
+  Repository puntava a `xtrader-bridge-2` mentre il token aveva scrittura su
+  `xtrader-revocation`. Seguire il rimedio «allarga il token» avrebbe fatto **riuscire** la
+  pubblicazione su un repository che **nessun bridge legge** — «✅ Pubblicato», nessun errore, e
+  le revoche ferme a tempo indeterminato. **Il 403 è più sicuro di quel successo**: un
+  fallimento rumoroso vale più di uno silenzioso su una funzione di sicurezza.
+
+  **Regola pratica: allargare il token non è MAI il rimedio a un disallineamento.** Il campo
+  Repository deve produrre esattamente l'URL di `REVOCATION_LIST_URL` — è ciò che
+  `publisher.raw_url(repo, path, branch)` restituisce, ed è quello che i bridge scaricano.
+
+- **`disallineamento_bridge(repo, path, branch)`** (#234) — controllo **puro** (nessuna rete)
+  che confronta l'URL che la configurazione produce con `REVOCATION_LIST_URL`. Ritorna un avviso
+  esplicito, o stringa vuota se allineati. È cablato **sia** nella «Verifica accesso» **sia** nel
+  percorso di pubblicazione, e l'avviso va **in testa** al messaggio — anche quando l'esito è
+  **riuscito**, perché è esattamente il caso in cui il difetto si manifesta: un token con i
+  permessi giusti sul repository sbagliato passa ogni controllo di accesso. Due vincoli di
+  correttezza: il confronto usa l'URL **quotato** da `raw_url` (un confronto sui campi grezzi
+  darebbe falsi disallineamenti su path con spazi/accenti, e un avviso falso insegna a ignorare
+  quello vero), ed è **gated su `is_placeholder_url`** (con l'URL placeholder di sviluppo la
+  revoca online è inattiva per costruzione: non esiste un termine di paragone).
 - **`check_access()`** — verifica **preventiva** che **non modifica nulla**. Tre `GET` (repo →
   branch → file) più **una `PUT` che non può riuscire**: porta uno `sha` costante e inesistente
   (`_SHA_PROBE`, quaranta zeri), e GitHub valida i **permessi prima dello sha**. Quindi `403` = il
