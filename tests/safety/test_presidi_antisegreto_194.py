@@ -37,7 +37,7 @@ richiede_git = pytest.mark.skipif(shutil.which("git") is None, reason="git non d
 def _scan(*args):
     """Esegue lo scanner REALE (Python corrente, mai `bash`) sugli argomenti dati."""
     return subprocess.run([sys.executable, str(SCANNER), *map(str, args)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8")
 
 
 # ─────────────────────────── B3 + B31 · il seed Ed25519 ────────────────────────────
@@ -110,7 +110,7 @@ def test_il_repository_reale_resta_pulito():
     """Il falso positivo si misura sul repo VERO, non su una fixture: lo scan completo dei file
     tracciati (lockfile con gli hash pip, chiave pubblica embedded, asset binari) deve restare
     a zero segnalazioni. È questo test che impedisce a un pattern troppo largo di entrare."""
-    r = subprocess.run([sys.executable, str(SCANNER)], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, str(SCANNER)], capture_output=True, text=True, encoding="utf-8",
                        cwd=str(REPO_ROOT))
     assert r.returncode == 0, r.stdout + r.stderr
 
@@ -165,7 +165,7 @@ def test_il_bypass_del_nul_e_chiuso_anche_in_staging(tmp_path):
     subprocess.run(["git", "add", "nascosto.py"], cwd=str(tmp_path), check=True,
                    capture_output=True)
     r = subprocess.run([sys.executable, str(SCANNER), "--staged"], capture_output=True,
-                       text=True, cwd=str(tmp_path))
+                       text=True, encoding="utf-8", cwd=str(tmp_path))
     assert r.returncode == 1, "anche lo scan in staging deve bloccare: " + r.stdout + r.stderr
 
 
@@ -290,7 +290,7 @@ def test_il_gate_dei_path_blocca_i_file_vietati(tmp_path):
                    capture_output=True)
     subprocess.run(["git", "commit", "-qm", "x"], cwd=str(tmp_path), check=True,
                    capture_output=True)
-    r = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True, encoding="utf-8",
                        cwd=str(tmp_path))
     assert r.returncode == 1, "un config.json tracciato deve bloccare: " + r.stdout + r.stderr
     assert "Config.JSON" in r.stdout
@@ -301,6 +301,6 @@ def test_il_gate_dei_path_e_pulito_sul_repository_reale():
     """Controprova sul repo vero: il gate riscritto non deve segnalare nulla di ciò che è
     legittimamente tracciato oggi."""
     checker = REPO_ROOT / "tools" / "forbidden_paths.py"
-    r = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, str(checker)], capture_output=True, text=True, encoding="utf-8",
                        cwd=str(REPO_ROOT))
     assert r.returncode == 0, r.stdout + r.stderr

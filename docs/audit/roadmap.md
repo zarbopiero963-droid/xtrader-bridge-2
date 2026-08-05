@@ -77,6 +77,20 @@ rischio** (non uno per singolo file di test):
 | `generate-lockfile.yaml` | PR sui `.in`/lock · manuale | genera `requirements-build.lock` (hash) su **Windows**; consegna via Job Summary; gate anti-stantio + validazione in venv pulito |
 | `generate-linux-lockfile.yaml` | PR sui `.in`/lock Linux · manuale | speculare, su **Linux** (#36): genera `requirements-build-linux.lock` (hash) per il job `build-linux`; consegna via Job Summary; gate anti-stantio + validazione |
 
+**Convenzione `subprocess` — `encoding="utf-8"` sempre esplicito (#267).** Ogni chiamata che
+cattura output testuale (`text=True`) deve passare anche `encoding="utf-8"`. Senza, la decodifica
+usa `locale.getpreferredencoding(False)`: UTF-8 su Linux, ma il **codepage ANSI su Windows** — che
+è il bersaglio primario di questo repository — e **ASCII** con locale POSIX. Misurato: in un
+ambiente non-UTF8 la lettura dell'output solleva `UnicodeDecodeError`, con `encoding="utf-8"`
+funziona. Il sito che pesava di più era `tools/forbidden_paths.py::_git`, che alimenta il check
+`forbidden-files`: una guardia anti-segreto che non riesce a **leggere** l'elenco dei file
+tracciati non può accorgersi di nulla. `errors=` **non** si usa: mascherare un output illeggibile
+trasformerebbe un percorso vietato in uno storpiato che non combacia più con `PERCORSI_VIETATI`,
+cioè un fallimento rumoroso sostituito da uno silenzioso. La regola è presidiata da
+`tests/safety/test_subprocess_encoding_267.py`, che analizza l'**AST** di tutti i `.py` tracciati
+(zero eccezioni ammesse) e verifica il comportamento reale di `_git` in un processo figlio con
+locale degradato.
+
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
 `BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.

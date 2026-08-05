@@ -35,8 +35,21 @@ import secret_policy  # noqa: E402  (dopo il sys.path: il modulo vive accanto a 
 
 
 def _git(args):
-    """Esegue `git <args>` catturando l'output testuale. Ritorna il CompletedProcess."""
-    return subprocess.run(["git", *args], capture_output=True, text=True)
+    """Esegue `git <args>` catturando l'output testuale. Ritorna il CompletedProcess.
+
+    `encoding="utf-8"` **esplicito** (#267): con il solo `text=True` la decodifica userebbe il
+    codepage del sistema — ANSI su Windows, che è il bersaglio primario di questo repository, e
+    ASCII con locale POSIX. `git` di default cita i percorsi non ASCII in escape ottali
+    (`core.quotepath=true`) e allora non si nota nulla; con `core.quotepath=false` emette byte
+    UTF-8 grezzi e la lettura solleva `UnicodeDecodeError`. Questa funzione alimenta il check
+    `forbidden-files`: una guardia che non riesce a **leggere** l'elenco dei file tracciati non
+    può accorgersi di un segreto committato.
+
+    Niente `errors=`: `errors="replace"` trasformerebbe un percorso illeggibile in uno storpiato,
+    che poi non combacia più con `PERCORSI_VIETATI` — un file vietato passerebbe in silenzio.
+    Sollevare è la direzione sicura.
+    """
+    return subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8")
 
 
 def _righe(r) -> list:
