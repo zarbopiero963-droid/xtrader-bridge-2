@@ -65,6 +65,7 @@ Oggi `_SITI_SENZA_MOTIVO_ATTESI = 0`: il ratchet non è più un tetto sul debito
 import ast
 import importlib.util
 import os
+import subprocess
 
 import pytest
 
@@ -381,14 +382,67 @@ _ALLOWLIST = {
                                        "cleanup del temporaneo su qualsiasi errore e RILANCIA, "
                                        "così il registro precedente resta intatto e non si "
                                        "accumulano `.tmp` orfani accanto"),
+
+    # ---- tests/ -------------------------------------------------------------------------
+    # Ultima radice a entrare, e con un'ipotesi SMENTITA alle spalle. La #263 sospettava che i
+    # worker di stress ingoiassero le eccezioni, mascherando proprio la corruzione che i test
+    # cercano. Falso: TUTTI raccolgono in una lista su cui il test poi asserisce. Verificato
+    # per sabotaggio, non per lettura — facendo sollevare `write_csv` nel 30% delle chiamate,
+    # `test_concorrenza_write_clear_non_corrompe` diventa rosso ed elenca ogni eccezione.
+    # La radice entra per il caso FUTURO: un `except Exception: pass` che ingoia davvero.
+    "tests/conftest.py": (1, "diagnostica di import-shadowing all'avvio della suite: dice DOVE "
+                             "risolve il nome `tests`, e non deve mai mascherare il problema "
+                             "che sta diagnosticando"),
+    "tests/integration/test_app_runtime_glue.py": (1, "`_start` muore più avanti (nessun "
+                                                     "listener reale nel doppio): l'eccezione "
+                                                     "attesa non deve fermare la raccolta di "
+                                                     "ciò che il test sta misurando"),
+    "tests/integration/test_reconnect_110.py": (2, "costruttori di eccezioni telegram con firme "
+                                                  "diverse fra versioni (si ripiega su quella "
+                                                  "senza messaggio), e `_start` che muore più "
+                                                  "avanti per assenza di un Telegram reale"),
+    "tests/integration/test_resilience_109.py": (2, "worker `_producer`/`_expirer` in contesa: "
+                                                   "registrano nella lista `errors` su cui il "
+                                                   "test asserisce (`assert errors == []`). Un "
+                                                   "thread che morisse in silenzio farebbe "
+                                                   "passare il test senza misurare la contesa"),
+    "tests/safety/test_csv_atomic.py": (6, "worker di stress write/clear concorrenti: ogni "
+                                           "handler RACCOGLIE in `errors`, e il test asserisce "
+                                           "`not errors`. Non ingoiano — dimostrato per "
+                                           "sabotaggio (write_csv che solleva nel 30% dei casi "
+                                           "→ test rosso con l'elenco delle eccezioni)"),
+    "tests/safety/test_redazione_seed_205.py": (1, "supporto opzionale del workflow assente: "
+                                                  "non deve rompere il test della redazione"),
+    "tests/unit/test_betfair_local_db.py": (1, "worker di scrittura concorrente: raccolto per "
+                                               "l'assert, stesso pattern di test_csv_atomic"),
+    "tests/unit/test_chatid_dispatcher_137.py": (1, "al test interessa solo COME il builder "
+                                                   "legge la config, non che costruisca"),
+    "tests/unit/test_parser_file_avvelenato_b9.py": (2, "fuzz sul parser: la classe "
+                                                       "dell'eccezione **è ciò che si sta "
+                                                       "misurando**, quindi va catturata larga "
+                                                       "per poterla poi classificare"),
+    "tests/unit/test_reconnect_policy.py": (1, "sonda d'ambiente: `telegram.error` non "
+                                               "importabile è UNO DEI DUE CASI ATTESI (dipende "
+                                               "dalla user-site, quindi da HOME), non un errore "
+                                               "del test — decide quale asserzione applicare"),
+    "tests/unit/test_store_temps_warn_dedup_76.py": (1, "worker `_spara` in contesa sul lock dei "
+                                                       "warning: raccolto per l'assert "
+                                                       "`errori == []`"),
 }
 
 
 def _siti_attuali():
     """Siti attuali, con la STESSA scansione del generatore del baseline.
 
-    `scansiona_tutte` e non una singola radice, dalla #263: il gate copre **due** radici
-    (`xtrader_bridge/` e `license_manager/`), e le chiavi sono qualificate con la radice.
+    `scansiona_tutte` e non una singola radice: l'elenco vive in `RADICI` (generatore) e
+    comprende sia cartelle sia file singoli; le chiavi sono qualificate con la radice.
+
+    Qui NON si ripete l'elenco. Ci era già scritto «due radici», rimasto tale quando ne sono
+    diventate tre e poi sei — due volte in due PR (#264, #265). Un elenco duplicato in un
+    docstring è una copia che nessun test verifica, e diverge appena qualcuno tocca l'originale:
+    la copertura effettiva la impone
+    `test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate`, che è l'unico posto
+    dove l'affermazione può essere controllata invece che dichiarata.
     """
     return _GEN.scansiona_tutte()
 
@@ -432,6 +486,84 @@ def test_nessun_blind_except_nuovo_o_non_motivato():
         "una funzione diversa a saldo zero, è precisamente ciò che questo gate esiste per "
         "fermare. Se il cambiamento è voluto e motivato: "
         "`python tools/gen_blind_except_sites.py` e committa il diff del baseline.")
+
+
+def test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate():
+    """Il gate deve coprire TUTTO il Python del repository, e restare tale.
+
+    Rilievo CodeRabbit sulla #265, ed era quello giusto: il commento accanto a `RADICI` diceva
+    «da qui il gate copre tutto ciò che contiene codice Python» mentre l'elenco ne conteneva
+    tre — cioè affermava una copertura che il codice non aveva. Che `tools/`, `main.py` e
+    `license_manager_main.py` avessero ZERO blind-except non rendeva vera l'affermazione: il
+    gate non li avrebbe visti nemmeno il giorno dopo.
+
+    Correggere il commento non bastava. Un commento è vero il giorno in cui lo scrivi e falso
+    al primo file nuovo aggiunto alla radice del repository, senza che nessuno se ne accorga —
+    ed è la stessa classe di difetto (una descrizione che promette più della copertura reale)
+    che questo intero gate esiste per chiudere. Serve un test.
+
+    Si misura su `git ls-files`, non su un `os.walk`: così un file **non tracciato** (venv,
+    build, scratch) non fa fallire il gate, e un file tracciato non può sfuggirgli.
+
+    `-z` e non `.split()` (rilievo GPT-5.5): l'output riga-per-riga si spezza su un path con
+    **spazi**, e senza `-z` git *cita* i nomi con caratteri speciali (`core.quotePath`) — in
+    entrambi i casi il file risulterebbe «non coperto» per un difetto del parsing, o peggio
+    verrebbe scomposto in pezzi che combaciano per caso con una radice. Con `-z` i path sono
+    separati da NUL e mai citati.
+
+    Se `git` manca si FALLISCE dicendolo, non si salta: un gate che smette di controllare in
+    silenzio è il difetto che questo file intero esiste per chiudere.
+
+    `encoding="utf-8"` esplicito e non il solo `text=True` (rilievo Fable 5): senza, Python
+    decodifica con `locale.getpreferredencoding(False)` — su Linux UTF-8, su **Windows** la
+    codepage ANSI (tipicamente cp1252). `git` emette i path in UTF-8 grezzo, e cp1252 mappa
+    quasi ogni byte: la decodifica non solleverebbe, restituirebbe solo un nome **diverso**
+    (`città.py` → `cittÃ .py`). Oggi il repository è tutto ASCII, quindi non morde; è il tipo
+    di difetto che aspetta il primo file con un accento.
+    """
+    try:
+        res = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=_RADICE,
+                             capture_output=True, text=True, encoding="utf-8")
+    except OSError as exc:      # NON blind: `git` assente/non eseguibile, niente altro
+        pytest.fail(f"`git` non disponibile ({exc}): questo gate non può verificare la "
+                    f"copertura, e non deve fingere di averlo fatto.")
+    assert res.returncode == 0, f"git ls-files fallito ({res.returncode}): {res.stderr.strip()}"
+    tracciati = [p for p in res.stdout.split("\0") if p]
+    assert tracciati, "git ls-files non ha prodotto nulla: misura non attendibile"
+    fuori = sorted(f for f in tracciati
+                   if not any(f == voce or f.startswith(voce + "/") for voce in _GEN.RADICI))
+    assert not fuori, (
+        f"file Python tracciati e NON sorvegliati dal gate blind-except: {fuori}.\n"
+        f"Radici attuali: {_GEN.RADICI}.\n"
+        "Aggiungili a `RADICI` in tools/gen_blind_except_sites.py (una voce può essere una "
+        "cartella o un file singolo), poi rigenera il baseline e LEGGI il diff.")
+
+
+def test_una_voce_di_RADICI_sparita_lo_DICE_invece_di_schiantare(tmp_path):
+    """Rilievo Fugu Ultra sulla #265.
+
+    `os.path.isdir()` è `False` anche per ciò che **non esiste**: una voce di `RADICI`
+    rinominata o rimossa finiva nel ramo «file singolo» e il gate moriva con un
+    `FileNotFoundError` grezzo — che non dice a chi legge che il problema è `RADICI` stantia,
+    non il codice sotto esame.
+
+    Si solleva comunque, e deliberatamente: una radice sparita significa **copertura ridotta**,
+    e degradarla a un `continue` sarebbe il difetto che questo gate esiste per chiudere —
+    controllare meno senza dirlo.
+    """
+    (tmp_path / "presente.py").write_text("x = 1\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError) as errore:
+        _GEN.scansiona_tutte(base=str(tmp_path), radici=("presente.py", "sparita.py"))
+
+    messaggio = str(errore.value)
+    assert "sparita.py" in messaggio, messaggio          # dice QUALE voce
+    # Frase INTERA, non la sola parola «RADICI»: `tmp_path` prende il nome dal nome del test,
+    # che contiene «RADICI», quindi il path finito dentro il messaggio la conteneva già e
+    # l'assert passava anche col ramo vecchio — verificando il nome della cartella temporanea
+    # invece del messaggio. Un assert vero per la ragione sbagliata non è una guardia.
+    assert "voce di RADICI inesistente" in messaggio, messaggio
+    assert "gen_blind_except_sites.py" in messaggio, messaggio    # e dove correggerla
 
 
 def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():

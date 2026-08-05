@@ -153,7 +153,7 @@ def test_real_transient_types_non_solleva_ed_e_cache(monkeypatch):
     try:
         from telegram.error import NetworkError as _NE, RetryAfter as _RA, TimedOut as _TO
         classi_reali = (_NE, _TO, _RA)
-    except Exception:
+    except Exception:  # noqa: BLE001 — sonda d'ambiente: `telegram.error` non importabile e' UNO DEI DUE CASI ATTESI, non un errore del test — decide quale asserzione applicare
         classi_reali = None
     if classi_reali is None:
         assert first == ()                                   # assenza telegram.error → fallback

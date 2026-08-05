@@ -260,14 +260,14 @@ def test_concorrenza_write_clear_non_corrompe(tmp_path):
         for _ in range(50):
             try:
                 csv_writer.write_csv(ROW, p)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — raccolto per l'assert
                 errors.append(e)
 
     def clear_loop():
         for _ in range(50):
             try:
                 csv_writer.init_csv(p)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — raccolto per l'assert
                 errors.append(e)
 
     threads = [threading.Thread(target=writer_loop), threading.Thread(target=clear_loop)]
@@ -296,14 +296,14 @@ def test_stress_write_clear_500_iterazioni_non_corrompe(tmp_path):
         for _ in range(500):
             try:
                 csv_writer.write_csv(ROW, p)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — raccolto per l'assert
                 errors.append(e)
 
     def clear_loop():
         for _ in range(500):
             try:
                 csv_writer.init_csv(p)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — raccolto per l'assert
                 errors.append(e)
 
     threads = [threading.Thread(target=writer_loop), threading.Thread(target=clear_loop)]
@@ -607,7 +607,7 @@ def test_clear_e_write_concorrenti_non_corrompono(tmp_path):
         for _ in range(50):
             try:
                 csv_writer.clear_stale_csv(p)
-            except Exception as e:                        # noqa: BLE001
+            except Exception as e:                        # noqa: BLE001 — raccolto per l'assert
                 errors.append(e)
 
     threads = ([threading.Thread(target=writer_t) for _ in range(2)]

@@ -18,12 +18,27 @@ _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # posizione in cui erano Fable e Fugu prima della #247, con la stessa morale: un controllo che
 # tace è indistinguibile da uno che approva.
 #
-# `tests/` resta FUORI deliberatamente (#263): i suoi handler ciechi senza motivo sono tutti
-# worker thread di stress concorrenti (`writer_loop`, `clear_loop`, `_expirer`). Meritano un
-# esame a sé — un except cieco in un worker di stress può mascherare proprio la corruzione che
-# il test cerca — ma è una caccia al bug, non un lavoro di documentazione, e infilarla qui
-# significherebbe nasconderla dentro un cambiamento di copertura.
-RADICI = ("xtrader_bridge", "license_manager")
+# `tests/` è entrato con l'esame che la #263 aveva rimandato, e l'esito è che il sospetto era
+# INFONDATO: i suoi 19 handler ciechi non mascherano nulla. Tutti raccolgono l'eccezione in una
+# lista su cui il test poi asserisce (`assert errors == []`), oppure sono sonde d'ambiente
+# deliberate. Verificato per sabotaggio, non per lettura: facendo sollevare `write_csv` nel 30%
+# delle chiamate, `test_concorrenza_write_clear_non_corrompe` diventa ROSSO ed elenca ogni
+# singola eccezione raccolta.
+#
+# La radice entra lo stesso, per il caso FUTURO: un `except Exception: pass` in un worker —
+# che ingoia senza raccogliere — oggi non lo vedrebbe nessuno.
+#
+# `tools/`, `main.py` e `license_manager_main.py` entrano per un rilievo di CodeRabbit sulla
+# #265, ed è quello giusto: il commento qui accanto diceva «da qui il gate copre tutto ciò che
+# contiene codice Python» mentre `RADICI` ne elencava tre — cioè affermava una copertura che il
+# codice non aveva. Esattamente il difetto che questo gate esiste per chiudere, scritto nel
+# commento che lo descriveva. Che oggi quei file abbiano ZERO blind-except non rendeva
+# l'affermazione vera: il gate non li avrebbe visti nemmeno domani.
+#
+# Con questo elenco l'affermazione è verificabile: `git ls-files '*.py'` non produce nulla al di
+# fuori di queste voci. Le voci possono essere cartelle o FILE SINGOLI (vedi `scansiona_tutte`).
+RADICI = ("xtrader_bridge", "license_manager", "tests", "tools",
+          "main.py", "license_manager_main.py")
 
 # NIENTE costante `PKG` che punti a una sola radice (riserva Fable 5 sulla #263). Ce n'era una,
 # tenuta «per retrocompatibilità», e con essa un commento che diceva «il test la usa» — falso già
@@ -93,7 +108,33 @@ def qualname_map(tree):
     return fuori
 
 
+def siti_del_file(path):
+    """Blind-except di UN file: lista ordinata di `(funzione, motivo)`, vuota se non ce ne sono.
+
+    Estratta da `scansiona` perché `RADICI` contiene anche **file singoli** (`main.py`,
+    `license_manager_main.py`): `os.walk` su un file non produce nulla, quindi senza questo
+    innesto sarebbero rimasti scoperti mentre il commento accanto prometteva copertura totale.
+    """
+    # `with`, non `open(...).read()`: quest'ultimo lascia il file alla mercé del GC e CPython
+    # emette un ResourceWarning reale (verificato con `-W error::ResourceWarning` su tutti i
+    # file). Su un ciclo che apre l'intero package non è teorico, ed è il tipo di dettaglio che
+    # si liquida come «minore» finché non lo è (rilievo Fugu Ultra sulla #260).
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    righe = src.split("\n")
+    tree = ast.parse(src)
+    qmap = qualname_map(tree)
+    return sorted((qmap.get(h.lineno, "<modulo>"), normalizza_motivo(righe[h.lineno - 1]))
+                  for h in ast.walk(tree)
+                  if isinstance(h, ast.ExceptHandler) and is_blind(h))
+
+
 def scansiona(radice):
+    """Blind-except di una CARTELLA, con chiavi relative alla cartella stessa.
+
+    Contratto invariato (lo esercita il test del rilevatore su una cartella temporanea): per i
+    file singoli e l'unione delle radici vedi `scansiona_tutte`.
+    """
     siti = {}
     for dirpath, _d, files in os.walk(radice):
         if "__pycache__" in dirpath:
@@ -102,44 +143,52 @@ def scansiona(radice):
             if not fn.endswith(".py"):
                 continue
             path = os.path.join(dirpath, fn)
-            # `with`, non `open(...).read()`: quest'ultimo lascia il file alla mercé del GC e
-            # CPython emette un ResourceWarning reale (verificato con `-W error::ResourceWarning`
-            # su tutti i 38 file). Su un ciclo che apre l'intero package non è teorico, ed è il
-            # tipo di dettaglio che si liquida come «minore» finché non lo è (rilievo Fugu Ultra).
-            with open(path, encoding="utf-8") as fh:
-                src = fh.read()
-            righe = src.split("\n")
-            tree = ast.parse(src)
-            qmap = qualname_map(tree)
-            trovati = []
-            for h in ast.walk(tree):
-                if isinstance(h, ast.ExceptHandler) and is_blind(h):
-                    trovati.append((qmap.get(h.lineno, "<modulo>"),
-                                    normalizza_motivo(righe[h.lineno - 1])))
+            trovati = siti_del_file(path)
             if trovati:
                 rel = os.path.relpath(path, radice).replace(os.sep, "/")
-                siti[rel] = sorted(trovati)
+                siti[rel] = trovati
     return siti
 
 
 def scansiona_tutte(base=None, radici=RADICI):
-    """Siti di TUTTE le radici sorvegliate, con chiavi relative alla radice del REPOSITORY.
+    """Siti di TUTTE le voci sorvegliate, con chiavi relative alla radice del REPOSITORY.
 
-    `scansiona(radice)` resta invariata — chiavi relative alla radice che riceve — perché è il
-    contratto che il test del rilevatore esercita su una cartella temporanea. Qui sopra ci si
-    limita a unire le radici e a qualificare le chiavi.
+    Una voce di `RADICI` può essere una **cartella** (`xtrader_bridge`) o un **file singolo**
+    (`main.py`): i due casi si distinguono qui, perché `os.walk` su un file non produce nulla e
+    li avrebbe saltati in silenzio — che in un gate di copertura è il modo peggiore di sbagliare.
 
-    Le chiavi sono qualificate (`xtrader_bridge/app.py`, non `app.py`) **su entrambe** le
-    radici, non solo sulla nuova. Prefissare la sola `license_manager` avrebbe prodotto un
+    `scansiona(radice)` resta invariata — chiavi relative alla cartella che riceve — perché è il
+    contratto che il test del rilevatore esercita su una cartella temporanea. Qui ci si limita a
+    unire le voci e a qualificare le chiavi.
+
+    Le chiavi sono qualificate (`xtrader_bridge/app.py`, non `app.py`) **su tutte** le cartelle,
+    non solo su quelle aggiunte dopo la prima. Prefissare solo le nuove avrebbe prodotto un
     baseline in cui una chiave nuda significa «xtrader_bridge» per convenzione implicita: in un
     gate l'asimmetria è precisamente il tipo di dettaglio che un lettore futuro legge male, e
-    due file omonimi in radici diverse si sarebbero sovrascritti in silenzio.
+    due file omonimi in cartelle diverse si sarebbero sovrascritti in silenzio.
     """
     base = base or _RADICE
     fuori = {}
-    for radice in radici:
-        for rel, trovati in scansiona(os.path.join(base, radice)).items():
-            fuori[f"{radice}/{rel}"] = trovati
+    for voce in radici:
+        percorso = os.path.join(base, voce)
+        if os.path.isdir(percorso):
+            for rel, trovati in scansiona(percorso).items():
+                fuori[f"{voce}/{rel}"] = trovati
+        elif os.path.isfile(percorso):
+            trovati = siti_del_file(percorso)
+            if trovati:
+                fuori[voce.replace(os.sep, "/")] = trovati
+        else:
+            # Ramo esplicito (rilievo Fugu Ultra sulla #265). Senza, una voce cancellata o
+            # rinominata cadeva nel ramo «file» — `isdir` è False anche per ciò che non esiste —
+            # e il gate moriva con un `FileNotFoundError` grezzo, che non dice a chi legge che il
+            # problema è `RADICI` stantia. Si SOLLEVA comunque, perché una radice sparita
+            # significa copertura ridotta: degradarla a `continue` sarebbe il difetto che questo
+            # gate esiste per chiudere, cioè controllare meno senza dirlo.
+            raise FileNotFoundError(
+                f"voce di RADICI inesistente: {voce!r} (cercata in {base!r}). Il file o la "
+                f"cartella è stato rinominato/rimosso: aggiorna RADICI in "
+                f"tools/gen_blind_except_sites.py, altrimenti il gate copre meno di quanto dice.")
     return fuori
 
 
