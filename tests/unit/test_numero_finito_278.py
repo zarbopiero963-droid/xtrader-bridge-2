@@ -105,6 +105,32 @@ def test_278_can_auto_start_non_solleva_col_numero_enorme():
 # 3. La classe
 # ─────────────────────────────────────────────────────────────────────────────────────
 
+def _nomi_di_isfinite(albero):
+    """I nomi con cui `math.isfinite` è raggiungibile **in questo modulo**.
+
+    Non basta cercare la stringa `isfinite`: conta a quale nome è legata la funzione
+    qui dentro. Le quattro forme che compaiono in Python reale —
+
+        import math                          → math.isfinite(v)      (attributo)
+        import math as m                     → m.isfinite(v)         (attributo, alias modulo)
+        from math import isfinite            → isfinite(v)           (nome)
+        from math import isfinite as _isf    → _isf(v)               (nome, alias funzione)
+
+    Ritorna `(alias_del_modulo, nomi_diretti)`. Rilievo CodeRabbit sulla PR #279: la
+    prima stesura accettava **solo** la forma ad attributo, quindi un modulo scritto
+    con `from math import isfinite` sarebbe passato inosservato — e il docstring della
+    guardia promette il contrario. Una guardia che dichiara più di quanto controlla è
+    esattamente il difetto che questa PR corregge, ripetuto nella sua stessa guardia.
+    """
+    moduli, diretti = set(), set()
+    for n in ast.walk(albero):
+        if isinstance(n, ast.Import):
+            moduli |= {a.asname or a.name for a in n.names if a.name == "math"}
+        elif isinstance(n, ast.ImportFrom) and n.module == "math":
+            diretti |= {a.asname or a.name for a in n.names if a.name == "isfinite"}
+    return moduli, diretti
+
+
 def _siti_isfinite_su_int():
     """Ogni funzione del pacchetto in cui un `math.isfinite(x)` può ricevere un `x`
     che il codice stesso ammette essere un `int`.
@@ -126,13 +152,20 @@ def _siti_isfinite_su_int():
             if "isfinite" not in src:
                 continue
             albero = ast.parse(src)
+            moduli, diretti = _nomi_di_isfinite(albero)
+
+            def _e_isfinite(f, _moduli=moduli, _diretti=diretti):
+                if isinstance(f, ast.Attribute):
+                    return (f.attr == "isfinite" and isinstance(f.value, ast.Name)
+                            and f.value.id in _moduli)
+                return isinstance(f, ast.Name) and f.id in _diretti
+
             for fn in [n for n in ast.walk(albero)
                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
                 # nomi passati a isfinite() dentro questa funzione
                 argomenti = {ast.unparse(c.args[0])
                              for c in ast.walk(fn)
-                             if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
-                             and c.func.attr == "isfinite" and c.args}
+                             if isinstance(c, ast.Call) and _e_isfinite(c.func) and c.args}
                 if not argomenti:
                     continue
                 # ...e quei nomi sono ammessi come int da un isinstance con tupla?
@@ -195,6 +228,71 @@ def test_278_la_guardia_di_classe_vede_davvero_il_difetto(tmp_path, monkeypatch)
 
     assert len(siti) == 1, siti
     assert "difettoso.py" in siti[0] and "coercizione" in siti[0]
+
+
+# Le quattro forme con cui `math.isfinite` è raggiungibile in Python reale.
+FORME_ISFINITE = (
+    ("modulo", "import math", "math.isfinite(v)"),
+    ("modulo_alias", "import math as m", "m.isfinite(v)"),
+    ("nome", "from math import isfinite", "isfinite(v)"),
+    ("nome_alias", "from math import isfinite as _isf", "_isf(v)"),
+)
+
+
+@pytest.mark.parametrize("etichetta,importazione,chiamata", FORME_ISFINITE)
+def test_278_la_guardia_vede_TUTTE_le_forme_di_isfinite(
+        etichetta, importazione, chiamata, tmp_path, monkeypatch):
+    """Rilievo CodeRabbit sulla PR #279, ed era fondato.
+
+    La prima stesura della guardia accettava **solo** `math.isfinite(...)` come
+    chiamata ad attributo. Un modulo scritto con `from math import isfinite` avrebbe
+    lo stesso identico difetto e sarebbe passato **verde** — mentre il docstring della
+    guardia promette che «un quinto sito scritto domani nella stessa forma diventa
+    rosso qui».
+
+    Una guardia che dichiara più di quanto controlla è precisamente il difetto che
+    questa PR corregge, ripetuto dentro la correzione. Verificato che la vecchia
+    versione lasciasse passare la forma `from math import …` su un difetto vero
+    (che solleva davvero `OverflowError`), prima di allargarla.
+
+    L'alias — `from math import isfinite as _isf` — è la quarta forma, e non la
+    copriva nemmeno la correzione proposta nel rilievo (che confrontava il nome
+    letterale `isfinite`): per questo la guardia risolve il **legame** nel modulo
+    invece di cercare una stringa.
+    """
+    finto = tmp_path / "xtrader_bridge"
+    finto.mkdir()
+    (finto / f"{etichetta}.py").write_text(
+        f"{importazione}\n\n\n"
+        "def coercizione(v):\n"
+        "    if isinstance(v, (int, float)):\n"
+        f"        return {chiamata} and v != 0\n"
+        "    return False\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    siti = _siti_isfinite_su_int()
+
+    assert len(siti) == 1, f"forma «{chiamata}» non rilevata: {siti}"
+    assert f"{etichetta}.py" in siti[0]
+
+
+def test_278_un_isfinite_che_NON_viene_da_math_non_e_un_falso_positivo(tmp_path, monkeypatch):
+    """Contro-guardia della contro-guardia: allargare il matcher non deve renderlo
+    credulone. Un `isfinite` che è un metodo di un oggetto qualunque — o una funzione
+    omonima definita in casa — non ha nulla a che vedere con `math.isfinite` e non deve
+    accendere la guardia, altrimenti si impara a ignorarla."""
+    finto = tmp_path / "xtrader_bridge"
+    finto.mkdir()
+    (finto / "omonimo.py").write_text(
+        "def isfinite(x):\n"                       # funzione locale, non math
+        "    return x is not None\n\n\n"
+        "def coercizione(v, decimale):\n"
+        "    if isinstance(v, (int, float)):\n"
+        "        return isfinite(v) and decimale.isfinite() and v != 0\n"
+        "    return False\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert _siti_isfinite_su_int() == []
 
 
 # I quattro siti del predicato numerico, con il verso che ciascuno cerca.
