@@ -10,7 +10,7 @@ altri pannelli GUI, non testati in CI perché richiedono un display).
 
 import customtkinter as ctk
 
-from . import i18n, ui_cards, ui_theme
+from . import i18n, ui_cards
 
 # Colori semantici theme-aware `(chiaro, scuro)`, coerenti con il resto della GUI
 # (stessa palette di custom_parser_gui/app: verde OK, arancio avviso, rosso reale).

@@ -25,7 +25,6 @@ from . import (
     dizionario,
     market_mapping_store,
     name_mapping_store,
-    numbers_re,
     recognition,
     validator,
     value_maps,
@@ -175,6 +174,12 @@ _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
 _DECIMAL_NORM_COLS = _PRICE_COLS + ("Handicap", "Points")
 
 
+# NOTA (#211 R2). Questo modulo importava `numbers_re` senza usarlo: il residuo di un
+# refactor a meta' che il CLAUDE.md cita per nome nella Regola 3 — «`numbers_re` corretto ma
+# non `custom_pipeline`» — e da cui nacque **B17** (`\d` Unicode-aware e `isdigit()` qui
+# sotto). L'import e' stato rimosso perche' morto, ma B17 NON e' chiuso: e' tracciato in
+# #194 PR-Q, parcheggiata per decisione del proprietario. Questa nota sostituisce l'import
+# come segnale, perche' un import inutilizzato non distingue una svista da un lavoro aperto.
 def _decimal_sep_to_point(value) -> str:
     """Normalizza il separatore decimale a `.`, interpretando i formati con separatore delle
     migliaia (#184 low-pipeline-comma).

@@ -140,6 +140,48 @@ poter essere un intero. Distinzione non ovvia e imparata sbagliando: una scansio
 cercare la parola `float` dentro un `isinstance` marca **verde** proprio il sito rotto, perché
 `(int, float)` contiene `float`.
 
+**Igiene del sorgente resa esigibile — import morti e chiavi duplicate (#211 R2/R3).** Il job
+`lint` è **soft-warning per scelta dichiarata**: segnala e non blocca. È una decisione legittima,
+ma ha una conseguenza misurata: dei tre residui annotati nella #211 il 31/07 nessuno era stato
+chiuso, e gli import morti erano **cresciuti da 2 a 5** — uno dei nuovi lasciato proprio dalla PR
+che chiudeva la famiglia `OverflowError` (`import math` in `signal_queue.py`, orfano da `48f258b`).
+Un avviso che nessuno è obbligato a leggere non è un presidio.
+
+Due guardie in `tests/safety/test_igiene_sorgente_211.py` girano perciò nel job **bloccante**
+`safety`:
+
+- **zero import mai usati** in ciò che viene spedito (`xtrader_bridge`, `license_manager`,
+  `tools`, `main.py`). Un import morto non è solo rumore: è la traccia di un refactor a metà, e
+  finché resta nessuno sa se il modulo *doveva* usare quel simbolo. `custom_pipeline.numbers_re`
+  era esattamente questo — il `CLAUDE.md` lo cita per nome nella Regola 3 come la fonte duplicata
+  da cui nacque **B17**, che resta aperto in #194 PR-Q. L'import è stato rimosso e **sostituito da
+  una nota nel modulo**, perché un import inutilizzato non distingue una svista da un lavoro
+  aperto;
+- **zero chiavi di traduzione ripetute** nello stesso dict di `i18n.py`. Lì l'ultima vince **in
+  silenzio**: chi modifica la prima occorrenza vede la modifica non avere effetto, senza errore né
+  avviso. Il controllo è sul **sorgente** e non sul catalogo costruito, dove il duplicato è
+  invisibile per definizione. Le dieci coppie rimosse avevano valori identici — era una trappola
+  armata, non un danno in corso: `_CATALOG` è rimasto identico (EN 469, ES 476 voci).
+
+Le guardie sono **AST e non `ruff` in sottoprocesso**, perché `ruff` non è in
+`requirements-dev.txt` (sta in `requirements-lint.txt`, installato solo dal job `lint`): un test
+che lo invocasse fallirebbe negli altri job o si auto-skipperebbe — cioè tacerebbe, che è il
+difetto che queste guardie esistono per impedire. Il rilevatore è stato **validato contro ruff come
+oracolo**: sugli stessi ambiti dà gli stessi identici siti. La prima stesura ne dava 22 invece di
+5, perché contava anche `from __future__ import annotations`; senza l'oracolo sarebbe nata
+rumorosa, e una guardia rumorosa si disattiva.
+
+`tests/` è **escluso dalla guardia sugli import**, e il numero è scritto nel sorgente invece di
+essere taciuto: contiene 23 import inutilizzati, quasi tutti deliberati (fixture importate per
+l'effetto della registrazione, ri-export). Ripulirli è un lavoro a sé; ometterlo in silenzio
+sarebbe il «cap muto» che questa serie di PR sta togliendo.
+
+**Nessuna guardia per R4** (`# noqa` malformati, #211 R4): le due occorrenze erano menzioni in
+prosa dentro commenti — ruff legge come direttiva qualunque `# noqa:` incontri — e sono state
+riscritte senza cancelletto. Una guardia è stata **scritta e poi scartata**: replicava a occhio il
+parser `noqa` di ruff e segnalava 11 siti dove ruff ne segnala 2, cioè avrebbe preteso di
+riscrivere menzioni legittime in mezzo repository. Meglio nessun controllo che uno infedele.
+
 Il check `contract` (`tests/unit/test_csv_contract.py`) è la barriera che diventa
 rossa se cambiano: header/ordine/numero colonne, encoding `utf-8-sig`, `QUOTE_ALL`,
 `BetType` (PUNTA/BANCA), `Points` vuoto, `Handicap` 0, o se rientrano `Stake`/`Timestamp`.
