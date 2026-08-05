@@ -25,9 +25,12 @@ _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # significherebbe nasconderla dentro un cambiamento di copertura.
 RADICI = ("xtrader_bridge", "license_manager")
 
-# Manteniamo il nome storico per i chiamanti che importano `PKG` (il test lo usa per il
-# controllo di allineamento).
-PKG = os.path.join(_RADICE, RADICI[0])
+# NIENTE costante `PKG` che punti a una sola radice (riserva Fable 5 sulla #263). Ce n'era una,
+# tenuta «per retrocompatibilità», e con essa un commento che diceva «il test la usa» — falso già
+# nello stesso commit, perché il test era passato a `scansiona_tutte`. Una costante che nomina UNA
+# radice, in un modulo che ne sorveglia DUE, è un invito a coprirne metà per sbaglio: esattamente
+# il difetto che questa PR chiude, riprodotto nella patch che lo chiudeva. Chi vuole una radice
+# sola passi il path a `scansiona()` esplicitamente.
 OUT = os.path.join(_RADICE, "tests", "safety", "blind_except_sites.py")
 
 def is_broad(node):

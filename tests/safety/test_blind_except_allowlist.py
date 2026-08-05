@@ -69,7 +69,6 @@ import os
 import pytest
 
 _RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_PKG = os.path.join(_RADICE, "xtrader_bridge")
 
 
 def _carica_generatore():
@@ -388,7 +387,7 @@ _ALLOWLIST = {
 def _siti_attuali():
     """Siti attuali, con la STESSA scansione del generatore del baseline.
 
-    `scansiona_tutte` e non `scansiona(_PKG)` dalla #263: il gate copre **due** radici
+    `scansiona_tutte` e non una singola radice, dalla #263: il gate copre **due** radici
     (`xtrader_bridge/` e `license_manager/`), e le chiavi sono qualificate con la radice.
     """
     return _GEN.scansiona_tutte()
