@@ -10,6 +10,7 @@ Qui si verifica anche che i flag del browser siano quelli giusti per l'ambiente 
 che le rotte controllate coincidano con quelle davvero servite da `website/main.py`.
 """
 
+import ast
 import importlib.machinery
 import importlib.util
 import sys
@@ -67,6 +68,22 @@ def _stub_playwright() -> None:
     pacchetto.sync_api = api
     sys.modules["playwright"] = pacchetto
     sys.modules["playwright.sync_api"] = api
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _pulisci_stub():
+    """Toglie lo stub da `sys.modules` a fine modulo.
+
+    Lasciarlo lì per tutta la sessione significherebbe che un test successivo, in un ambiente
+    dove Playwright c'è davvero, importerebbe il finto al posto del vero — un guasto che si
+    manifesta come dipendenza dall'ordine dei test, cioè nel modo più difficile da diagnosticare
+    (rilievo Claude Fable 5 sulla #277). Si rimuove solo ciò che abbiamo messo noi.
+    """
+    prima = "playwright" in sys.modules
+    yield
+    if not prima:
+        for nome in ("playwright.sync_api", "playwright", "check_site_e2e"):
+            sys.modules.pop(nome, None)
 
 
 # Footer reali, così come li rende il browser (testo appiattito, due frasi).
@@ -164,17 +181,18 @@ def test_gli_errori_del_browser_sono_catturati_stretti_non_alla_cieca():
 def test_le_rotte_controllate_sono_quelle_servite_dal_sito():
     """Se qualcuno aggiunge una pagina a `_PAGES` senza toccare il collaudo, quella pagina
     non verrebbe mai aperta da un browser: nessuno se ne accorgerebbe fino alla pubblicazione."""
-    # Si legge il valore REALE di `_PAGES`, non il testo del file: tagliare il sorgente alla
-    # prima `}` basta finché nessun valore contiene una graffa, e il giorno che ne contenesse
-    # una il blocco finirebbe presto, `rotte_sito` si restringerebbe e l'assert passerebbe
-    # avendo confrontato meno rotte del vero — un PASS proprio sulla regressione da bloccare.
+    # Si legge il dizionario dall'AST del file, non tagliando il sorgente alla prima `}`:
+    # quel taglio reggeva finché nessun valore conteneva una graffa, e il giorno che ne
+    # contenesse una il blocco finirebbe presto. `ast` non ha quel limite — e `literal_eval`
+    # non esegue nulla del modulo (rilievi Fugu Ultra e GPT-5.5 sulla #277).
     sorgente = (_ROOT / "website" / "main.py").read_text(encoding="utf-8")
-    inizio = sorgente.index("_PAGES = {")
-    fine = sorgente.index("}", inizio) + 1
-    spazio = {}
-    exec(compile(sorgente[inizio:fine], "<_PAGES>", "exec"), spazio)  # noqa: S102
-    pages = spazio["_PAGES"]
-    assert isinstance(pages, dict) and pages, "estrazione di _PAGES fallita: %r" % (pages,)
+    pages = None
+    for nodo in ast.walk(ast.parse(sorgente)):
+        if isinstance(nodo, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_PAGES" for t in nodo.targets):
+            pages = ast.literal_eval(nodo.value)
+            break
+    assert isinstance(pages, dict) and pages, "_PAGES non trovato in website/main.py"
 
     rotte_sito = set(pages)
     rotte_collaudo = {r for r, _ in _carica().PAGINE}

@@ -16,6 +16,7 @@ Rilievi CodeRabbit sulla #277: scrittura in-place, temporanei prevedibili, `eval
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -112,8 +113,35 @@ def test_lo_script_non_cancella_il_lock_di_un_altra_istanza():
     assert 'if [ -e "$LOCK" ]' in testo, "manca il controllo esplicito sul lock"
 
 
+def _bash_utilizzabile() -> bool:
+    """C'è una shell bash VERA su questa macchina?
+
+    Su Windows `bash` sul PATH è il launcher di WSL (`C:\\Windows\\System32\\bash.exe`), che
+    senza una distribuzione installata risponde «non ci sono distribuzioni installate» con
+    exit code 1 — e non ha nulla a che vedere con la sintassi dello script. Il runner Windows
+    della CI ha fatto esattamente questo. Quindi non basta `which bash`: la shell va provata.
+    """
+    if shutil.which("bash") is None:
+        return False
+    try:
+        prova = subprocess.run(["bash", "-c", "exit 0"], capture_output=True, text=True,
+                               encoding="utf-8", timeout=30)
+    except OSError:
+        return False
+    return prova.returncode == 0
+
+
 def test_lo_script_e_sintatticamente_valido():
     """`bash -n` non esegue nulla ma rifiuta uno script malformato: dopo una riscrittura è
-    l'unico controllo automatico possibile senza un display."""
-    res = subprocess.run(["bash", "-n", str(_SCRIPT)], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    l'unico controllo automatico possibile senza un display.
+
+    Si salta dove bash non c'è davvero: `shoot.sh` è uno strumento Linux (Xvfb, xdotool,
+    imagemagick) e su Windows non viene mai eseguito. Il controllo resta dov'è utile — la
+    CI Linux — invece di fallire su una macchina che quello script non lo usa.
+    """
+    if not _bash_utilizzabile():
+        pytest.skip("nessuna bash reale qui (su Windows è il launcher WSL): shoot.sh è "
+                    "uno strumento Linux e la sua sintassi si verifica nella CI Linux")
+    res = subprocess.run(["bash", "-n", str(_SCRIPT)], capture_output=True, text=True,
+                         encoding="utf-8", timeout=60)
     assert res.returncode == 0, res.stderr
