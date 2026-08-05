@@ -201,3 +201,67 @@ def test_211_il_rilevatore_di_duplicati_VEDE_davvero(tmp_path):
     spazio = {}
     exec(f.read_text(encoding="utf-8"), spazio)          # noqa: S102 - sorgente scritto qui sopra
     assert len(spazio["T"]) == 2, "il duplicato è già sparito nel dict costruito"
+
+
+#: Le dieci chiavi che erano duplicate e di cui questa PR ha rimosso la seconda occorrenza,
+#: con la traduzione che DEVE restare. Pinnate verbatim: se una rimozione futura togliesse
+#: quella sbagliata, o se qualcuno cancellasse la superstite credendola l'inutile, la GUI
+#: tornerebbe in italiano per un utente inglese o spagnolo — e nessuno se ne accorgerebbe,
+#: perché `tr()` è fail-safe e restituisce la chiave italiana senza dire nulla.
+CHIAVI_EX_DUPLICATE = {
+    "Sport": {"EN": "Sport", "ES": "Deporte"},
+    "🔄 Aggiorna": {"EN": "🔄 Refresh", "ES": "🔄 Actualizar"},
+    "🗑 Elimina": {"EN": "🗑 Delete", "ES": "🗑 Eliminar"},
+    "Eliminazione annullata.": {"EN": "Deletion cancelled.", "ES": "Eliminación cancelada."},
+    "⏳ Dizionario occupato: riprova tra poco.": {
+        "EN": "⏳ Dictionary busy: try again shortly.",
+        "ES": "⏳ Diccionario ocupado: reinténtalo en breve."},
+}
+
+
+def test_211_le_chiavi_ex_duplicate_traducono_ancora():
+    """Rilievo Claude Fable 5 sulla PR #280, ed era fondato.
+
+    La neutralità della rimozione era **misurata** (`_CATALOG` identico prima e dopo, EN 469
+    voci ed ES 476) ma **scritta solo nel corpo della PR**: nessun test la teneva. Cioè
+    un'affermazione vera che nessuna guardia difende — esattamente il difetto che questa serie
+    di PR sta togliendo dal repository.
+
+    Non si pinnano i **conteggi** (469/476): si romperebbero a ogni traduzione nuova e
+    legittima, e una guardia che dà rosso sul lavoro corretto viene disattivata. Si pinnano le
+    **dieci chiavi toccate**, che è ciò che il rilievo teme davvero: una regressione silenziosa
+    di traduzioni GUI.
+
+    Silenziosa alla lettera: `tr()` è fail-safe e su una chiave mancante restituisce la
+    stringa italiana. L'utente inglese vedrebbe «🗑 Elimina» al posto di «🗑 Delete» senza che
+    nulla vada storto nel programma.
+    """
+    from xtrader_bridge import i18n
+
+    originale = i18n.get_language()
+    try:
+        for chiave, attese in CHIAVI_EX_DUPLICATE.items():
+            for lingua, atteso in attese.items():
+                i18n.set_language(lingua)
+                assert i18n.tr(chiave) == atteso, (
+                    f"{lingua}: {chiave!r} → {i18n.tr(chiave)!r}, atteso {atteso!r}. "
+                    "Una rimozione ha tolto la chiave superstite invece del duplicato: "
+                    "l'utente vedrebbe l'italiano senza alcun errore.")
+    finally:
+        i18n.set_language(originale)
+
+
+def test_211_italiano_resta_il_riferimento_senza_catalogo():
+    """Contro-guardia: in italiano `tr()` deve restituire la chiave **così com'è**, senza
+    passare dal catalogo. Senza questa, un test che confronta stringhe uguali passerebbe
+    anche se il catalogo italiano non esistesse — o se ne nascesse uno per sbaglio."""
+    from xtrader_bridge import i18n
+
+    originale = i18n.get_language()
+    try:
+        i18n.set_language("IT")
+        for chiave in CHIAVI_EX_DUPLICATE:
+            assert i18n.tr(chiave) == chiave, chiave
+        assert "IT" not in i18n._CATALOG, "l'italiano è il riferimento: non ha un catalogo"
+    finally:
+        i18n.set_language(originale)
