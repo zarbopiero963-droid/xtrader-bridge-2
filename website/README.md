@@ -102,6 +102,16 @@ Ogni pagina del sito porta il **disclaimer di non-affiliazione** nel footer
 (`footer.independent`; su `demo.html`, che ha un footer proprio, in forma testuale). È verificato
 da test: una pagina nuova senza disclaimer fa fallire la suite.
 
+## Roadmap
+
+L'elenco completo e aggiornato di cosa manca — con priorità, motivazioni e distinzione fra ciò
+che può fare l'agente e ciò che richiede il proprietario — è in
+[`docs/roadmap_sito.md`](../docs/roadmap_sito.md).
+
+Le due cose che **bloccano la pubblicazione**: una **pagina privacy** (il chatbot invia i
+messaggi degli utenti all'API Anthropic) e un richiamo a **gioco responsabile / 18+**, con la
+verifica legale che ne consegue.
+
 ## Da fare prima di andare pubblici
 
 - [ ] Sostituire `supporto@example.com` in `static/contatti.html` con l'indirizzo reale
