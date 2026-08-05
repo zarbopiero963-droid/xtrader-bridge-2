@@ -23,6 +23,14 @@ un'ora; email: finché serve alla richiesta) e il **trasferimento fuori dallo Sp
 Europeo**, perché Anthropic è una società statunitense — un fatto che l'utente ha diritto di
 sapere *prima* di scrivere nella chat.
 
+La frase «le conversazioni non vengono salvate» **non è più solo una promessa scritta**:
+[`test_website_chat_non_conserva.py`](../tests/unit/test_website_chat_non_conserva.py) la
+verifica sul codice. Blocca un `logging`/`print` del messaggio, una globale che lo accumuli, un
+errore che lo rimandi indietro, e — lato browser — `chat.js` che salvi la cronologia in
+`localStorage`. Rilievo GPT-5.5 sulla #284: un claim privacy senza un test è vero solo finché
+nessuno tocca il file. Resta fuori dal test ciò che non dipende da noi e che la pagina dichiara
+per quello che è: i log di connessione di Railway e la ritenzione lato Anthropic.
+
 ⚠️ **Da chiudere col professionista**, due cose in una sola consulenza:
 
 1. la **base giuridica** di ciascun trattamento (art. 13 GDPR). Le finalità sono descritte, ma
