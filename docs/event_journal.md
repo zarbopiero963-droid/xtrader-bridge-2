@@ -57,6 +57,27 @@ journal non blocca mai il trading) tramite l'helper privato `App._journal(...)`:
 | `_manual_clear` | `CSV_CLEARED` (`reason="manual"`) sullo svuotamento manuale riuscito («Svuota CSV ora») |
 | `_run_bot` | `RECONNECT` a ogni tentativo di riconnessione |
 
+### Il campo `source` degli eventi segnale (#233)
+
+`SIGNAL_PARSED`, `SIGNAL_VALIDATED` e `CSV_WRITTEN` registrano `source`, cioè **quale parser
+ha prodotto la riga**. Lo stesso valore finisce nel log dell'operatore
+(`📱 Segnale (<source>): …`). Valori possibili:
+
+| valore | significato |
+|---|---|
+| `custom` | Parser Personalizzato attivo — è il percorso normale |
+| `no_parser` | nessun Parser Personalizzato attivo: il messaggio è stato ignorato, nessuna riga scritta |
+| `unknown` | **il chiamante non ha dichiarato la sorgente.** Non dovrebbe comparire: i quattro punti di costruzione di `RouteResult` la passano sempre esplicita, e un test lo impone. Se lo vedi in un diario, è un punto di costruzione nuovo che l'ha omessa |
+
+⚠️ **Leggendo un diario storico** puoi incontrare `source: "hardcoded"`. **Non è un errore del
+diario**: nominava il parser automatico P.Bet, che allora esisteva davvero. È stato disattivato
+dal live in CP-09b e **rimosso dal repository** nella #76 P3-15, quindi un evento con quel
+valore è **anteriore** a quella rimozione. Dalla #233 quel valore non è più producibile: il
+default della dataclass era rimasto `hardcoded` e, se un punto di costruzione avesse omesso
+`source`, avrebbe attribuito la scrittura a un componente inesistente — nel registro su cui si
+fa diagnosi a posteriori. Ora il default è `unknown`, che dichiara di non sapere invece di
+indicare il colpevole sbagliato.
+
 ### Fedeltà dei clear: transizione reale riga→solo-header (#234)
 Gli eventi di clear (`CSV_CLEARED` / `CRASH_RECOVERY_CSV_CLEARED`) sono emessi **solo sulla
 transizione reale** «il CSV operativo aveva una riga attiva → ora è a solo header», non sulle

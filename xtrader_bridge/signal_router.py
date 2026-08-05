@@ -28,7 +28,20 @@ from . import (
 )
 
 CUSTOM = "custom"
-HARDCODED = "hardcoded"
+
+# Sorgente NON dichiarata dal chiamante (#233). Qui c'era `HARDCODED = "hardcoded"`, che
+# nominava il parser automatico P.Bet: disattivato dal live in CP-09b e **cancellato dal
+# repository** nella #76 P3-15 — `tests/unit/test_pbet_removed_76.py` verifica che il modulo
+# non sia nemmeno più importabile.
+#
+# `source` non resta interno: esce sul log dell'operatore (`signal_outcome.describe_write`) e
+# sul diario eventi (quattro `_journal` in `app.py`). Sono i record su cui si fa diagnosi a
+# posteriori, quindi un default che nomina un componente inesistente non è un residuo
+# estetico — è il registro forense che attribuisce una scrittura a qualcosa che non c'è.
+#
+# `unknown` dichiara di NON SAPERE invece di indicare il colpevole sbagliato: è la differenza
+# fra un fallback onesto e uno che mente.
+UNKNOWN = "unknown"
 
 # Nessun Parser Personalizzato attivo: il parser automatico P.Bet è disattivato
 # (CP-09b), quindi il messaggio è ignorato (nessuna riga scritta).
@@ -242,7 +255,7 @@ class RouteResult:
 
     row: dict = None
     status: str = validator.VALID
-    source: str = HARDCODED                       # custom | hardcoded
+    source: str = UNKNOWN                         # custom | no_parser | unknown
     detail: object = None                         # motivo dello scarto
     missing_required: list = field(default_factory=list)
     rows: list = None                             # multi-row (#192); None → single via `row`
