@@ -65,6 +65,7 @@ Oggi `_SITI_SENZA_MOTIVO_ATTESI = 0`: il ratchet non è più un tetto sul debito
 import ast
 import importlib.util
 import os
+import subprocess
 
 import pytest
 
@@ -478,6 +479,35 @@ def test_nessun_blind_except_nuovo_o_non_motivato():
         "una funzione diversa a saldo zero, è precisamente ciò che questo gate esiste per "
         "fermare. Se il cambiamento è voluto e motivato: "
         "`python tools/gen_blind_except_sites.py` e committa il diff del baseline.")
+
+
+def test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate():
+    """Il gate deve coprire TUTTO il Python del repository, e restare tale.
+
+    Rilievo CodeRabbit sulla #265, ed era quello giusto: il commento accanto a `RADICI` diceva
+    «da qui il gate copre tutto ciò che contiene codice Python» mentre l'elenco ne conteneva
+    tre — cioè affermava una copertura che il codice non aveva. Che `tools/`, `main.py` e
+    `license_manager_main.py` avessero ZERO blind-except non rendeva vera l'affermazione: il
+    gate non li avrebbe visti nemmeno il giorno dopo.
+
+    Correggere il commento non bastava. Un commento è vero il giorno in cui lo scrivi e falso
+    al primo file nuovo aggiunto alla radice del repository, senza che nessuno se ne accorga —
+    ed è la stessa classe di difetto (una descrizione che promette più della copertura reale)
+    che questo intero gate esiste per chiudere. Serve un test.
+
+    Si misura su `git ls-files`, non su un `os.walk`: così un file **non tracciato** (venv,
+    build, scratch) non fa fallire il gate, e un file tracciato non può sfuggirgli.
+    """
+    tracciati = subprocess.run(["git", "ls-files", "*.py"], cwd=_RADICE,
+                               capture_output=True, text=True, check=True).stdout.split()
+    assert tracciati, "git ls-files non ha prodotto nulla: misura non attendibile"
+    fuori = sorted(f for f in tracciati
+                   if not any(f == voce or f.startswith(voce + "/") for voce in _GEN.RADICI))
+    assert not fuori, (
+        f"file Python tracciati e NON sorvegliati dal gate blind-except: {fuori}.\n"
+        f"Radici attuali: {_GEN.RADICI}.\n"
+        "Aggiungili a `RADICI` in tools/gen_blind_except_sites.py (una voce può essere una "
+        "cartella o un file singolo), poi rigenera il baseline e LEGGI il diff.")
 
 
 def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():
