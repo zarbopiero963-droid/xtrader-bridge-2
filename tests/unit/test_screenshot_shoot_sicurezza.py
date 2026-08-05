@@ -46,7 +46,7 @@ def test_la_config_viene_sostituita_in_modo_atomico(tmp_path):
     cfg.write_text(json.dumps(originale), encoding="utf-8")
 
     res = subprocess.run([sys.executable, "-c", _blocco_python(), "es", str(cfg)],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert res.returncode == 0, res.stderr
 
     scritta = json.loads(cfg.read_text(encoding="utf-8"))
@@ -70,7 +70,7 @@ def test_una_scrittura_fallita_non_distrugge_la_config_esistente(tmp_path, monke
     assert "sabotaggio del test" in sabotaggio, "la sostituzione del sabotaggio non ha attecchito"
 
     res = subprocess.run([sys.executable, "-c", sabotaggio, "es", str(cfg)],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert res.returncode != 0, "il sabotaggio doveva far fallire lo script"
 
     assert json.loads(cfg.read_text(encoding="utf-8")) == originale, \
@@ -115,5 +115,5 @@ def test_lo_script_non_cancella_il_lock_di_un_altra_istanza():
 def test_lo_script_e_sintatticamente_valido():
     """`bash -n` non esegue nulla ma rifiuta uno script malformato: dopo una riscrittura è
     l'unico controllo automatico possibile senza un display."""
-    res = subprocess.run(["bash", "-n", str(_SCRIPT)], capture_output=True, text=True, timeout=60)
+    res = subprocess.run(["bash", "-n", str(_SCRIPT)], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert res.returncode == 0, res.stderr

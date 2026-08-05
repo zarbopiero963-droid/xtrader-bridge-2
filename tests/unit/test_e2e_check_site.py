@@ -10,6 +10,7 @@ Qui si verifica anche che i flag del browser siano quelli giusti per l'ambiente 
 che le rotte controllate coincidano con quelle davvero servite da `website/main.py`.
 """
 
+import importlib.machinery
 import importlib.util
 import sys
 import types
@@ -43,15 +44,29 @@ def _stub_playwright() -> None:
     Nessuna finzione sul comportamento: si registra solo ciò che serve all'import
     (`Error`, `sync_playwright`), e nessun test qui apre un browser.
     """
-    if importlib.util.find_spec("playwright") is not None:
-        return
-    pacchetto = types.ModuleType("playwright")
-    api = types.ModuleType("playwright.sync_api")
+    if "playwright" in sys.modules:
+        return  # già installato, o già messo qui da una chiamata precedente
+    try:
+        if importlib.util.find_spec("playwright") is not None:
+            return
+    except ImportError:
+        pass  # non importabile: si prosegue e si registra lo stub
+
+    def _modulo(nome):
+        # `spec` va valorizzato: un modulo in sys.modules con `__spec__ = None` fa sollevare
+        # `ValueError` alla PROSSIMA `find_spec()`. È successo davvero in CI, ed è il motivo
+        # per cui questo stub va provato in un ambiente senza Playwright, non qui dove c'è.
+        m = types.ModuleType(nome)
+        m.__spec__ = importlib.machinery.ModuleSpec(nome, loader=None)
+        return m
+
+    pacchetto = _modulo("playwright")
+    api = _modulo("playwright.sync_api")
     api.Error = type("Error", (Exception,), {})
     api.sync_playwright = lambda: None
     pacchetto.sync_api = api
-    sys.modules.setdefault("playwright", pacchetto)
-    sys.modules.setdefault("playwright.sync_api", api)
+    sys.modules["playwright"] = pacchetto
+    sys.modules["playwright.sync_api"] = api
 
 
 # Footer reali, così come li rende il browser (testo appiattito, due frasi).
