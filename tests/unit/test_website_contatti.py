@@ -42,6 +42,25 @@ def test_il_form_manda_a_un_indirizzo_ricomponibile():
         "il mailto non usa più la variabile con l'indirizzo: rischio destinatario vuoto"
 
 
+def test_c_e_un_ripiego_se_il_client_email_non_si_apre():
+    """Il `mailto:` funziona solo dove esiste un client email configurato.
+
+    Dove non c'è — parecchi PC Windows, e chiunque usi solo webmail — cliccare non produce
+    NIENTE. Senza il ripiego la pagina direbbe «si apre il tuo client email» e la richiesta di
+    supporto si perderebbe in silenzio: l'utente crede di aver scritto, il proprietario non
+    riceve nulla. L'indirizzo va quindi mostrato dopo l'invio, copiabile.
+    """
+    testo = _html()
+    assert 'SITE_T("contact.fallback")' in testo, "manca il messaggio di ripiego"
+    assert 'link.textContent=supporto' in testo, \
+        "l'indirizzo di ripiego non è più visibile: resta solo un mailto che può non aprirsi"
+
+    # e deve esistere in tutte e tre le lingue del sito, non solo in italiano
+    i18n = (_ROOT / "website" / "static" / "i18n.js").read_text(encoding="utf-8")
+    assert i18n.count('"contact.fallback"') == 2, \
+        "il ripiego non è tradotto in EN e ES (l'italiano è il default nel markup)"
+
+
 def test_l_indirizzo_non_compare_in_chiaro_nel_sorgente():
     """La forma completa `nome@dominio` non deve stare nell'HTML servito: è esattamente il
     pattern che i raccoglitori automatici cercano. Non è protezione forte — chi apre la

@@ -86,7 +86,21 @@ document.getElementById("contactForm").addEventListener("submit",function(e){
   var supporto=["pier.zar69","gmail.com"].join("@");
   window.location.href="mailto:"+supporto+"?subject="+encodeURIComponent("Supporto BetRelay")+"&body="+body;
   var st=(window.SITE_T&&window.SITE_T("contact.sent"))||"Si apre il tuo client email con il messaggio precompilato.";
-  document.getElementById("cfStatus").textContent=st;
+  var alt=(window.SITE_T&&window.SITE_T("contact.fallback"))||"Se non si apre nulla, scrivimi direttamente a:";
+  // Il `mailto:` funziona solo se sul dispositivo c'è un client email configurato. Dove non
+  // c'è — capita su parecchi PC Windows e su chi usa solo webmail — NON succede niente: la
+  // pagina direbbe «si apre il tuo client» e la richiesta di supporto si perderebbe in
+  // silenzio. Qui l'indirizzo viene mostrato in chiaro DOPO l'invio, così è copiabile.
+  // Aggiunto via JavaScript, quindi non finisce nell'HTML servito ai raccoglitori.
+  var stato=document.getElementById("cfStatus");
+  stato.textContent=st+" ";
+  var nota=document.createElement("span");
+  nota.className="cf-fallback";
+  nota.textContent=alt+" ";
+  var link=document.createElement("a");
+  link.href="mailto:"+supporto; link.textContent=supporto;
+  nota.appendChild(link);
+  stato.appendChild(nota);
 });
 </script>
 <script src="/static/i18n.js" defer></script>
