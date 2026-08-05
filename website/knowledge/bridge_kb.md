@@ -95,6 +95,9 @@ Riconoscimento (si sceglie nelle proprietà della fonte): per ID (MarketId + Sel
 coincidere col palinsesto Betfair della giurisdizione del conto) oppure per NOMI (EventName +
 MarketType + SelectionName). Con il metodo a nomi la lingua della fonte deve corrispondere a
 quella con cui il software legge il palinsesto: è la causa tipica del segnale che resta rosso.
+Col metodo per ID invece la lingua NON entra in gioco: non si confronta nessun nome, quindi
+«Lingua Palinsesto» è irrilevante. Chi ha problemi ricorrenti di lingua e dispone di id corretti
+per il proprio exchange può usare il metodo per id per aggirare del tutto la questione.
 Segnale valido = icona verde, non valido = icona rossa (evento concluso, dati incompleti o
 incoerenti col palinsesto). Una strategia usa ogni segnale UNA sola volta per esecuzione.
 La documentazione completa di XTrader è sul sito, pagina /documentazione (manuale PDF ufficiale

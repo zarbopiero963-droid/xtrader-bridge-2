@@ -164,3 +164,17 @@ def test_le_tre_schede_esistono():
     html = _html()
     for w in ("filtro", "monitor", "segnali"):
         assert 'data-win="%s"' % w in html, "manca la scheda «%s»" % w
+
+
+def test_col_metodo_per_id_la_lingua_non_entra_in_gioco():
+    """Regola confermata dal proprietario: col riconoscimento per `MarketId, SelectionId` la
+    lingua non viene usata, perché non si confronta nessun nome. La demo deve rispecchiarlo —
+    altrimenti insegnerebbe una regola sbagliata proprio sul punto più frainteso.
+
+    Si verifica il ramo di validazione: `perNomi ? (lingua combacia) : true`.
+    """
+    html = _html()
+    assert re.search(r"var\s+valido\s*=\s*perNomi\s*\?.*lingua.*:\s*true", html), \
+        "la validazione non distingue più i due metodi di riconoscimento"
+    assert "la lingua non entra in gioco" in html, \
+        "la demo non spiega più perché col metodo per ID la lingua è irrilevante"

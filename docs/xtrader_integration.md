@@ -85,6 +85,8 @@ Si sceglie nelle proprietà della fonte, e ogni segnale **eredita** il metodo de
 **Per id** — `MarketId` + `SelectionId`. Individua la selezione in modo univoco, ma gli id devono
 coincidere con il palinsesto Betfair **della giurisdizione del conto**. Il supporto ha segnalato
 che Betfair usa **id diversi fra exchange** (IT vs UK): è la difficoltà principale di questo metodo.
+Con questo metodo **la lingua non entra in gioco**: non si confronta nessun nome, quindi
+«Lingua Palinsesto» è irrilevante (confermato dal proprietario).
 
 **Per nomi** — `EventName` + `MarketType` + `SelectionName`. Non dipende dagli id, ma i nomi devono
 essere **nella stessa lingua** con cui XTrader legge il palinsesto (§4), e devono corrispondere
@@ -114,7 +116,12 @@ PUNTA, BANCA su tutte le versioni»*. BetRelay scrive `PUNTA`/`BANCA`; non c'è 
 per gli utenti Betting Toolkit non italiani. *(I termini spagnoli `FAVOR`/`CONTRA` non sono ancora
 previsti: il bridge li rifiuta fail-closed.)*
 
-**La lingua conta per il riconoscimento a nomi, e lì conta parecchio.** Il campo «Lingua
+**La lingua conta SOLO per il riconoscimento a nomi — con gli id non entra in gioco**
+(confermato dal proprietario). Ha senso: col metodo per id non si confronta nessun nome, quindi
+non c'è niente da tradurre. Chi ha problemi ricorrenti di lingua e dispone di id affidabili può
+usare il metodo per id proprio per aggirare del tutto la questione.
+
+Sul metodo a nomi, invece, la lingua conta parecchio. Il campo «Lingua
 Palinsesto» della fonte (`IT`/`EN`/`ES`, screenshot `varie/04`) decide in che lingua XTrader cerca
 nomi di evento, mercato e selezione. Se il CSV dice `Il Pareggio` e la fonte è impostata su `EN`,
 il segnale resta **rosso** — e l'utente non capisce perché. Le tre lingue coincidono esattamente

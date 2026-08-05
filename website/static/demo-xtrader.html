@@ -616,7 +616,15 @@
     });
     renderSegnali();
 
-    if (valido){
+    if (valido && !perNomi && st.csvLingua !== st.fonte.lingua.toLowerCase()){
+      // Caso istruttivo: nome in una lingua diversa, ma il metodo per ID non guarda i nomi.
+      log("Ricarica: segnale VERDE anche col nome in un'altra lingua — col metodo per ID " +
+          "la lingua non entra in gioco.", "g");
+      spiega(true, "Il nome della selezione è in una lingua diversa da quella della fonte, eppure " +
+        "il segnale è valido: con il riconoscimento per MarketId e SelectionId XTrader non " +
+        "confronta nessun nome, quindi «Lingua Palinsesto» è irrilevante. È il modo di aggirare " +
+        "del tutto i problemi di lingua — a patto di avere id corretti per l'exchange del tuo conto.");
+    } else if (valido){
       log("Ricarica: segnale letto e riconosciuto → icona verde.", "g");
       spiega(true, "XTrader ha ritrovato evento, mercato e selezione nel palinsesto Betfair. " +
         "Da qui una strategia con l'azione «Piazza Scommesse su Segnali» può usarlo. " +
@@ -627,8 +635,8 @@
       spiega(false, "Il file dice «" + st.csvSel + "», ma la fonte cerca le selezioni in " +
         st.fonte.lingua + ". Col riconoscimento per nomi i due lati devono parlare la stessa " +
         "lingua: basta allineare la «Lingua Palinsesto» della fonte alla lingua impostata in " +
-        "BetRelay — oppure passare al riconoscimento per MarketId e SelectionId, che non dipende " +
-        "dai nomi. È la causa numero uno dei segnali rossi.");
+        "BetRelay — oppure passare al riconoscimento per MarketId e SelectionId, con cui la lingua " +
+        "non entra proprio in gioco. È la causa numero uno dei segnali rossi.");
     }
     if (st.fonte.escludi && !valido){
       st.righe = st.righe.filter(function(r){ return r.valido; });

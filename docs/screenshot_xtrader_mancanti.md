@@ -46,12 +46,15 @@ due pallini colorati: verosimili, ma inventati nella forma.
 
 ## P2 — completano le guide
 
-### 4. Dialog «Fonte Segnali» **compilata**, e una seconda volta col riconoscimento **per ID**
+### 4. Dialog «Fonte Segnali» **compilata**
 **Sblocca**: i miei due scatti (`varie/03`, `varie/04`) hanno i campi **vuoti**. Servono per
-mostrare un percorso file e un intervallo reali. E soprattutto: **il campo «Lingua Palinsesto»
-resta visibile anche quando il riconoscimento è per `MarketId, SelectionId`?** Nel mio scatto
-compare solo con il metodo a nomi selezionato, ma non posso escludere che sia una coincidenza di
-timing. La guida oggi dice che con gli id «la lingua non incide»: se sbaglio, va corretto.
+mostrare un percorso file e un intervallo reali, cioè com'è fatta la dialog quando è pronta a
+funzionare.
+
+> ✅ **Domanda chiusa.** Chiedevo se «Lingua Palinsesto» contasse anche col riconoscimento per ID:
+> il proprietario ha confermato che **con gli id la lingua non entra in gioco**. Guida e demo sono
+> già allineate. Resta solo la curiosità cosmetica se il campo scompaia dalla dialog o resti
+> visibile e inerte — irrilevante per il comportamento.
 
 ### 5. Azione «Piazza Scommesse su Segnali» **compilata**
 **Sblocca**: `azioni-se-vero/04` è a valori di default e i controlli dello stake sono disattivati.
