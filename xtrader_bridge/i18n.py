@@ -824,6 +824,37 @@ _CATALOG = {
         " (lingua CSV personalizzata preservata: {kept})":
             " (custom CSV language preserved: {kept})",
         " — lingua CSV allineata": " — CSV language aligned",
+
+        # ── #269: i quattro punti rimasti in italiano ────────────────────────────────────
+        # Header sempre a schermo, selettore Modalità (il controllo che decide se il CSV
+        # operativo viene scritto), i sette semafori Salute e l'elenco chat monitorate.
+        "Righe attive: {n}/{cap}": "Active rows: {n}/{cap}",
+        "Righe attive: {n}": "Active rows: {n}",
+        "🧪 Simulazione Bridge — NON scrive il CSV operativo":
+            "🧪 Bridge Simulation — does NOT write the operational CSV",
+        "🔬 Collaudo XTrader — scrive il CSV (XTrader in simulazione)":
+            "🔬 XTrader Test — writes the CSV (XTrader in simulation)",
+        "⚠️ Reale — scommesse vere (richiede conferma)":
+            "⚠️ Live — real bets (requires confirmation)",
+        "Ultimo messaggio": "Last message",
+        "Ultimo segnale": "Last signal",
+        "CSV scrivibile": "CSV writable",
+        "Conferme XTrader": "XTrader confirmations",
+        "Dizionari": "Dictionaries",
+        "connesso, in ascolto": "connected, listening",
+        "riconnessione in corso (backoff)": "reconnecting (backoff)",
+        "OFFLINE — premi AVVIA per ascoltare": "OFFLINE — press START to listen",
+        "nessun messaggio ricevuto in questa sessione": "no message received in this session",
+        "configurato e attivo": "configured and active",
+        "NESSUN parser attivo: lo START è bloccato (scheda 🧩 Parser)":
+            "NO active parser: START is blocked (🧩 Parser tab)",
+        "nessun segnale in questa sessione": "no signal in this session",
+        "nessun segnale; ultimo errore: {err}": "no signal; last error: {err}",
+        "non attive (chat notifiche non configurata)":
+            "not active (notifications chat not configured)",
+        "attive, nessuna conferma ricevuta finora":
+            "active, no confirmation received so far",
+        "Il bridge ascolterà queste {n} chat:": "The bridge will listen to these {n} chats:",
     },
     "ES": {
         # Batch design 4 (P3-30 #76)
@@ -1513,5 +1544,34 @@ _CATALOG = {
         " (lingua CSV personalizzata preservata: {kept})":
             " (idioma CSV personalizado preservado: {kept})",
         " — lingua CSV allineata": " — idioma CSV alineado",
+
+        # ── #269: i quattro punti rimasti in italiano ────────────────────────────────────
+        "Righe attive: {n}/{cap}": "Filas activas: {n}/{cap}",
+        "Righe attive: {n}": "Filas activas: {n}",
+        "🧪 Simulazione Bridge — NON scrive il CSV operativo":
+            "🧪 Simulación Bridge — NO escribe el CSV operativo",
+        "🔬 Collaudo XTrader — scrive il CSV (XTrader in simulazione)":
+            "🔬 Prueba XTrader — escribe el CSV (XTrader en simulación)",
+        "⚠️ Reale — scommesse vere (richiede conferma)":
+            "⚠️ Real — apuestas reales (requiere confirmación)",
+        "Ultimo messaggio": "Último mensaje",
+        "Ultimo segnale": "Última señal",
+        "CSV scrivibile": "CSV escribible",
+        "Conferme XTrader": "Confirmaciones XTrader",
+        "Dizionari": "Diccionarios",
+        "connesso, in ascolto": "conectado, escuchando",
+        "riconnessione in corso (backoff)": "reconectando (backoff)",
+        "OFFLINE — premi AVVIA per ascoltare": "OFFLINE — pulsa INICIAR para escuchar",
+        "nessun messaggio ricevuto in questa sessione": "ningún mensaje recibido en esta sesión",
+        "configurato e attivo": "configurado y activo",
+        "NESSUN parser attivo: lo START è bloccato (scheda 🧩 Parser)":
+            "NINGÚN parser activo: el INICIO está bloqueado (pestaña 🧩 Parser)",
+        "nessun segnale in questa sessione": "ninguna señal en esta sesión",
+        "nessun segnale; ultimo errore: {err}": "ninguna señal; último error: {err}",
+        "non attive (chat notifiche non configurata)":
+            "no activas (chat de notificaciones no configurado)",
+        "attive, nessuna conferma ricevuta finora":
+            "activas, ninguna confirmación recibida hasta ahora",
+        "Il bridge ascolterà queste {n} chat:": "El bridge escuchará estos {n} chats:",
     },
 }

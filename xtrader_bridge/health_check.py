@@ -19,7 +19,7 @@ Principi:
 import os
 from dataclasses import dataclass
 
-from . import bridge_mode
+from . import bridge_mode, i18n
 
 GREEN = "GREEN"
 YELLOW = "YELLOW"
@@ -39,6 +39,22 @@ class HealthItem:
     label: str
     state: str
     detail: str = ""
+
+
+def localized(item: "HealthItem") -> "HealthItem":
+    """Copia di `item` con etichetta e dettaglio tradotti nella lingua attiva (#269).
+
+    **Passo di PRESENTAZIONE, separato di proposito da `build_semaphores`**, che resta puro e
+    canonico: le decisioni (`state`) e le chiavi (`message`, `csv`, …) sono identificatori
+    stabili su cui girano i test esistenti, l'assistente (`explain_health`) e il pannello, che
+    cerca le label per `item.key`. Tradurre là dentro avrebbe cambiato l'identità dei semafori
+    insieme al loro testo.
+
+    `key` e `state` non si toccano mai: se cambiassero, il pannello dipingerebbe il colore
+    sbagliato o non troverebbe più il semaforo. I dettagli dinamici (percorso CSV, ultimo
+    messaggio, errore del runtime) non sono catalogabili: `tr` è fail-safe e li restituisce
+    tali e quali."""
+    return HealthItem(item.key, i18n.tr(item.label), item.state, i18n.tr(item.detail))
 
 
 def csv_writable(path, *, platform=None) -> "tuple[str, str]":
@@ -120,7 +136,8 @@ def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parse
     elif err:
         # Nessun segnale ma un errore recente: il motivo va MOSTRATO (mai nascosto).
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
-                                f"nessun segnale; ultimo errore: {err}"))
+                                i18n.tr("nessun segnale; ultimo errore: {err}"
+                                        ).format(err=err)))
     else:
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
                                 "nessun segnale in questa sessione"))

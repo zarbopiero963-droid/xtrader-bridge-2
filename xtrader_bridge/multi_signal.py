@@ -52,13 +52,19 @@ def warning_text(max_active) -> str:
 
 def active_count_text(n, max_active) -> str:
     """Testo dell'indicatore delle righe attive per la GUI: ``N`` oppure ``N/M`` se è
-    impostato un tetto (`max_active` > 0)."""
+    impostato un tetto (`max_active` > 0).
+
+    Localizzato (#269): sta nell'header ed è **sempre a schermo**, quindi era la prima cosa che
+    un utente EN/ES vedeva in italiano. Stesso idioma di `warning_text` qui sotto — template
+    `i18n.tr(...)` con segnaposto reso via `.format`, così i numeri non passano dal catalogo.
+    In IT `tr` è identità → testo storico invariato."""
     try:
         cap = int(max_active)
     except (TypeError, ValueError):
         cap = 0
-    suffix = f"/{cap}" if cap > 0 else ""
-    return f"Righe attive: {int(n)}{suffix}"
+    if cap > 0:
+        return i18n.tr("Righe attive: {n}/{cap}").format(n=int(n), cap=cap)
+    return i18n.tr("Righe attive: {n}").format(n=int(n))
 
 
 def blocked_message(max_active) -> str:

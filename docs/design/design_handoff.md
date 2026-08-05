@@ -367,7 +367,30 @@ Dalla **slice 4b** anche gli stati dinamici «⬤ ATTIVO/RICONNESSIONE…» sono
 localizzati (EN: ACTIVE/RECONNECTING… · ES: ACTIVO/RECONEXIÓN… · «⬤  OFFLINE» è
 universale): il semaforo 🚦 Salute non fa più il parsing del testo della label ma usa
 lo **stato canonico** `_listener_state` (`health_check.LISTENER_*`), impostato dal
-punto unico `_set_listener_state` — la label è SOLO display. Dalla **slice 4c** la
+punto unico `_set_listener_state` — la label è SOLO display.
+
+> **#269 — quattro punti che erano rimasti in italiano.** L'epica multilingua dava la slice
+> «UI localizzata» per completata, ma fino a qui restavano in italiano anche scegliendo
+> *English* o *Español*: **①** l'indicatore **«Righe attive: N/M»** in header, sempre a schermo
+> (→ *Active rows* / *Filas activas*); **②** le tre voci del **selettore Modalità bridge**;
+> **③** tutti i semafori della scheda **🚦 Salute** (vedi §6.2-ter); **④** la riga «Il bridge
+> ascolterà queste N chat:» nella scheda Chat monitorate. Nessuno dei quattro era nell'elenco
+> di ciò che resta italiano **per contratto**.
+>
+> Il **②** è il più delicato e vale la pena che chi disegna lo sappia: quel selettore decide
+> se il CSV operativo viene scritto, e le sue etichette **non sono solo display** — la GUI
+> salva nel form la stringa *visualizzata* e la riconverte poi nella modalità canonica. Le tre
+> voci diventano *🧪 Bridge Simulation — does NOT write the operational CSV* · *🔬 XTrader Test
+> — writes the CSV (XTrader in simulation)* · *⚠️ Live — real bets (requires confirmation)*
+> (ES: *🧪 Simulación Bridge…* · *🔬 Prueba XTrader…* · *⚠️ Real — apuestas reales (requiere
+> confirmación)*), e il riconoscimento accetta **sia** l'etichetta tradotta **sia** quella
+> italiana **sia** il nome canonico: una config scritta da un'altra installazione continua a
+> caricarsi, e una stringa sconosciuta resta rifiutata (nessuna modalità applicata — mai
+> indovinata). **La parola da digitare per confermare la modalità REALE resta invariata per
+> contratto**, in tutte le lingue: è l'etichetta che spiega cosa succede a essere tradotta,
+> non il gesto di conferma.
+
+Dalla **slice 4c** la
 localizzazione si estende alle **finestre secondarie**, a una per volta: la prima è
 ### Avviso «bridge ATTIVO» sul salvataggio (issue #176)
 
@@ -712,7 +735,22 @@ riga — vedi il paragrafo dedicato in fondo a questa sezione). Colori: verde
 `#2e7d32/#66bb6a`, giallo `#e65100/#ffa726`, rosso `#c62828/#ef5350` (le stesse tuple
 theme-aware dello stato listener). Semantica: dato assente = MAI verde (giallo onesto);
 *Modalità* usa la semantica di rischio dei banner (verde Simulazione, giallo Collaudo,
-rosso Reale). Aggiornamento automatico sugli stessi hook della dashboard (START/STOP,
+rosso Reale).
+
+> **#269 (localizzazione dei semafori).** Etichette **e dettagli** sono ora localizzati in
+> EN/ES — prima l'intera scheda restava in italiano in tutte le lingue. Le etichette diventano
+> *Last message* · *Last signal* · *CSV writable* · *XTrader confirmations* · *Dictionaries*
+> (ES: *Último mensaje* · *Última señal* · *CSV escribible* · *Confirmaciones XTrader* ·
+> *Diccionarios*); *Telegram* e *Parser Personalizzato* restano invariati come termini
+> prodotto. Sono tradotti anche i dettagli statici — p.es. «OFFLINE — premi AVVIA per
+> ascoltare» → *OFFLINE — press START to listen* / *OFFLINE — pulsa INICIAR para escuchar*.
+> **La traduzione avviene alla presentazione** (`health_check.localized`, chiamata da
+> `_refresh_health_inner`): `build_semaphores` resta canonico in italiano, perché `key` e
+> `state` sono **identità** — il pannello cerca le righe per `key` e ne sceglie il colore da
+> `state`. I dettagli **dinamici** (percorso del CSV, testo dell'ultimo messaggio, errore del
+> runtime) non passano dal catalogo e restano tali e quali in ogni lingua.
+
+Aggiornamento automatico sugli stessi hook della dashboard (START/STOP,
 campi «Ultimo …», salvataggio config) + manuale col pulsante. La sonda «CSV scrivibile»
 è **cacheata ~5 s** (P3-9 #76): sugli aggiornamenti automatici il semaforo CSV può
 ritardare fino a 5 s (mai I/O filesystem a raffica sul thread GUI — uno share di rete

@@ -24,7 +24,7 @@ attiverebbe scommesse vere senza conferma. `requires_real_confirmation` chiude i
 scatta ogni volta che la NUOVA config è REALE e la vecchia non lo era.
 """
 
-from . import safety_guard
+from . import i18n, safety_guard
 
 SIMULAZIONE = "SIMULAZIONE"
 COLLAUDO = "COLLAUDO"
@@ -143,12 +143,24 @@ def label_for(mode) -> str:
 def mode_for_form_value(value):
     """Modo canonico da un valore del form (etichetta della tendina O nome canonico,
     case-insensitive). Sconosciuto → ``None`` (il chiamante segnala errore e NON
-    applica: mai indovinare una modalità)."""
+    applica: mai indovinare una modalità).
+
+    **Perché guarda anche l'etichetta TRADOTTA (#269).** La tendina mostra `i18n.tr(LABELS[m])`
+    e la GUI salva nel form la stringa *visualizzata*: in EN/ES quella stringa non è più
+    l'etichetta italiana, e senza questo confronto la funzione restituirebbe `None` — cioè
+    fail-closed, nessuna modalità applicata, ma il selettore **inservibile in due lingue su
+    tre**. Tradurre la resa senza estendere qui sarebbe una regressione mascherata da
+    miglioramento; il test `test_269_l_etichetta_TRADOTTA_resta_riconoscibile` la blocca.
+
+    L'etichetta **italiana** resta riconosciuta in ogni lingua: un `config.json` scritto da
+    un'altra installazione continua a caricarsi. La traduzione AGGIUNGE una forma, non ne
+    toglie — e `None` sullo sconosciuto resta l'invariante."""
     canon = normalize_mode(value)
     if canon:
         return canon
+    testo = str(value or "").strip()
     for mode, label in LABELS.items():
-        if str(value or "").strip() == label:
+        if testo in (label, i18n.tr(label)):
             return mode
     return None
 
