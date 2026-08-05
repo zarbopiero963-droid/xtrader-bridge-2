@@ -37,10 +37,16 @@ che l'agente possa dare**. Va chiesto a chi di competenza.
 Se la risposta fosse restrittiva, le conseguenze toccano il posizionamento del sito, non il
 software: il bridge resta un tool per file CSV.
 
-### S3. Contatti veri 👤
-`supporto@example.com` è ancora nel codice, e il form apre `mailto:` invece di inviare. Serve
-l'indirizzo reale; poi si può implementare `/api/contact` con invio dal backend (e un
-anti-abuso, visto che è un endpoint pubblico).
+### S3. Contatti veri ✅ indirizzo messo · resta il backend
+L'indirizzo del proprietario è in `static/contatti.html`, **spezzato nel sorgente** e ricomposto
+in JavaScript: nell'HTML servito la forma `nome@dominio` non compare, quindi i raccoglitori
+automatici non la trovano. Non è cifratura — chi apre la pagina lo legge — ma evita la raccolta
+di massa. Verificato guidando il form con un browser vero: il `mailto:` generato ha il
+destinatario giusto e i caratteri speciali dei campi (`&`, `+`, `%`) correttamente codificati.
+
+Resta da fare, quando il sito sarà pubblico: `/api/contact` con invio dal backend, così
+l'indirizzo non passa più dal client dell'utente — e un anti-abuso, visto che sarebbe un
+endpoint pubblico.
 
 ### S4. Deploy su Railway 👤 (setup) + agente (verifica)
 Il sito **non è mai stato visto online**: tutto ciò che è stato verificato gira in locale.

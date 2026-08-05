@@ -79,8 +79,12 @@ document.getElementById("contactForm").addEventListener("submit",function(e){
   // tutto il body va codificato insieme: `&`, `#` o `%` nel nome o nell'email
   // altrimenti diventano separatori di query e tagliano il messaggio
   var body=encodeURIComponent("Nome: "+n+"\nEmail: "+m+"\n\n"+t);
-  // TODO(owner): sostituire con l'indirizzo di supporto reale
-  window.location.href="mailto:supporto@example.com?subject="+encodeURIComponent("Supporto BetRelay")+"&body="+body;
+  // Indirizzo di supporto del proprietario. Nel sorgente sta SPEZZATO e ricomposto qui:
+  // i raccoglitori automatici leggono l'HTML statico cercando la forma `nome@dominio`, e
+  // trovarla in chiaro su una pagina pubblica significa spam per sempre. Non è cifratura —
+  // chi vuole leggerlo lo legge — è solo il minimo che evita la raccolta automatica.
+  var supporto=["pier.zar69","gmail.com"].join("@");
+  window.location.href="mailto:"+supporto+"?subject="+encodeURIComponent("Supporto BetRelay")+"&body="+body;
   var st=(window.SITE_T&&window.SITE_T("contact.sent"))||"Si apre il tuo client email con il messaggio precompilato.";
   document.getElementById("cfStatus").textContent=st;
 });

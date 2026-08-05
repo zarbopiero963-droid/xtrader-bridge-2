@@ -125,8 +125,11 @@ verifica legale che ne consegue.
 
 ## Da fare prima di andare pubblici
 
-- [ ] Sostituire `supporto@example.com` in `static/contatti.html` con l'indirizzo reale
-      (o implementare `/api/contact` con invio email dal backend).
+- [x] Indirizzo di supporto reale in `static/contatti.html` (spezzato nel sorgente e
+      ricomposto in JavaScript: la forma `nome@dominio` non compare nell'HTML servito,
+      così i raccoglitori automatici non lo trovano). Test: `tests/unit/test_website_contatti.py`
+- [ ] `/api/contact` con invio email dal backend, così l'indirizzo non passa più dal client
+      dell'utente — con anti-abuso, visto che sarebbe un endpoint pubblico.
 - [ ] Aggiornare la demo quando ci sono screenshot freschi dell'app.
 - [ ] (Opzionale) Dominio personalizzato su Railway.
 - [ ] Tradurre in EN/ES la guida `/guida/bot-telegram` (la pagina `/documentazione` lo è già).
