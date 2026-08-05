@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import dizionari_i18n_sito
+from tests.conftest import _testo_js, dizionari_i18n_sito
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "website" / "static"
@@ -183,3 +183,21 @@ def test_il_lettore_dei_dizionari_regge_una_riformattazione(tmp_path):
     assert sorted(letti) == ["en", "es"], letti
     assert letti["en"]["a.x"] == "uno {non una graffa vera}"
     assert letti["es"]["a.y"] == "dos"
+
+
+@pytest.mark.parametrize("grezzo, atteso", [
+    (r'class=\"num\"', 'class="num"'),          # il caso che serve davvero alle traduzioni
+    (r'a\u00e8b', "aèb"),                        # accenti scritti come codepoint
+    (r'a\tb', "a\tb"),                            # tabulazione
+    (r'a\/b', "a/b"),                            # slash sfuggita, legale in JSON
+    (r"non e\' JSON", "non e' JSON"),            # escape che JSON NON conosce: ripiego a mano
+])
+def test_le_sequenze_di_escape_diventano_il_testo_che_si_vede(grezzo, atteso):
+    """Il sorgente JS non è il testo: `\\"` a schermo è `"`.
+
+    Gestivo a mano solo tre escape e ne avevo dimenticati almeno quattro (rilievo GPT-5.5 sulla
+    #289). Adesso il grosso lo scioglie `json.loads`, e resta un ripiego per gli escape che JS
+    ammette e JSON no — perché un test che esplode su una virgoletta sfuggita è peggio del
+    problema che vuole prevenire.
+    """
+    assert _testo_js(grezzo) == atteso

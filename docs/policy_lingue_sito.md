@@ -112,6 +112,42 @@ disclaimer fa fallire la suite.
 | Screenshot BetRelay **IT / EN / ES** | ✅ 3 schermate per lingua in `docs/assets/screenshots/linux-xvfb/<lang>/`, più i due Wizard in IT. Rigenerabili con `tools/screenshots/shoot.sh` |
 | ⚠️ Localizzazione EN/ES dell'app | **incompleta**: header «Righe attive», selettore modalità bridge e tutta la tab Salute restano in italiano — emerso proprio generando questi screenshot |
 | Testo del sito | ✅ IT/EN/ES sulle pagine principali e sulla **guida bot** (#287) · ❌ le due demo ancora solo IT: il loro testo sta dentro il JavaScript, serve una lookup lato JS |
-| Etichette verbatim nella guida bot | ✅ le etichette italiane di Telegram e dell'app restano verbatim in EN/ES con la traduzione fra parentesi, e la pagina dichiara che gli screenshot sono in italiano (§3 e §4). Verificato da un test unitario e dal collaudo live |
+| Etichette verbatim nella guida bot | ✅ **§3 rispettato**: le etichette italiane di Telegram e dell'app restano verbatim in EN/ES con la traduzione fra parentesi. Verificato da un test unitario e dal collaudo live |
+| ⚠️ Screenshot Telegram della guida bot | **scostamento da §4, dichiarato**: la riga §3 prevede che gli screenshot Telegram siano *mockup nostri, generabili nella lingua richiesta*. Questi **non lo sono**: sono catture **reali** dal telefono del proprietario, e in italiano soltanto — vedi §9 |
 | Footer non-affiliazione | ✅ su tutte le pagine, IT/EN/ES |
 | Suffisso lingua nei percorsi screenshot | ✅ introdotto per l'app (`<lang>/`); ❌ da fare per gli screenshot XTrader quando arriveranno EN/ES |
+
+## 9. Uno scostamento aperto: gli screenshot Telegram della guida bot
+
+Rilevato da CodeRabbit sulla PR #289, e **non chiuso**: qui è registrato, non sanato.
+
+Il §4 dice che per una lingua fra `{it, en, es}` si mostra lo screenshot **in quella lingua**, e
+che l'inglese è il ripiego per tutte le altre. La riga «Screenshot di Telegram / BotFather» del §3
+lo dà per scontato perché li descrive come **mockup nostri**, generabili nella lingua richiesta.
+
+Gli screenshot della guida bot **non sono mockup**: sono catture **reali** dal telefono del
+proprietario, e quel telefono è in italiano. Quindi oggi un utente inglese o spagnolo vede
+schermate italiane — cioè il §4 **non** è rispettato alla lettera.
+
+Perché non l'ho «sistemato» da solo:
+
+- **rifarle in EN/ES vuol dire ricatturarle davvero**, cambiando lingua al telefono e rifacendo
+  tutti i passaggi con BotFather. È lavoro del proprietario, non dell'agente;
+- **ricostruirle graficamente** sarebbe fabbricare schermate — proprio la cosa che il §2 vieta;
+- **mostrare l'inglese come ripiego** non è possibile: gli screenshot inglesi non esistono.
+
+Cosa è stato fatto nel frattempo, ed è la parte del §4 che si poteva rispettare: **il ripiego non
+è silenzioso**. La pagina dichiara in ogni lingua che le schermate sono in italiano, perché lo
+sono, e che quella del passo 9 è una ricostruzione. Le etichette sono citate verbatim con la
+traduzione fra parentesi (§3), così il comando si trova comunque a schermo.
+
+**Decisione che resta al proprietario**, una delle due:
+
+1. **ricatturare** la sequenza Telegram in EN e ES — allora questo scostamento si chiude e la
+   guida passa agli screenshot per lingua come tutto il resto;
+2. **approvare l'eccezione** in modo esplicito: le catture reali di Telegram restano in italiano
+   per tutte le lingue, purché la pagina lo dichiari. In quel caso questa sezione va riscritta
+   come regola, non come debito.
+
+Finché non decide, vale lo stato di fatto descritto qui: **scostamento noto, dichiarato in
+pagina, non nascosto**.

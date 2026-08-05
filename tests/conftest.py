@@ -252,6 +252,24 @@ def _fine_blocco(testo: str, inizio: int) -> int:
     raise AssertionError("graffa non chiusa in i18n.js a partire dall'indice %d" % inizio)
 
 
+def _testo_js(grezzo: str) -> str:
+    """Il testo che l'utente vede, sciolte le sequenze di escape del sorgente.
+
+    `\\"` a schermo è `"`; senza questo, un test che cerca `class="num"` non lo troverebbe mai.
+    Le fa sciogliere a `json.loads`, che copre anche `\\uXXXX`, `\\t` e `\\/` — a mano se ne
+    dimenticano sempre un paio (rilievo GPT-5.5 sulla #289: gestivo solo `\\"`, `\\n`, `\\\\`).
+    Restano fuori gli escape che JSON non conosce ma JS sì, tipo `\\'`: in quel caso si torna
+    alla sostituzione manuale invece di far esplodere il test.
+    """
+    import json as _json
+
+    try:
+        return _json.loads('"%s"' % grezzo)
+    except ValueError:
+        return (grezzo.replace('\\"', '"').replace("\\'", "'")
+                .replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\"))
+
+
 def dizionari_i18n_sito(percorso=None) -> dict:
     """`{lingua: {chiave: valore}}` letto da `website/static/i18n.js`.
 
@@ -271,10 +289,6 @@ def dizionari_i18n_sito(percorso=None) -> dict:
         blocco = testo[apertura:_fine_blocco(testo, apertura) + 1]
         coppie = _re.findall(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"', blocco)
         if coppie:                       # scarta i `xx: {` che non sono dizionari di lingua
-            # le sequenze di escape del sorgente JS non sono testo: `\"` a schermo è `"`.
-            # Senza questo, un test che cerca `class="num"` non lo troverebbe mai.
-            fuori[m.group(1)] = {
-                k: v.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
-                for k, v in coppie}
+            fuori[m.group(1)] = {k: _testo_js(v) for k, v in coppie}
     assert fuori, "nessun dizionario di lingua trovato in i18n.js"
     return fuori

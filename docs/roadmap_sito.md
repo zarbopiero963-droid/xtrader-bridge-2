@@ -142,12 +142,20 @@ Oggi la card in `/documentazione` rimanda alla demo con la nota «in preparazion
 lo era, quindi i quattro `data-i18n` che il footer già aveva erano **morti** — e tutta la prosa
 tradotta, comprese le didascalie.
 
-Rispetta la [regola permanente](policy_lingue_sito.md): gli screenshot restano **quelli veri in
-italiano**, la pagina lo **dichiara** in ogni lingua (§4: il fallback non è silenzioso) e le
-etichette Telegram sono citate **verbatim** con la traduzione fra parentesi — «Amministratori»
-(Administrators), «Aggiungi amministratore» (Add administrator). Tradurle avrebbe mandato
-l'utente a cercare a schermo un pulsante inesistente; un test unitario **e** un controllo del
-collaudo live lo impediscono.
+Le etichette Telegram sono citate **verbatim** con la traduzione fra parentesi — «Amministratori»
+(Administrators), «Aggiungi amministratore» (Add administrator): è il §3 della
+[regola permanente](policy_lingue_sito.md), e tradurle avrebbe mandato l'utente a cercare a
+schermo un pulsante inesistente. Un test unitario **e** un controllo del collaudo live lo
+impediscono.
+
+⚠️ **Sugli screenshot resta uno scostamento aperto, e non lo chiudo io.** Il §4 vorrebbe la
+schermata *nella lingua richiesta*; queste sono catture **reali** dal telefono del proprietario e
+esistono **solo in italiano**. Rifarle significa ricatturarle davvero (lavoro del proprietario),
+ricostruirle sarebbe fabbricare schermate — cosa che il §2 vieta — e il ripiego inglese non
+esiste. Quello che si poteva rispettare del §4 è stato fatto: **il ripiego non è silenzioso**, la
+pagina dichiara in ogni lingua che le schermate sono italiane e che quella del passo 9 è una
+ricostruzione. La decisione (ricatturare, oppure approvare l'eccezione) è del proprietario ed è
+scritta in [`policy_lingue_sito.md` §9](policy_lingue_sito.md).
 
 Restano **`/demo` e `/demo/xtrader`**. Non sono state fatte in questa PR, e il motivo è
 tecnico: il loro testo non sta nel markup ma **dentro il JavaScript** delle simulazioni (~94

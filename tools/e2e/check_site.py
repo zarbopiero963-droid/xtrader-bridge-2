@@ -238,20 +238,22 @@ def controlla_guida_bot(pagina, base: str, es: Esito) -> None:
         return
     es.add("guida bot: selettore di lingua", True)
 
-    italiano = pagina.inner_text("main")
+    titolo_it = pagina.inner_text("h1").strip()
     pagina.click('button[data-lang="en"]')
     pagina.wait_for_timeout(300)
     corpo = pagina.inner_text("main")
+    titolo_en = pagina.inner_text("h1").strip()
 
-    # Si controlla che l'italiano SPARISCA, non che compaia una frase inglese esatta: il copy
-    # si riscrive di continuo e un controllo sulla frase esatta diventerebbe rosso a ogni
-    # ritocco legittimo, senza che nulla sia rotto (rilievo GPT-5.5 sulla #289). Che il titolo
-    # italiano non ci sia più, invece, è vero finché la traduzione viene davvero applicata.
-    titolo_it = italiano.strip().splitlines()[0] if italiano.strip() else ""
-    es.add("  guida bot: il testo passa in inglese",
-           bool(titolo_it) and titolo_it not in corpo,
-           "il titolo italiano %r è ancora lì" % titolo_it[:50] if titolo_it in corpo
-           else corpo.strip().splitlines()[0][:70])
+    # Il valore atteso lo chiede al **dizionario vivo** della pagina (`window.SITE_T`, esposto
+    # da i18n.js), invece di tenersi una copia della frase inglese: una copia si sfasa al primo
+    # ritocco del copy e il collaudo diventa rosso senza che nulla sia rotto. Chiedendolo al
+    # dizionario, il controllo resta forte — verifica che a schermo ci sia **esattamente** la
+    # traduzione prevista — senza sapere nulla di come è scritta (rilievi GPT-5.5 sulla #289:
+    # prima troppo fragile, poi troppo debole; questo non è né l'uno né l'altro).
+    atteso = pagina.evaluate("() => window.SITE_T && window.SITE_T('guida.h1')")
+    ok = bool(atteso) and titolo_en == atteso and titolo_en != titolo_it
+    es.add("  guida bot: il titolo è la traduzione prevista dal dizionario", ok,
+           "dizionario=%r  a schermo=%r" % ((atteso or "")[:40], titolo_en[:40]))
     es.add("  guida bot: dice che le schermate sono in italiano", "in Italian" in corpo)
     es.add("  guida bot: etichetta Telegram verbatim in inglese",
            "Amministratori" in corpo,
@@ -259,6 +261,13 @@ def controlla_guida_bot(pagina, base: str, es: Esito) -> None:
                                                 "non si troverebbe a schermo")
     pagina.click('button[data-lang="it"]')
     pagina.wait_for_timeout(200)
+    # Anche il ritorno va verificato: `apply()` ripristina l'italiano da `data-i18n-orig`, e se
+    # quel ripristino si rompesse la pagina resterebbe inglese per un utente italiano. Cliccare
+    # senza guardare l'esito è il modo classico di avere un controllo che non controlla niente
+    # (rilievo CodeRabbit sulla #289).
+    tornato = pagina.inner_text("h1").strip()
+    es.add("  guida bot: torna in italiano", tornato == titolo_it,
+           "atteso %r, a schermo %r" % (titolo_it[:40], tornato[:40]))
 
 
 def controlla_demo_bridge(pagina, base: str, es: Esito, errori: list[str], out: str) -> None:
