@@ -189,10 +189,19 @@ def test_255_una_voce_SANA_con_altri_delimitatori_non_va_elencata_come_contenden
 
 
 def test_255_oltre_il_tetto_il_controllo_si_FERMA_e_lo_dice(monkeypatch):
-    """Il costo cresce col quadrato delle voci, e oltre ~512 frasi distinte la cache dei regex
-    compilati di `_phrase_in_text` va in thrashing. Misurato allo START:
+    """Il costo cresce col quadrato delle voci. Misure allo START, prima e dopo la cache dei
+    pattern della #256, **col tetto DISATTIVATO**:
 
-        100 voci 0,09 s · 300 voci 0,70 s · 400 voci 1,2 s · **800 voci 54 s**
+        100 voci 0,09 s -> 0,09 s · 400 voci 1,2 s -> 1,15 s
+        800 voci  54  s -> 4,53 s · 1200 voci  —   -> 9,35 s
+
+    Le righe da 400 in su sono **ipotetiche**: col tetto attivo il controllo su quei profili
+    non viene proprio eseguito (costo 0 s, un avviso al suo posto). Servono a rispondere alla
+    domanda «quanto costerebbe senza tetto», cioè a giustificare che il tetto esista — non
+    descrivono ciò che l'utente paga oggi (rilievo CodeRabbit sulla #257).
+
+    Il dirupo a 800 (54 s) era il thrashing della cache di `re` ed è chiuso; il quadrato però
+    resta, e a 1200 voci sarebbero ancora 9 s di avvio bloccato. Il tetto serve ancora.
 
     Un minuto di finestra bloccata all'avvio sarebbe un danno peggiore del difetto che questo
     avviso diagnostica — la stessa trappola della #253, dove la diagnostica corretta costava

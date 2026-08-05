@@ -52,6 +52,7 @@ NB: la **precedenza D1** ("il dizionario vince" sulla regola-colonna) è una sce
 import logging
 import re
 from collections import namedtuple
+from functools import lru_cache
 
 from . import dizionario, mapping_store_base, recognition
 from .custom_parser_engine import extract_between
@@ -62,9 +63,23 @@ _LOG = logging.getLogger(__name__)
 _STORE_KEY = "market_mappings"
 
 # Tetto di voci per profilo oltre il quale il controllo delle frasi ambigue (#254) non viene
-# eseguito: il costo cresce col quadrato delle voci, e oltre ~512 frasi distinte la cache dei
-# regex compilati di `_phrase_in_text` va in thrashing. Misurato allo START: 100 voci 0,09 s ·
-# 400 voci 1,2 s · 800 voci 54 s. Oltre il tetto il controllo si ferma e LO DICE.
+# eseguito: il costo cresce col quadrato delle voci. Oltre il tetto il controllo si ferma e
+# LO DICE.
+#
+# Misure allo START col TETTO DISATTIVATO, prima e dopo la cache dei pattern della #256.
+# Dalle 400 voci in su sono IPOTETICHE: servono a giustificare che il tetto esista, non a
+# descrivere ciò che si paga oggi (col tetto attivo il controllo su quei profili non parte).
+#
+#     voci     prima      dopo
+#      100     0,09 s     0,09 s     <- l'unica riga sotto il tetto, quindi davvero eseguita
+#      400     1,2  s     1,15 s
+#      800    54    s     4,53 s      <- il dirupo era il thrashing della cache di `re`
+#     1200      —        9,35 s
+#
+# Il dirupo a 800 era la cache interna di `re` (~512 pattern) che andava in thrashing; con
+# `_phrase_pattern` non c'è più, e il costo è tornato quadratico-liscio. **Il tetto resta a
+# 300** lo stesso: il quadrato cresce comunque, e 1200 voci costano ancora 9 s allo START.
+# È ora più conservativo del necessario — alzarlo è una decisione a sé, con la sua misura.
 _MAX_VOCI_CONTROLLO_AMBIGUITA = 300
 
 # Esito della risoluzione di un mercato da una frase.
@@ -215,14 +230,18 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
         if not voci:
             continue
         # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
-        # (e per lingua), e `_phrase_in_text` compila un regex per frase: oltre ~512 pattern
-        # distinti la cache di `re` va in thrashing e il costo esplode. Misurato allo START:
+        # (e per lingua), quindi il costo cresce col quadrato. Misure allo START **col tetto
+        # disattivato**, prima e dopo la cache dei pattern della #256 — dalle 400 voci in su
+        # sono IPOTETICHE, cioè il costo che si eviterebbe (vedi `_MAX_VOCI_CONTROLLO_AMBIGUITA`):
         #
-        #     100 voci  0,09 s  ·  400 voci  1,2 s  ·  800 voci  54 s
+        #     100 voci  0,09 s -> 0,09 s   ·   400 voci  1,2 s -> 1,15 s
+        #     800 voci  54   s -> 4,53 s   ·  1200 voci    —   -> 9,35 s
         #
-        # Un minuto di finestra bloccata all'avvio sarebbe un danno peggiore del difetto che
-        # questo avviso diagnostica. Oltre il tetto il controllo si ferma e **lo dice**: un cap
-        # che tace si legge come «nessun conflitto», che è esattamente la bugia da evitare.
+        # Il dirupo a 800 (54 s) era il thrashing della cache di `re`, ed è chiuso. Ma il
+        # quadrato resta: a 1200 voci sarebbero ancora 9 s di finestra bloccata all'avvio, un danno
+        # peggiore del difetto che questo avviso diagnostica. Oltre il tetto il controllo si
+        # ferma e **lo dice**: un cap che tace si legge come «nessun conflitto», che è
+        # esattamente la bugia da evitare.
         if len(voci) > _MAX_VOCI_CONTROLLO_AMBIGUITA:
             warnings.append(
                 f"Mappatura mercati «{_norm_profile_name(profile)}»: {len(voci)} voci, oltre il "
@@ -394,6 +413,38 @@ def _canonical_market(market_name: str, selection_name: str, rows=None):
     return None
 
 
+# Tetto della cache dei pattern compilati (#256). Sopra qualunque dizionario realistico —
+# il caso peggiore misurato allo START era 300 voci per profilo — ma limitato, perché le
+# frasi arrivano dal config dell'utente e una cache illimitata su input utente è una perdita
+# di memoria lenta. Oltre il tetto `lru_cache` sfratta le voci meno usate: si torna a
+# ricompilare quelle, esattamente come prima della patch, senza mai sbagliare risposta.
+_MAX_PATTERN_CACHE = 4096
+
+
+@lru_cache(maxsize=_MAX_PATTERN_CACHE)
+def _phrase_pattern(p_norm: str):
+    """Pattern compilato per la frase **già normalizzata** ``p_norm``, con cache di modulo.
+
+    Il pattern dipende SOLO dalla frase, quindi è cacheabile senza rischi: due chiamate con
+    la stessa frase normalizzata devono produrre lo stesso identico confronto. La chiave è la
+    frase **normalizzata** e non quella grezza perché «GG», «gg» e «  gg  » sono la stessa
+    frase per il matching — indicizzare sul grezzo moltiplicherebbe le voci e riaprirebbe il
+    thrashing che questa cache chiude.
+
+    Perché serve (#256): `re` tiene una cache interna di ~512 pattern; oltre quella soglia
+    ogni chiamata ricompilava. Misurato sul percorso live, per messaggio:
+
+        100 frasi 0,73 ms · 400 frasi 2,98 ms · **600 frasi 54 ms** · 1200 frasi 108 ms
+
+    Il tetto `_MAX_VOCI_CONTROLLO_AMBIGUITA` protegge solo la diagnostica allo START; il
+    runtime non ha tetto e non può averne uno (non si può rifiutare di risolvere un mercato
+    perché il dizionario è grande).
+    """
+    # Confine: niente \w/-/ ai bordi; il separatore ,/. conta come confine SOLO se punteggiatura
+    # (a sinistra: non preceduto da `cifra+separatore`; a destra: non seguìto da `separatore+cifra`).
+    return re.compile(r"(?<![\w/-])(?<!\d[.,])" + re.escape(p_norm) + r"(?![\w/-])(?![.,]\d)")
+
+
 def _phrase_in_text(phrase: str, text_norm: str) -> bool:
     """``True`` se ``phrase`` compare in ``text_norm`` (già normalizzato) come
     sottostringa su **confini di token**. I lookaround escludono dai confini i caratteri
@@ -408,14 +459,14 @@ def _phrase_in_text(phrase: str, text_norm: str) -> bool:
     - ma il ``,``/``.`` come **punteggiatura** (non seguìto da cifra) resta un confine valido:
       "over 2" combacia ancora in "over 2." / "over 2," e "gol gol" in "gol gol." (review GPT-5.5:
       non rompere i messaggi reali con punteggiatura finale). Una cifra dopo la frase era già
-      esclusa da ``\\w`` (es. "over 0,5" non matcha "over 0,55")."""
+      esclusa da ``\\w`` (es. "over 0,5" non matcha "over 0,55").
+
+    Il pattern è compilato una volta per frase e tenuto in cache (`_phrase_pattern`, #256):
+    il **confronto è identico**, cambia solo quante volte lo si compila."""
     p = _normalize_text(phrase)
     if not p:
         return False
-    # Confine: niente \w/-/ ai bordi; il separatore ,/. conta come confine SOLO se punteggiatura
-    # (a sinistra: non preceduto da `cifra+separatore`; a destra: non seguìto da `separatore+cifra`).
-    return re.search(r"(?<![\w/-])(?<!\d[.,])" + re.escape(p) + r"(?![\w/-])(?![.,]\d)",
-                     text_norm) is not None
+    return _phrase_pattern(p).search(text_norm) is not None
 
 
 def resolve_market(text: str, profiles, rows=None, language=None) -> MarketResolution:

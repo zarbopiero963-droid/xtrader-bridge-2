@@ -124,13 +124,37 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    filtro-lingua, più ogni lingua presente nelle voci): due voci di lingue diverse non sono un
    conflitto per chi dichiara la lingua, ma lo sono per chi non la dichiara.
 
-   **Tetto dichiarato.** Il controllo chiede al runtime una volta per voce (e per lingua), e
-   `_phrase_in_text` compila un regex per frase: oltre ~512 pattern distinti la cache di `re`
-   va in thrashing e il costo esplode. Misurato allo START: 100 voci 0,09 s · 300 voci 0,70 s ·
-   400 voci 1,2 s · **800 voci 54 s**. Oltre **300 voci per profilo** il controllo si ferma e
-   **lo dice nel log**: un minuto di finestra bloccata sarebbe un danno peggiore del difetto
-   diagnosticato, e un cap che tace si leggerebbe come «nessun conflitto». Le frasi ambigue
-   restano comunque fail-closed a runtime — cambia solo che non vengono elencate.
+   **Tetto dichiarato.** Il controllo chiede al runtime una volta per voce (e per lingua),
+   quindi il costo cresce col **quadrato** delle voci. Misure allo START **col tetto
+   disattivato**, prima e dopo la cache dei pattern compilati introdotta dalla #256:
+
+   | voci | prima (#255) | dopo (#256) | col tetto attivo (oggi) |
+   |---:|---:|---:|---|
+   | 100 | 0,09 s | 0,09 s | 0,09 s — controllo eseguito |
+   | 400 | 1,2 s | 1,15 s | **non eseguito** (oltre il tetto) |
+   | 800 | **54 s** | **4,53 s** | **non eseguito** (oltre il tetto) |
+   | 1200 | — | 9,35 s | **non eseguito** (oltre il tetto) |
+
+   ⚠️ Le prime due colonne, dalle 400 voci in su, sono **ipotetiche**: servono a rispondere alla
+   domanda «quanto costerebbe senza tetto», cioè a **giustificare che il tetto esista**. Non
+   descrivono ciò che l'utente paga oggi — sopra le 300 voci per profilo il controllo non parte
+   proprio, e al suo posto compare un avviso.
+
+   Il dirupo a 800 voci era il **thrashing della cache interna di `re`**: `_phrase_in_text`
+   ricostruiva e ricompilava un regex per frase a ogni chiamata, e oltre ~512 pattern distinti
+   la cache smetteva di assorbire. La #256 compila una volta per frase e tiene i pattern in una
+   `lru_cache` di modulo, chiusa la voragine (vedi §5.6).
+
+   Oltre **300 voci per profilo** il controllo si ferma e **lo dice nel log**: il quadrato resta
+   anche senza thrashing — a 1200 voci *sarebbero* ancora 9 s di finestra bloccata — e un cap che
+   tace si leggerebbe come «nessun conflitto». Il tetto è oggi più conservativo di quanto
+   servirebbe: alzarlo è una decisione a sé, con la sua misura. Le frasi ambigue restano comunque
+   fail-closed a runtime — cambia solo che non vengono elencate.
+
+   **Il tetto non protegge il runtime.** Vale solo per la diagnostica allo START. Il percorso
+   live non ha tetto e non può averne uno — non si può rifiutare di risolvere un mercato perché
+   il dizionario è grande — ed è esattamente per questo che la #256 era necessaria: prima della
+   cache, un dizionario oltre le ~512 frasi costava ~100 ms **per messaggio** invece di ~1 ms.
 3bis. **Niente ID stantii quando il dizionario vince.** La mappatura mercati è *name-based*
    (`resolve_market` non risolve `MarketId`/`SelectionId`: non sono nel Catalogo). Se le
    regole-colonna hanno estratto una coppia ID e poi il dizionario vince, lasciare quegli ID
@@ -172,6 +196,31 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    mettono in testa un banner/menu con più mercati (es. ``30/0,5HT/1,5HT/1``); cercare la frase
    in **tutto** il messaggio dava falsi match/ambiguità. Leggendo solo il campo delimitato
    (es. fra «Quota» e «Prematch») si prende il mercato vero e si ignora il banner.
+6. **Il pattern di match è compilato una volta per frase (#256).** Il regex a confini di token
+   costruito da `_phrase_in_text` dipende **solo** dalla frase normalizzata, ma veniva
+   ricostruito e ricompilato a **ogni** chiamata — cioè una volta per voce **per messaggio**.
+   Il modulo `re` tiene una cache interna di ~512 pattern: sotto quella soglia il costo non si
+   vede, sopra ogni messaggio ricompilava l'intero dizionario. Misurato sul percorso live
+   (`resolve_market`, media su 20 messaggi):
+
+   | frasi mappate | prima | dopo |
+   |---:|---:|---:|
+   | 100 | 0,73 ms | 0,61 ms |
+   | 400 | 2,98 ms | 2,51 ms |
+   | 600 | **54,04 ms** | 3,86 ms |
+   | 1200 | 108,42 ms | 7,62 ms |
+
+   `_phrase_pattern` è una `lru_cache` di modulo indicizzata sulla frase **normalizzata**
+   («GG», «gg» e «  gg  » sono la stessa frase per il matching, quindi la stessa voce di
+   cache). Il tetto `maxsize` è deliberato: le frasi arrivano dal config dell'utente, e una
+   cache illimitata su input utente è una perdita di memoria lenta; oltre il tetto si sfrattano
+   le voci meno usate e si torna a ricompilare quelle, senza mai sbagliare risposta.
+
+   **Il confronto non cambia**: cambia solo quante volte lo si compila. È un punto sensibile
+   perché `_phrase_in_text` sta sul percorso soldi — un confine di token sbagliato qui è un
+   mercato sbagliato, cioè una scommessa sbagliata (P1 in
+   `tests/safety/test_money_path_p1_bughunt.py`) — perciò i test della #256 verificano
+   l'**invarianza del matching attraverso la cache**, non solo che la cache esista.
 
 ## 6. GUI (area 🎯 Mercati della scheda Mapping)
 
