@@ -352,4 +352,12 @@ for route, fname in _PAGES.items():
         return _page
     app.get(route, include_in_schema=False)(_make(fname))
 
+# Il browser chiede /favicon.ico su OGNI pagina: senza questa rotta è un 404 a ogni
+# visita (rumore nei log e icona mancante nella scheda). L'icona è quella del pacchetto
+# brand BetRelay, copiata in static/.
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "favicon.ico")
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

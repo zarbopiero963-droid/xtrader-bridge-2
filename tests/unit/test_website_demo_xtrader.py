@@ -121,3 +121,46 @@ def test_la_rotta_serve_la_demo():
     from fastapi.testclient import TestClient
     resp = TestClient(mod.app).get("/demo/xtrader")
     assert resp.status_code == 200 and "Fonte Segnali" in resp.text
+
+
+# ─────────────── Filtro Mercati e Monitor Mercati ───────────────
+
+_FILTRO = ("Filtro Mercati", "Filtri Salvati", "Operatività mercati", "Orario inizio",
+           "In gioco", "Minimo Abbinate", "Nome Evento", "Aggiungi a Monitor Mercati",
+           "Azzera Tutti i Filtri", "Nazione", "Competizione", "N. Sel.")
+
+# Il Monitor NON ha uno screenshot: queste etichette vengono dalla descrizione scritta
+# del manuale, e il test serve anche a ricordarlo (vedi test_monitor_dichiara_la_fonte).
+_MONITOR = ("Monitor Mercati", "Applica Strategia", "Arresta strategia", "Annulla strategia",
+            "Elimina selezionati", "Book", "Slot", "in esecuzione", "arrestata")
+
+
+@pytest.mark.parametrize("etichetta", _FILTRO)
+def test_filtro_mercati_verbatim(etichetta):
+    assert etichetta in _html(), "«%s» assente: il Filtro non combacia con varie/05-06" % etichetta
+
+
+@pytest.mark.parametrize("etichetta", _MONITOR)
+def test_monitor_mercati_dal_manuale(etichetta):
+    assert etichetta in _html(), "«%s» assente dal Monitor Mercati" % etichetta
+
+
+def test_casella_segnali_del_filtro():
+    """La casella «Segnali» è ciò che lega il Filtro al bridge: mostra solo i mercati che
+    hanno un segnale. Senza, il Filtro sarebbe una vetrina scollegata dal resto."""
+    html = _html()
+    assert 'id="fSeg"' in html and "solo i mercati che hanno un segnale" in html
+
+
+def test_monitor_dichiara_la_fonte():
+    """Il Monitor è ricostruito dalla descrizione scritta del manuale, non da uno screenshot:
+    la pagina DEVE dirlo, altrimenti spaccia una ricostruzione per una replica fedele."""
+    html = _html()
+    assert "ricostruita dal manuale, non da uno screenshot" in html
+    assert "non garantita" in html
+
+
+def test_le_tre_schede_esistono():
+    html = _html()
+    for w in ("filtro", "monitor", "segnali"):
+        assert 'data-win="%s"' % w in html, "manca la scheda «%s»" % w
