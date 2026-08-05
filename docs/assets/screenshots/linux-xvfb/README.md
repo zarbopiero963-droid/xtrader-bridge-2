@@ -73,6 +73,13 @@ Altre trappole già incontrate (tkinter, cryptography, tema chiaro, PYTHONPATH) 
 
 `it/wizard-step1.png` e `it/wizard-step2.png` sono generati da
 [`tools/screenshots/wizard_shot.py`](../../../tools/screenshots/wizard_shot.py), che istanzia la
-vista reale e la porta allo step voluto: il Wizard blocca «Avanti ▶» finché la verifica dello step
-non è ✅, e quelle verifiche chiamano Telegram con un token vero. Le versioni EN/ES si generano
-con lo stesso script passando `--lang en` / `--lang es`.
+vista reale e la porta direttamente allo step voluto.
+
+**Nessun token reale, mai.** Lo script esiste proprio per *non* averne bisogno: cliccando, il
+Wizard blocca «Avanti ▶» finché la verifica dello step non è ✅, e quelle verifiche
+chiamerebbero Telegram (`getMe`, `getUpdates`) con un token vero — che su una macchina di
+documentazione non c'è e non deve esserci. Lo script salta quel percorso impostando lo step
+direttamente sulla vista, esattamente come fa un test: i widget e i testi a schermo sono quelli
+veri, i dati dentro sono quelli **fittizi** delle guide (token `123456789:AAExempio-…`, chat
+`-1001234567890`). Le versioni EN/ES si generano con lo stesso script — e con lo stesso token
+finto — passando `--lang en` / `--lang es`.

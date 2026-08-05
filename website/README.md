@@ -64,11 +64,22 @@ Verifica quale modalità è attiva: http://127.0.0.1:8000/api/health
 
 ## Deploy su Railway
 
-1. Crea il progetto Railway e collega questo repository (il Dockerfile viene rilevato
-   da solo).
-2. In **Variables** imposta `ANTHROPIC_API_KEY` (e, se vuoi, `ANTHROPIC_MODEL`,
-   `CHAT_RATE_LIMIT`).
-3. Genera il dominio pubblico (Settings → Networking → Generate Domain).
+1. Crea il progetto Railway e collega questo repository.
+2. **Settings → Root Directory = `website`.** Non è opzionale: il `Dockerfile` sta qui e le
+   sue `COPY` sono relative a questa cartella. Buildando dalla radice del repository,
+   `requirements.txt` non verrebbe trovato e il build fallirebbe.
+3. In **Variables** imposta `ANTHROPIC_API_KEY` (e, se vuoi, `ANTHROPIC_MODEL`,
+   `CHAT_RATE_LIMIT`). Railway inietta `PORT` da solo.
+4. Genera il dominio pubblico (Settings → Networking → Generate Domain).
+5. **Collauda il sito online**: `python3 tools/e2e/check_site.py --base-url https://<dominio>`
+   apre le pagine con un browser vero e verifica rotte, demo, chatbot, footer e asset.
+
+Sull'immagine: `.dockerignore` tiene fuori segreti, cache e ambienti locali (il `COPY . .`
+altrimenti li includerebbe), il processo gira come utente **non privilegiato** e le dipendenze
+sono **pinnate** in `requirements.txt`, così il deploy è riproducibile.
+
+> ℹ️ L'immagine **non** è mai stata costruita in ambiente agente (Docker non disponibile lì):
+> il primo `docker build` di Railway è anche la prima verifica reale di questo Dockerfile.
 
 Senza `ANTHROPIC_API_KEY` il sito funziona comunque, col chatbot in modalità demo.
 

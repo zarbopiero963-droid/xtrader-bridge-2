@@ -1,3 +1,12 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-httpx>=0.27
+# Versioni FISSATE, non `>=`.
+#
+# Questo è l'unico componente del progetto esposto su internet: un deploy che rifà `pip install`
+# e prende una versione diversa da quella provata è un cambiamento non revisionato in produzione,
+# e in caso di pacchetto compromesso a monte è anche la via d'ingresso. Il prezzo è che gli
+# aggiornamenti diventano deliberati: si alzano qui, si riesegue il collaudo
+# (`tools/e2e/check_site.py`) e la modifica passa da una PR come tutto il resto.
+#
+# Versioni con cui il sito è stato realmente eseguito e collaudato (57/57 controlli).
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1

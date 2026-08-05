@@ -15,9 +15,11 @@ uniche che ci fanno correre un rischio di raccontare qualcosa di sbagliato.
 - **Finestra intera**, non ritagli: servono barra del titolo, barra comandi e barra di stato.
 - Se possibile con **dati dentro** (una riga, un mercato, un segnale): una finestra vuota mostra
   le colonne ma non come si presentano i valori reali.
-- **Prima di mandarli, controlla che non compaiano**: saldo del conto, username Betfair, dati di
-  abbonamento nella barra del titolo, nomi di strategie personali. Se compaiono va bene lo stesso,
-  li oscuro io — basta che tu me lo dica.
+- **Copri PRIMA di mandarli** — saldo del conto, username Betfair, dati di abbonamento nella barra
+  del titolo, nomi di strategie personali. Vanno oscurati (o ritagliati) **sulla tua macchina**,
+  non dopo l'invio: una volta che l'immagine è arrivata, quei dati sono usciti dal tuo computer, e
+  oscurarli a valle non li fa tornare indietro. Se te ne accorgi dopo, dimmelo: rimuovo il file,
+  ma il modo giusto resta coprirli prima.
 - Formato PNG, risoluzione nativa (niente foto allo schermo).
 
 ---

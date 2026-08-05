@@ -44,8 +44,15 @@ anti-abuso, visto che è un endpoint pubblico).
 
 ### S4. Deploy su Railway 👤 (setup) + agente (verifica)
 Il sito **non è mai stato visto online**: tutto ciò che è stato verificato gira in locale.
-Servono: account Railway, `ANTHROPIC_API_KEY` fra le Variables, Root Directory su `website`,
-dominio generato.
+Servono: account Railway, **Root Directory = `website`** (obbligatorio: il Dockerfile sta lì e le
+sue `COPY` sono relative a quella cartella), `ANTHROPIC_API_KEY` fra le Variables, dominio
+generato.
+
+L'immagine è già preparata per stare su internet: `.dockerignore` tiene fuori segreti e cache,
+il processo gira come utente non privilegiato, le dipendenze sono pinnate e la porta ha un
+default anche se `PORT` arriva vuota (test: `tests/unit/test_website_deploy.py`). **Non è mai
+stata costruita**: Docker non è disponibile nell'ambiente agente, quindi il primo build di
+Railway è anche la prima verifica reale.
 
 La verifica poi la faccio io: `python3 tools/e2e/check_site.py --base-url https://<dominio>`
 apre il sito con un browser vero e prova pagine, demo, chatbot, favicon e footer (S13).
