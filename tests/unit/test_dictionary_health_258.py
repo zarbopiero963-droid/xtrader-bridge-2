@@ -175,3 +175,53 @@ def test_258_una_cartella_parser_ILLEGGIBILE_non_puo_produrre_verde():
 
     with pytest.raises(OSError):
         dh.profili_usati(elenca=_esplode, carica=_esplode)
+
+
+def test_258_un_profilo_saltato_dal_budget_allo_START_resta_non_controllato_nel_pannello(
+        monkeypatch):
+    """Rilievo Fable 5 sulla PR #276 — ripristinato dopo che una mia riscrittura del file ne
+    aveva troncato la coda, cancellando questo test senza che me ne accorgessi (rilevato da
+    Fable e GPT-5.5 sul giro successivo: copertura persa in silenzio).
+
+    Il budget globale è **globale**: se il pannello ricalcolasse il piano sulla sola sotto-config
+    dei profili in uso, un profilo saltato per budget allo START rientrerebbe nel budget del
+    sottoinsieme e verrebbe esaminato — dicendo «controllato» dove il log eventi dice «NON
+    controllato». Due diagnostiche che si contraddicono sullo stesso profilo.
+    """
+    monkeypatch.setattr(mms, "_MAX_VOCI_CONTROLLO_AMBIGUITA", 50)
+    monkeypatch.setattr(mms, "_MAX_VOCI_TOTALI_CONTROLLO", 45)
+    cfg = {"market_mappings": {"A": [{"phrase": f"a{i}", "market_name": f"M{i}",
+                                      "selection_name": f"S{i}"} for i in range(40)],
+                               "Z": [{"phrase": f"z{i}", "market_name": f"M{i}",
+                                      "selection_name": f"S{i}"} for i in range(10)]}}
+
+    assert mms.profili_non_controllati(cfg) == ["Z"], "premessa: lo START salta Z"
+
+    esito = dh.stato_dizionari(cfg, _usati(mercati=["Z"]))
+
+    assert esito["stato"] == health_check.YELLOW, esito
+    assert "controllo NON eseguito" in esito["titolo"], esito["titolo"]
+    assert "«Z»" in esito["titolo"], esito["titolo"]
+
+
+def test_258_righe_MALFORMATE_su_un_profilo_escluso_dal_budget_restano_ROSSE(monkeypatch):
+    """Secondo bloccante Fugu Ultra sulla PR #276, ed è la distinzione che regge tutto.
+
+    `malformed_entry_warnings` **non ha tetti**: è sempre completo. Escluderlo insieme al
+    controllo ambiguità declassava a 🟡 «non controllato» un profilo con righe malformate
+    **reali** — voci che il resolver scarta adesso, ogni volta.
+
+    Il «non so» vale per ciò che **non è stato guardato**, non per ciò che è stato guardato e
+    trovato. Nascondere un conflitto noto dietro un'incertezza è il difetto simmetrico a
+    mostrare verde su un controllo mancato: entrambi dicono qualcosa di diverso da ciò che si sa.
+    """
+    monkeypatch.setattr(mms, "_MAX_VOCI_CONTROLLO_AMBIGUITA", 2)
+    voci = [{"phrase": f"p{i}", "market_name": f"M{i}", "selection_name": f"S{i}",
+             "language": "klingon"} for i in range(5)]      # lingua non riconosciuta: MALFORMATE
+    cfg = {"market_mappings": {"Grande": voci}}
+
+    esito = dh.stato_dizionari(cfg, _usati(mercati=["Grande"]))
+
+    assert esito["stato"] == health_check.RED, (
+        f"un conflitto NOTO è stato declassato a {esito['stato']}: {esito['titolo']}")
+    assert esito["dettagli"], "i conflitti noti vanno elencati anche se l'ambiguità non è stata controllata"

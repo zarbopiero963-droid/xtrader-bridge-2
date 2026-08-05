@@ -163,8 +163,16 @@ def stato_dizionari(cfg: dict, usati: "dict | None" = None) -> dict:
     # parte `struttura` degli avvisi è vuota e ciò che resta sono conflitti, non «non so».
     su_usati = (_conflitti(cfg_nomi_usati, "name_mappings",
                            (nms.ambiguous_alias_warnings, nms.malformed_entry_warnings))
+                # `malformed_entry_warnings` NON ha tetti: è sempre completo, quindi va
+                # chiesto su TUTTI i profili in uso (2° bloccante Fugu Ultra sulla PR #276).
+                # Escluderlo insieme all'ambiguità declassava a 🟡 «non controllato» un profilo
+                # con righe malformate REALI — segnali scartati adesso — nascondendo un
+                # conflitto **noto** dietro un «non so». Il «non so» vale per ciò che non è
+                # stato guardato, non per ciò che è stato guardato e trovato.
+                + _conflitti(_sotto_config(cfg, "market_mappings", mercati_usati),
+                             "market_mappings", (mms.malformed_entry_warnings,))
                 + _conflitti(cfg_mkt_usati, "market_mappings",
-                             (mms.ambiguous_phrase_warnings, mms.malformed_entry_warnings)))
+                             (mms.ambiguous_phrase_warnings,)))
     # Short-circuit (rilievo Fugu Ultra sulla PR #276): `totali` serve SOLO a distinguere
     # «conflitti su profili orfani» da «pulito», cioè quando `su_usati` è vuoto. Calcolarlo
     # comunque significava una seconda passata completa su TUTTI i profili — costo quadratico
