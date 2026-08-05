@@ -212,6 +212,58 @@ def test_234_differenza_di_SOLO_CASE_avvisa_ma_lo_DICE(monkeypatch):
     assert "NON allargare il token" in avviso, avviso     # e cosa NON fare
 
 
+def test_234_case_diverso_nel_solo_OWNER_REPO_non_e_un_disallineamento(monkeypatch):
+    """Rilievo Fable 5 sull'intera PR, verificato contro il server reale — non dedotto.
+
+    Su `raw.githubusercontent.com` i segmenti dell'URL **non** hanno tutti la stessa sensibilità
+    alle maiuscole. Misurato con `curl` su un repository pubblico:
+
+    ```
+    …/python/cpython/main/README.rst   → 200
+    …/Python/CPython/main/README.rst   → 200   ← owner/repo: case-INsensitive
+    …/python/cpython/Main/README.rst   → 404   ← branch:     case-sensitive
+    …/python/cpython/main/readme.rst   → 404   ← percorso:   case-sensitive
+    ```
+
+    Quindi un `Zarbopiero963-Droid/XTrader-Revocation` al posto di `zarbopiero963-droid/…`
+    **funziona**: i bridge scaricano la lista, le revoche si propagano, non c'è niente da
+    correggere. Avvisare lì sarebbe un **falso allarme** — e questa PR esiste per la tesi opposta,
+    che un avviso falso su una configurazione giusta insegna a ignorare quello vero.
+
+    È l'unica normalizzazione ammessa in questa funzione, e per la ragione esattamente contraria a
+    quella respinta per slash e spazi: lì la misura diceva **404** (bridge rotto, silenziarlo
+    sarebbe il difetto), qui dice **200** (bridge sano, avvisarlo è rumore).
+    """
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", _REALE)
+
+    assert publisher.disallineamento_bridge("TIZIO/XTrader-Revocation",
+                                            "revocation_list.txt", "main") == ""
+
+
+def test_234_case_diverso_in_BRANCH_o_PERCORSO_avvisa_ANCHE_con_owner_repo_diverso(monkeypatch):
+    """Contro-guardia della normalizzazione sopra: deve toccare **solo** owner/repo.
+
+    Se si allargasse a tutto l'URL, un `Main` al posto di `main` — che la misura dà **404** per
+    tutti i bridge — verrebbe silenziato: cioè il difetto originale reintrodotto dalla porta di
+    servizio, che è precisamente come è nato il giro `7ffe6c3`.
+    """
+    for descrizione, atteso in (
+        ("branch con case diverso",
+         "https://raw.githubusercontent.com/TIZIO/XTrader-Revocation/Main/revocation_list.txt"),
+        ("percorso con case diverso",
+         "https://raw.githubusercontent.com/TIZIO/XTrader-Revocation/main/Revocation_List.txt"),
+    ):
+        monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", atteso)
+        avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                                  "revocation_list.txt", "main")
+        assert avviso, f"{descrizione}: è un 404 per tutti i bridge, non può tacere"
+        assert "maiuscole/minuscole" in avviso, descrizione
+        # e il testo deve dire QUALI segmenti contano, non «l'URL è case-sensitive» (falso per
+        # owner/repo, come la misura dimostra)
+        assert "branch e percorso" in avviso, avviso
+        assert "NON allargare il token" in avviso, descrizione
+
+
 def test_234_branch_o_PERCORSO_diverso_producono_l_avviso(monkeypatch):
     """Rilievo CodeRabbit, ed è un buco vero: negli altri test differisce solo il `repo`.
 

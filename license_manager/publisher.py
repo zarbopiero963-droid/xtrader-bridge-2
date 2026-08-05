@@ -62,6 +62,24 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
 
 
+def _case_normalizzata_dove_il_server_lo_e(u: str) -> str:
+    """`u` con schema, host, owner e repository in minuscolo — **branch e percorso intatti**.
+
+    Serve a un solo confronto, e la sua correttezza sta tutta in dove si ferma: su
+    `raw.githubusercontent.com` owner e repository sono case-INsensitive (200 con qualunque
+    grafia), branch e percorso sono case-sensitive (404 alla prima maiuscola fuori posto).
+    Estendere questa normalizzazione oltre il quinto segmento **silenzierebbe** un 404 reale,
+    cioè il difetto che `disallineamento_bridge` esiste per intercettare.
+
+    Fail-safe: se l'URL non ha la forma attesa (meno di cinque segmenti) torna invariato, e il
+    confronto a valle fallisce → si avvisa. Nel dubbio rumore, mai silenzio.
+    """
+    parti = str(u).split("/")          # ['https:', '', 'host', 'owner', 'repo', 'branch', ...]
+    if len(parti) < 5:
+        return str(u)
+    return "/".join([p.lower() for p in parti[:5]] + parti[5:])
+
+
 def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     """Avviso se si sta per pubblicare a un indirizzo **diverso** da quello che i bridge leggono,
     altrimenti stringa vuota. Puro: nessuna rete, nessuna scrittura.
@@ -109,6 +127,19 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     a, b = str(configurato), str(atteso or "")
     if a == b:
         return ""
+    # UNICA normalizzazione ammessa, e per la ragione esattamente contraria a quella respinta per
+    # spazi e slash (rilievo Fable 5 sull'intera PR). Non è dedotta: è misurata sul server reale.
+    #
+    #   …/python/cpython/main/README.rst  → 200      …/python/cpython/Main/README.rst → 404
+    #   …/Python/CPython/main/README.rst  → 200      …/python/cpython/main/readme.rst → 404
+    #
+    # Owner e repository sono case-INsensitive; branch e percorso no. Un `Tizio/XTrader-Revocation`
+    # al posto di `tizio/xtrader-revocation` è quindi un bridge che **funziona**: avvisare sarebbe
+    # un falso allarme, e la tesi di questa PR è che un avviso falso su una configurazione giusta
+    # insegna a ignorare quello vero. Là la misura diceva 404 (bridge rotto → silenziarlo è il
+    # difetto), qui dice 200 (bridge sano → avvisarlo è rumore).
+    if _case_normalizzata_dove_il_server_lo_e(a) == _case_normalizzata_dove_il_server_lo_e(b):
+        return ""
     # Il testo deve nominare ESATTAMENTE ciò che il ramo copre, senza allargarsi né stringersi:
     # `strip()` è bilaterale sugli spazi, `rstrip("/")` agisce SOLO in coda sugli slash. Le due
     # stesure precedenti hanno sbagliato una volta per lato — «SPAZI o SLASH finali» ignorava lo
@@ -130,15 +161,17 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
             "spazio iniziale rende la richiesta non valida. Correggi REVOCATION_LIST_URL o la "
             "configurazione. NON allargare il token.")
     if a.lower() == b.lower():
-        # Differenza di SOLE maiuscole/minuscole. Si avvisa comunque — perché su
-        # `raw.githubusercontent.com` branch e percorso SONO case-sensitive, e un `Main` al posto
-        # di `main` darebbe 404 a tutti i bridge — ma dicendo esattamente cos'è, altrimenti chi
-        # legge confronta due URL che «sembrano identici» e conclude che l'avviso è rotto.
+        # Arrivare qui significa che il case differisce **fuori** da owner/repo — quelli li ha già
+        # assorbiti il confronto sopra. Quindi è branch o percorso, che il server tratta come
+        # case-sensitive: 404 per tutti i bridge, si avvisa. Il messaggio nomina i segmenti che
+        # contano invece di dire «l'URL è case-sensitive», che per owner/repo è falso e manderebbe
+        # a correggere una grafia che funziona già.
         return (
             "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono SOLO "
             f"per maiuscole/minuscole.\nConfigurato:      {configurato}\nAtteso dai bridge: "
-            f"{atteso}\nBranch e percorso su raw.githubusercontent.com sono case-sensitive: "
-            "allinea la grafia esatta. NON allargare il token — non è un problema di permessi.")
+            f"{atteso}\nSu raw.githubusercontent.com branch e percorso sono case-sensitive "
+            "(owner e repository no): allinea la grafia esatta di branch e percorso. NON "
+            "allargare il token — non è un problema di permessi.")
     return (
         "⚠️ Stai pubblicando a un indirizzo DIVERSO da quello da cui i bridge scaricano la "
         f"lista.\nConfigurato:      {configurato}\nAtteso dai bridge: {atteso}\n"

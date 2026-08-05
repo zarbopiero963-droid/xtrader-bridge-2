@@ -819,8 +819,18 @@ collaterale di questa PR.
   slash in eccesso «perché servono lo stesso file», ed era falso: su `raw.githubusercontent.com`
   un file con slash in coda (`…/revocation_list.txt/`) risponde **404**, e uno spazio iniziale
   rende la richiesta non valida — cioè sarebbero bridge **realmente rotti**, silenziati dentro la
-  funzione che esiste per non silenziare nulla. Branch e percorso sono inoltre
-  **case-sensitive**: un `Main` al posto di `main` è un 404 per tutti i bridge. Si avvisa quindi
+  funzione che esiste per non silenziare nulla.
+
+  L'**unica** eccezione è il case di **owner e repository**, e poggia su una misura del server
+  reale, non su un'inferenza: `…/Python/CPython/main/README.rst` risponde **200**, mentre
+  `…/python/cpython/Main/README.rst` e `…/python/cpython/main/readme.rst` rispondono **404**. Owner
+  e repository sono case-insensitive, branch e percorso no. Un `Tizio/XTrader-Revocation` al posto
+  di `tizio/xtrader-revocation` è quindi un bridge che **funziona**, e avvisare lì sarebbe un falso
+  allarme. `_case_normalizzata_dove_il_server_lo_e` abbassa il case dei soli primi cinque segmenti
+  (schema, host, owner, repo) e lascia intatto il resto: estenderla oltre silenzierebbe un 404
+  reale. È la ragione **opposta** a quella per cui spazi e slash non si normalizzano — là la misura
+  dice 404 (bridge rotto, silenziarlo è il difetto), qui dice 200 (bridge sano, avvisarlo è
+  rumore). Si avvisa quindi
   su **qualunque** differenza, ma il messaggio la **nomina** — spazi a inizio o fine e slash
   finali (esattamente ciò che il ramo confronta: `strip()` è bilaterale, `rstrip("/")` solo in
   coda; uno slash *iniziale* non arriva fin qui perché un URL senza host è già placeholder),
