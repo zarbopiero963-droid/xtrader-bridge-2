@@ -49,13 +49,41 @@ I nomi originali (`Immagine 2026-07-06 165210.png`) sono stati normalizzati in
 che è anche l'ordine in cui il proprietario ha percorso i menu. La corrispondenza con i nomi
 originali e gli id Drive è in `manifest.json`.
 
-## Privacy
+## Privacy — verifica esaustiva
 
-Verificati a campione (le 13 immagini a piena larghezza, cioè quelle che mostrano finestre intere
-e non semplici dialog): **nessun dato di conto** — niente username Betfair, niente saldi, niente
-nomi di strategie personali. Le condizioni e le azioni portano i nomi di default generati dal
-programma (`Nuova Condizione #1`, `Nuova Azione #2`). I dati di mercato visibili (squadre,
-competizioni, quote) sono palinsesto pubblico Betfair.
+**Tutte e 102 le immagini sono state aperte e controllate una per una** (non a campione). Nessuna
+credenziale, nessun saldo, nessun token, nessun ID di conto Betfair. I dati di mercato visibili
+(squadre, competizioni, quote, importi abbinati) sono palinsesto pubblico Betfair.
+
+Due rilievi, entrambi non sensibili ma segnalati per correttezza:
+
+| Cosa | Dove | Valutazione |
+|---|---|---|
+| Barra del titolo con **«Data Scadenza Abbonamento: 20/07/2026»** e **«Ultimo accesso precedente: 06/07/2026 16:50:53»** | `varie/01` | dato di abbonamento del proprietario, non una credenziale |
+| Nome di strategia personale **`SIG_PREMATCH_BASE`** | `varie/10`, `azioni-se-vero-se-falso/01` e `02`, `condizioni/01`, `02`, `03`, `10`, `11`, `15`, `69` | nome scelto dal proprietario, visibile nell'elenco strategie |
+
+Nessuno dei due impedisce la pubblicazione. Se il proprietario preferisce, si possono oscurare con
+un ritaglio o una sfocatura prima di usarli in una guida pubblica.
+
+Condizioni e azioni portano ovunque i **nomi di default generati dal programma**
+(`Nuova Condizione #1`, `Nuova Azione #2`, `Nuova Regola #1`), quindi non rivelano nulla del
+metodo del proprietario.
+
+## Descrizioni
+
+Ogni immagine ha una descrizione a parole in **`catalogo.md`** (leggibile) e **`catalogo.jsonl`**
+(una riga JSON per immagine). Campi: `file`, `finestra`, `rilevanza_bridge`, `descrizione`,
+`usare_per`, `privacy`.
+
+Servono al futuro **assistente AI**: un modello non può guardare gli screenshot, ma leggendo il
+catalogo sa *quale* immagine mostrare e *cosa* contiene. La guida operativa che le usa è
+[`docs/xtrader_integration.md`](../../../../docs/xtrader_integration.md); il riferimento delle
+formule è [`docs/xtrader_formule.md`](../../../../docs/xtrader_formule.md).
+
+`catalogo.md` si apre con l'indice delle **13 immagini a rilevanza altissima** per il bridge: fonte segnali (`varie/02`, `03`, `04`), indice azioni e azione da segnali
+(`azioni-se-vero/01`, `04`), numero esecuzioni e nodo condizioni (`condizioni/13`, `15`),
+indice condizioni e criteri di selezione (`condizioni/17`, `18`), codici MarketType
+(`condizioni/20`, `21`, `22`) e la guardia anti-doppione (`condizioni/42`).
 
 ## Diritti
 
