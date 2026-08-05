@@ -64,6 +64,23 @@ def test_la_privacy_descrive_gli_altri_tre_flussi_di_dati():
         assert atteso in testo, "la privacy non parla più di: %s" % cosa
 
 
+def test_la_privacy_dichiara_il_trasferimento_fuori_dalla_ue():
+    """Anthropic è una società statunitense: i messaggi della chat escono dallo Spazio
+    Economico Europeo. È un fatto, non un'opinione, ed è dei pochi che un utente ha diritto
+    di sapere *prima* di scrivere qualcosa in quella chat (rilievo CodeRabbit sulla #284)."""
+    testo = _PRIVACY.read_text(encoding="utf-8")
+    assert "Spazio Economico Europeo" in testo, "manca la dichiarazione sul trasferimento"
+    assert "statunitense" in testo, "non è detto dove ha sede il fornitore del modello"
+
+
+def test_la_privacy_dice_per_quanto_restano_i_dati():
+    """«Quali dati» senza «per quanto tempo» è mezza informazione: sono i periodi di
+    conservazione, e qui sono verificabili nel codice (chat: mai; IP: un'ora)."""
+    testo = _PRIVACY.read_text(encoding="utf-8")
+    assert "Per quanto tempo" in testo
+    assert "un'ora" in testo, "non è più dichiarata la durata del conteggio per IP"
+
+
 def test_la_privacy_distingue_il_sito_dal_programma():
     """Il programma gira sul PC dell'utente e non manda nulla a noi. Confondere le due cose
     farebbe credere che il bridge telefoni a casa — cosa che non fa, ed è un punto di fiducia
@@ -97,15 +114,29 @@ def test_la_pagina_18plus_dice_che_l_automazione_accelera_il_rischio():
     assert "Simulazione" in testo, "non spiega più perché il programma parte in Simulazione"
 
 
+def _footer(pagina: str) -> str:
+    """Il blocco `<footer>…</footer>` della pagina, non tutto il documento.
+
+    Cercare in tutto l'HTML rendeva il controllo compiacente: sarebbe passato con i link in
+    un menu, in un commento o in una stringa JavaScript qualsiasi. Il richiamo 18+ e i due
+    link devono stare **nel footer**, che è il posto che l'utente trova su ogni pagina.
+    """
+    html = (_STATIC / pagina).read_text(encoding="utf-8")
+    match = re.search(r"<footer[^>]*>(.*?)</footer>", html, re.S)
+    assert match, "%s non ha un blocco <footer>" % pagina
+    return match.group(1)
+
+
 @pytest.mark.parametrize("pagina", _PAGINE)
 def test_ogni_pagina_richiama_il_18plus_e_linka_le_due_pagine(pagina):
     """Vale per TUTTE le pagine, comprese quelle future: il parametro è la lista dei file su
     disco. Una pagina nuova senza il richiamo fa fallire la suite da sola — esattamente come
     per il disclaimer di non-affiliazione."""
-    html = (_STATIC / pagina).read_text(encoding="utf-8")
-    assert "18+" in html, "%s non richiama il 18+" % pagina
-    assert "/gioco-responsabile" in html, "%s non linka la pagina gioco responsabile" % pagina
-    assert "/privacy" in html, "%s non linka la privacy" % pagina
+    footer = _footer(pagina)
+    assert "18+" in footer, "%s non richiama il 18+ nel footer" % pagina
+    assert "/gioco-responsabile" in footer, \
+        "%s non linka il gioco responsabile dal footer" % pagina
+    assert "/privacy" in footer, "%s non linka la privacy dal footer" % pagina
 
 
 # Le pagine trilingui. Escluse di proposito: `demo.html`, `demo-xtrader.html` e
@@ -133,14 +164,20 @@ def test_ogni_pagina_trilingue_ha_il_selettore_di_lingua(pagina):
 
 
 @pytest.mark.parametrize("chiave", ["footer.age", "footer.privacy", "footer.responsible",
-                                    "privacy.h1", "privacy.chat.p", "resp.h1", "resp.what.not",
+                                    "privacy.h1", "privacy.chat.p", "privacy.detail.transfer",
+                                    "privacy.detail.keep", "resp.h1", "resp.what.not",
                                     "resp.help.iss"])
 def test_i_contenuti_nuovi_sono_tradotti_in_ogni_lingua(chiave):
     """Regola del sito: il testo si traduce in tutte le lingue attive (l'italiano è il default
     nel markup). Una pagina legale visibile solo agli italiani non protegge gli altri utenti."""
     for lingua, dizionario in _dizionari().items():
-        assert '"%s"' % chiave in dizionario, \
-            "«%s» non è tradotta in «%s»" % (chiave, lingua)
+        match = re.search(r'"%s":\s*"((?:[^"\\]|\\.)*)"' % re.escape(chiave), dizionario)
+        assert match, "«%s» non è tradotta in «%s»" % (chiave, lingua)
+        # il VALORE, non solo la chiave: `"privacy.h1": ""` passerebbe un controllo che
+        # cerca il nome, e la pagina mostrerebbe uno spazio vuoto al posto del titolo
+        valore = match.group(1).strip()
+        assert len(valore) >= 3, \
+            "«%s» in «%s» è vuota o troppo corta: %r" % (chiave, lingua, valore)
 
 
 def test_il_numero_verde_e_uguale_in_tutte_le_lingue():

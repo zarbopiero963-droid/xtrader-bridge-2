@@ -18,9 +18,18 @@ il form contatti che **non invia nulla al sito** (apre il client dell'utente), l
 in memoria per il rate limit e cancellato dopo un'ora, e la lingua in `localStorage`. Dice
 anche, esplicitamente, che il **programma** non manda niente a noi.
 
-⚠️ **Da chiudere col professionista**: il titolare del trattamento è indicato come
-«**BetRelay**», per scelta del proprietario che non vuole nome e cognome su una pagina
-pubblica. Il GDPR però vuole un soggetto identificabile — persona fisica o giuridica — perché
+La pagina dichiara anche **finalità**, **tempi di conservazione** (chat: mai conservate; IP:
+un'ora; email: finché serve alla richiesta) e il **trasferimento fuori dallo Spazio Economico
+Europeo**, perché Anthropic è una società statunitense — un fatto che l'utente ha diritto di
+sapere *prima* di scrivere nella chat.
+
+⚠️ **Da chiudere col professionista**, due cose in una sola consulenza:
+
+1. la **base giuridica** di ciascun trattamento (art. 13 GDPR). Le finalità sono descritte, ma
+   qualificarle giuridicamente — legittimo interesse, consenso, esecuzione di un contratto — è
+   una valutazione legale, non una scrittura tecnica: non l'ho inventata;
+2. il **titolare del trattamento**, indicato come «**BetRelay**» per scelta del proprietario,
+   che non vuole nome e cognome su una pagina pubblica. Il GDPR però vuole un soggetto identificabile — persona fisica o giuridica — perché
 altrimenti non si sa a chi rivolgere una richiesta. È la **stessa consulenza** che serve per il
 punto S2: una domanda sola, non due. La soluzione probabile è indicare la ditta/P.IVA quando
 esisterà, così il nome personale non compare comunque.
