@@ -122,9 +122,12 @@ Confermerebbero anche una cosa che oggi diamo per buona sulla parola del support
 del CSV e codici `MarketType` sono **davvero identici** fra le versioni, e che cambiano solo le
 etichette dell'interfaccia.
 
-**Se non sono disponibili non è bloccante**: per la regola delle lingue, in mancanza di quelle
-schermate le sezioni non-italiane usano gli screenshot **inglesi**, e se mancano anche quelli si
-parte con gli italiani dichiarando che l'interfaccia mostrata è la versione IT.
+**Se non sono disponibili**: per la regola permanente delle lingue il fallback è **l'inglese, e
+solo l'inglese** — dichiarato in pagina, mai silenzioso. Oggi gli inglesi **non esistono**, quindi
+le sezioni non-italiane restano **in attesa di questa issue**: mostrare screenshot italiani a un
+utente di BETTINGTOOLKIT.COM significherebbe fargli cercare a schermo etichette che il suo
+programma non ha. Se il proprietario decide comunque di pubblicarle prima, la pagina deve dirlo
+esplicitamente — è una sua scelta, non un ripiego che l'agente può prendersi da solo.
 
 > 📌 **Regola permanente da ricordare** ([`policy_lingue_sito.md`](policy_lingue_sito.md)): gli
 > screenshot esistono solo in **IT/EN/ES**, perché il software esiste solo in quelle tre lingue.

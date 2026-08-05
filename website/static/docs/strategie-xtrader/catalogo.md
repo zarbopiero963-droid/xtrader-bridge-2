@@ -49,7 +49,7 @@ La barra dei menu di XTrader con il menu «Funzioni» aperto. Elenca tutte le fi
 
 *Usare per:* Dire all'utente come raggiungere una finestra. Per il bridge: Funzioni → Segnali, oppure il tasto F11.
 
-*Privacy:* ATTENZIONE: la barra del titolo mostra «Data Scadenza Abbonamento: 20/07/2026» e «Ultimo accesso precedente: 06/07/2026 16:50:53». Dati dell'abbonamento del proprietario, non credenziali.
+*Privacy:* ATTENZIONE: la barra del titolo mostra due campi dell'Abbonamento del proprietario — data di scadenza e data/ora dell'ultimo accesso precedente. Sono metadati di account, non credenziali: qui si descrivono e basta, i valori restano solo dentro l'immagine.
 
 ### 02-20260708-170631.png
 

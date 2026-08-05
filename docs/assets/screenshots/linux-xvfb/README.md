@@ -1,13 +1,13 @@
 # Screenshot dell'app BetRelay — IT / EN / ES
 
 Screenshot **reali** della GUI catturati con la pipeline descritta in
-[`tools/screenshots/README.md`](../../../tools/screenshots/README.md), usando la **config
+[`tools/screenshots/README.md`](../../../../tools/screenshots/README.md), usando la **config
 d'esempio** delle guide: token **fittizio**, chat `-1001234567890`, percorso
 `C:\XTrader\segnali.csv`. Nessun dato reale.
 
 Servono alle **tre sezioni per software** del sito — *BetRelay per XTrader* (IT), *for
 BETTINGTOOLKIT.COM* (EN), *para BETTINGTOOLKIT.ES / .LAT* (ES) — secondo la regola in
-[`docs/policy_lingue_sito.md`](../../policy_lingue_sito.md): **il testo si traduce in tutte le
+[`docs/policy_lingue_sito.md`](../../../policy_lingue_sito.md): **il testo si traduce in tutte le
 lingue del sito, gli screenshot esistono solo in IT/EN/ES e per ogni altra lingua si usano quelli
 in inglese**.
 
@@ -72,7 +72,7 @@ Altre trappole già incontrate (tkinter, cryptography, tema chiaro, PYTHONPATH) 
 ## Il Wizard
 
 `it/wizard-step1.png` e `it/wizard-step2.png` sono generati da
-[`tools/screenshots/wizard_shot.py`](../../../tools/screenshots/wizard_shot.py), che istanzia la
+[`tools/screenshots/wizard_shot.py`](../../../../tools/screenshots/wizard_shot.py), che istanzia la
 vista reale e la porta direttamente allo step voluto.
 
 **Nessun token reale, mai.** Lo script esiste proprio per *non* averne bisogno: cliccando, il

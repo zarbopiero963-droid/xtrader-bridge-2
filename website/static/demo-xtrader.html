@@ -8,11 +8,14 @@
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="stylesheet" href="/static/style.css">
 <style>
+  /* `--xt-amber` sta al :root perché lo usano anche `.log` e `.note`, che NON sono dentro
+     `.xt`: dichiarato solo lì, non lo ereditavano e restavano del colore di default. */
+  :root{ --xt-amber:#b06000; }
   /* ====== Replica XTrader: tema chiaro Windows, distinto dal sito scuro ====== */
   .xt{
     --win:#f0f0f0; --win-line:#dcdcdc; --win-line2:#c8c8c8; --paper:#fff;
     --ink:#1a1a1a; --ink-soft:#555; --hdr-ink:#0b3d91;
-    --sel:#cce8ff; --ok:#1e8e3e; --ko:#c62828; --amber:#b06000;
+    --sel:#cce8ff; --ok:#1e8e3e; --ko:#c62828; --amber:var(--xt-amber);
     background:var(--win); color:var(--ink); border:1px solid var(--win-line2);
     border-radius:6px; overflow:hidden; font-family:"Segoe UI",Tahoma,Arial,sans-serif;
     font-size:12.5px; line-height:1.35; box-shadow:0 18px 46px rgba(0,0,0,.45);
@@ -109,7 +112,7 @@
     font-family:var(--mono);font-size:.72rem;line-height:1.75;max-height:210px;overflow-y:auto;margin-top:12px;
   }
   .log div{color:var(--muted)}
-  .log .i{color:var(--cyan)} .log .g{color:var(--green-txt)} .log .r{color:var(--red-txt)} .log .a{color:var(--amber)}
+  .log .i{color:var(--cyan)} .log .g{color:var(--green-txt)} .log .r{color:var(--red-txt)} .log .a{color:var(--xt-amber)}
   .why{
     border-left:3px solid var(--red-txt);background:#1b1216;border-radius:8px;
     padding:12px 14px;margin-top:12px;font-size:.85rem;color:var(--muted);
@@ -117,8 +120,8 @@
   .why b{color:var(--red-txt)}
   .why.good{border-left-color:var(--green);background:#101a12}
   .why.good b{color:var(--green-txt)}
-  .note{border-left:3px solid var(--amber);background:var(--panel);border-radius:8px;padding:13px 16px;margin-top:20px}
-  .note b{color:var(--amber)}
+  .note{border-left:3px solid var(--xt-amber);background:var(--panel);border-radius:8px;padding:13px 16px;margin-top:20px}
+  .note b{color:var(--xt-amber)}
   .note p{color:var(--muted);font-size:.87rem}
 
   /* ====== schede fra le tre finestre ====== */
@@ -695,7 +698,11 @@
     $("why").hidden = true; whyPieno = false;
     $("log").innerHTML = '<div class="i">[' + ora() + '] Pronto. Comincia dal passo 1.</div>';
     stato("Nessuna fonte configurata: XTrader non sta leggendo nessun file.");
+    // anche le due finestre nuove: un solo handler, così l'ordine non dipende da quale
+    // listener è stato registrato prima (renderFiltro legge lo stato azzerato qui sopra)
+    fSel = []; mSel = []; monitor = []; $("fSeg").checked = false;
     renderFonti(); renderSegnali(); renderCsv();
+    renderFiltro(); renderMonitor();
   });
 
   // ======================= 1 · FILTRO MERCATI =======================
@@ -872,11 +879,6 @@
     t.addEventListener("click", function(){ mostra(t.dataset.win); });
   });
 
-  // il reset deve riportare anche le due finestre nuove
-  $("a0").addEventListener("click", function(){
-    fSel = []; mSel = []; monitor = []; $("fSeg").checked = false;
-    renderFiltro(); renderMonitor();
-  });
 
   sincronizzaOrigine(); renderCsv(); renderSegnali();
   renderFiltro(); renderMonitor(); mostra("segnali");

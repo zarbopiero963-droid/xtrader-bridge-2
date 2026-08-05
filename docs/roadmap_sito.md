@@ -73,8 +73,11 @@ servizio e da attendere la propagazione DNS; poi va passato all'agente l'URL per
 Regole in [`policy_lingue_sito.md`](policy_lingue_sito.md).
 
 Materiale: ✅ screenshot **BetRelay** in IT/EN/ES · ❌ screenshot **XTrader** in EN/ES (#266).
-Non è bloccante: in mancanza si usano gli inglesi, e in mancanza anche di quelli si parte con gli
-italiani **dichiarandolo**.
+
+Il fallback previsto dalla [regola permanente](policy_lingue_sito.md) è **l'inglese, e solo
+l'inglese**, dichiarato in pagina. Oggi gli inglesi non ci sono: le sezioni non-italiane
+dipendono quindi da #266. Pubblicarle prima, con schermate italiane, è una decisione del
+proprietario da dichiarare in pagina — non un ripiego che l'agente possa prendersi da solo.
 
 ### S7. La guida «Collegare BetRelay a XTrader» come pagina web
 Il contenuto esiste già in [`xtrader_integration.md`](xtrader_integration.md); manca la pagina.

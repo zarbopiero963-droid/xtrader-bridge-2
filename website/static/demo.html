@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>XTrader Signal Bridge — Demo interattiva guidata</title>
-<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"any\">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <style>
   /* ============ TOKENS — palette dal design handoff §10 (tema scuro storico) ============ */
   :root{
@@ -825,10 +825,14 @@ Per confermare digita:  REALE
     if(st.act)try{st.act()}catch(e){}
     // auto-confirm dialoghi in autoplay
     if(auto){
+      // `auto` va ricontrollato DENTRO i callback: se il tour finisce prima che scattino,
+      // il primo confermerebbe al posto dell'utente una dialog che ha aperto lui — proprio
+      // il gate di sicurezza che questa pagina serve a mostrare.
       setTimeout(function(){
-        if($("#ovConfirm").classList.contains("show"))$("#dlgYes").click();
+        if(auto&&$("#ovConfirm").classList.contains("show"))$("#dlgYes").click();
       },2200);
       setTimeout(function(){
+        if(!auto)return;
         $("#ovTools").classList.remove("show");$("#ovWiz").classList.remove("show");
       },6200);
     }

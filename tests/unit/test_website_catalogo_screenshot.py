@@ -78,8 +78,15 @@ def test_le_schermate_indispensabili_sono_catalogate_al_massimo_livello():
 
 
 def test_i_rilievi_privacy_sono_registrati():
-    """I due rilievi trovati nella verifica esaustiva devono restare tracciati: se qualcuno
-    li cancella dal catalogo, la pubblicazione avverrebbe senza saperlo."""
+    """I rilievi privacy devono restare tracciati: se qualcuno li cancella dal catalogo, la
+    pubblicazione avverrebbe senza saperlo.
+
+    Il pavimento è **10** voci marcate ATTENZIONE dalla verifica esaustiva; due sono nominate
+    esplicitamente — la barra del titolo con i dati «Abbonamento» e il nome di strategia
+    «SIG_PREMATCH_BASE» — perché sono le àncore da non perdere. Abbassare la soglia a 2
+    fidandosi della docstring indebolirebbe il gate: la soglia e le àncore sono due cose
+    diverse.
+    """
     voci = _voci()
     attenzioni = [v for v in voci if v["privacy"].startswith("ATTENZIONE")]
     assert len(attenzioni) >= 10, "i rilievi privacy sono spariti dal catalogo"

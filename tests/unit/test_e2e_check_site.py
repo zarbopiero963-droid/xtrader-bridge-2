@@ -12,6 +12,7 @@ che le rotte controllate coincidano con quelle davvero servite da `website/main.
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ _SCRIPT = _ROOT / "tools" / "e2e" / "check_site.py"
 
 def _carica():
     """Importa lo script per path: non è un package, e non deve diventarlo."""
+    _stub_playwright()
     spec = importlib.util.spec_from_file_location("check_site_e2e", _SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
@@ -29,11 +31,27 @@ def _carica():
     return mod
 
 
-playwright_assente = importlib.util.find_spec("playwright") is None
-pytestmark = pytest.mark.skipif(
-    playwright_assente,
-    reason="lo script esce all'import senza playwright; la logica pura si testa dove c'è",
-)
+def _stub_playwright() -> None:
+    """Registra un modulo `playwright` minimo quando non è installato.
+
+    Lo script esce all'import senza Playwright, e una prima versione di questo file lo
+    risolveva saltando l'INTERO modulo. Ma nella CI del bridge Playwright **non c'è**: il
+    risultato era che i controlli di logica pura — fra cui la regressione del disclaimer
+    dimezzato, l'unico difetto vero già trovato qui — non venivano eseguiti da nessuna parte.
+    Un test che salta proprio dove dovrebbe proteggere non protegge niente.
+
+    Nessuna finzione sul comportamento: si registra solo ciò che serve all'import
+    (`Error`, `sync_playwright`), e nessun test qui apre un browser.
+    """
+    if importlib.util.find_spec("playwright") is not None:
+        return
+    pacchetto = types.ModuleType("playwright")
+    api = types.ModuleType("playwright.sync_api")
+    api.Error = type("Error", (Exception,), {})
+    api.sync_playwright = lambda: None
+    pacchetto.sync_api = api
+    sys.modules.setdefault("playwright", pacchetto)
+    sys.modules.setdefault("playwright.sync_api", api)
 
 
 # Footer reali, così come li rende il browser (testo appiattito, due frasi).
@@ -131,10 +149,22 @@ def test_gli_errori_del_browser_sono_catturati_stretti_non_alla_cieca():
 def test_le_rotte_controllate_sono_quelle_servite_dal_sito():
     """Se qualcuno aggiunge una pagina a `_PAGES` senza toccare il collaudo, quella pagina
     non verrebbe mai aperta da un browser: nessuno se ne accorgerebbe fino alla pubblicazione."""
-    main_py = (_ROOT / "website" / "main.py").read_text(encoding="utf-8")
-    inizio = main_py.index("_PAGES = {")
-    blocco = main_py[inizio:main_py.index("}", inizio)]
-    rotte_sito = {r for r in blocco.split('"') if r.startswith("/")}
+    # Si legge il valore REALE di `_PAGES`, non il testo del file: tagliare il sorgente alla
+    # prima `}` basta finché nessun valore contiene una graffa, e il giorno che ne contenesse
+    # una il blocco finirebbe presto, `rotte_sito` si restringerebbe e l'assert passerebbe
+    # avendo confrontato meno rotte del vero — un PASS proprio sulla regressione da bloccare.
+    sorgente = (_ROOT / "website" / "main.py").read_text(encoding="utf-8")
+    inizio = sorgente.index("_PAGES = {")
+    fine = sorgente.index("}", inizio) + 1
+    spazio = {}
+    exec(compile(sorgente[inizio:fine], "<_PAGES>", "exec"), spazio)  # noqa: S102
+    pages = spazio["_PAGES"]
+    assert isinstance(pages, dict) and pages, "estrazione di _PAGES fallita: %r" % (pages,)
+
+    rotte_sito = set(pages)
     rotte_collaudo = {r for r, _ in _carica().PAGINE}
     assert rotte_sito <= rotte_collaudo, "rotte servite ma mai collaudate: %s" % (
         sorted(rotte_sito - rotte_collaudo),)
+    assert len(rotte_sito) == len(rotte_collaudo), (
+        "il collaudo apre rotte che il sito non serve più: %s"
+        % sorted(rotte_collaudo - rotte_sito))

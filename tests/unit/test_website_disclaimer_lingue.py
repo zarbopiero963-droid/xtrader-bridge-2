@@ -20,6 +20,10 @@ _POLICY = _ROOT / "docs" / "policy_lingue_sito.md"
 _CLAUDE = _ROOT / "CLAUDE.md"
 
 _PAGINE = sorted(p.name for p in _STATIC.glob("*.html"))
+# Senza questa riga, una cartella spostata o rinominata produce una lista vuota: parametrize
+# salterebbe entrambi i test e la suite direbbe «nessun problema» dopo aver controllato ZERO
+# pagine. Un gate che non guarda è indistinguibile da uno che approva.
+assert _PAGINE, "nessuna pagina HTML in website/static: il gate del disclaimer non copre nulla"
 
 # I due soggetti da cui BetRelay deve dichiararsi indipendente.
 _SOGGETTI = ("TradingSportivo", "Betting Toolkit")

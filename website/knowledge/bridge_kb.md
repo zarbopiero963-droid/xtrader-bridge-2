@@ -14,9 +14,11 @@ lo stesso programma per altri mercati: BETTINGTOOLKIT.COM (World), BETTINGTOOLKI
 BETTINGTOOLKIT.LAT (America Latina). Il bridge è compatibile con tutta la famiglia: il CSV ha
 lo stesso contratto a 14 colonne. Il bridge supporta le lingue IT/EN/ES: al primo avvio si
 sceglie la lingua, e la lingua CSV allinea il separatore decimale (virgola per IT/ES, punto
-per EN) al palinsesto del software di destinazione. Importante: nel software (XTrader/Betting
-Toolkit) la LINGUA DELLA FONTE va impostata uguale a quella scelta nel bridge, perché col
-riconoscimento a nomi i nomi dipendono dalla lingua del palinsesto.
+per EN) al palinsesto del software di destinazione. Importante, ma SOLO col riconoscimento a nomi
+(EventName + MarketType + SelectionName): in quel caso nel software (XTrader/Betting Toolkit)
+la LINGUA DELLA FONTE va impostata uguale a quella scelta nel bridge, perché i nomi dipendono
+dalla lingua del palinsesto. Col riconoscimento per ID (MarketId, SelectionId) la lingua NON
+entra in gioco: il confronto è fra identificatori, non fra nomi.
 
 ## Requisiti
 - Windows 10/11 a 64 bit (l'EXE include tutto, non serve Python).

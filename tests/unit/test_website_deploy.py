@@ -10,6 +10,7 @@ test può accorgersi se il `docker build` fallisce — Docker non esiste nell'am
 tutti e tre bloccano la regressione del *contenuto* dei file, che è dove sta il rischio.
 """
 
+import importlib
 import re
 from pathlib import Path
 
@@ -79,19 +80,29 @@ def test_le_dipendenze_del_sito_sono_pinnate():
         assert ">=" not in riga and "~=" not in riga, "vincolo non esatto: «%s»" % riga
 
 
-def test_le_dipendenze_pinnate_sono_quelle_installate_qui():
-    """Il pin deve corrispondere a ciò con cui il sito è stato davvero eseguito e collaudato,
-    non a un numero scritto a memoria. Se l'ambiente ha versioni diverse, il test lo dice invece
-    di lasciar credere che il pin sia verificato."""
-    import fastapi
-    import httpx
-    import uvicorn
+@pytest.mark.parametrize("riga", _righe_utili(_REQS))
+def test_ogni_pin_corrisponde_alla_versione_installata_dove_c_e(riga):
+    """Il pin deve corrispondere a ciò con cui il sito è stato davvero eseguito, non a un numero
+    scritto a memoria.
 
-    installate = {"fastapi": fastapi.__version__, "uvicorn": uvicorn.__version__,
-                  "httpx": httpx.__version__}
-    for riga in _righe_utili(_REQS):
-        nome, versione = riga.split("==")
-        nome = nome.split("[")[0]
-        assert installate[nome] == versione, (
-            "%s pinnato a %s ma qui gira %s: il pin non è quello collaudato"
-            % (nome, versione, installate[nome]))
+    Le dipendenze del **sito** non stanno in `requirements-dev.txt`: la CI del bridge non le
+    installa, e importarle qui a secco renderebbe rossa tutta la suite del bridge per una
+    libreria che non c'entra col bridge (rilievo Claude Fable 5 sulla #277). Quindi si salta
+    dove non sono installate — come già fanno gli altri test del sito — e si controlla dove ci
+    sono, cioè nell'ambiente in cui il sito viene davvero eseguito e collaudato.
+    """
+    nome, versione = riga.split("==")
+    try:
+        modulo = importlib.import_module(nome.split("[")[0])
+    except ImportError:
+        # `pytest.importorskip` salta solo su ModuleNotFoundError: un ImportError di altra
+        # natura (installazione parziale, estensione C incompatibile) lo lascerebbe passare
+        # come FALLIMENTO della suite del bridge, per una libreria che il bridge non usa.
+        pytest.skip("dipendenza del sito non importabile qui: il pin si verifica dove il "
+                    "sito gira davvero")
+    installata = getattr(modulo, "__version__", None)
+    assert installata is not None, (
+        "%s non espone __version__: il confronto col pin non è verificabile" % nome)
+    assert installata == versione, (
+        "%s pinnato a %s ma qui gira %s: il pin non è quello collaudato"
+        % (nome, versione, installata))

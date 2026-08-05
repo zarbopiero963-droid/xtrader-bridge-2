@@ -50,8 +50,17 @@ Con il comando **nuova fonte** si apre la dialog **«Fonte Segnali»**
 | **URL** / **Nome File** | scegliere **Nome File** e puntare al file indicato in «📄 CSV Path» nel bridge |
 | **Aggiorna automaticamente ogni** | spuntare, e impostare un intervallo (formato `hh:mm:ss`) |
 | **Escludi automaticamente segnali non validati** | facoltativo: tiene pulito l'elenco |
-| **Riconoscimento selezioni** | `MarketId, SelectionId` **oppure** `EventName,MarketType,SelectionName` |
+| **Riconoscimento selezioni** | `EventName,MarketType,SelectionName` — vedi la nota qui sotto prima di scegliere `MarketId, SelectionId` |
 | **Lingua Palinsesto** | `IT`, `EN` o `ES` — vedi §4 |
+
+> ⚠️ **Quale riconoscimento scegliere.** Il parser P.Bet. integrato **lascia vuoti**
+> `EventId`, `MarketId` e `SelectionId`: il messaggio Telegram non li contiene, e
+> `csv_writer.py` li scrive come stringa vuota. Con quella configurazione il riconoscimento
+> **per ID non trova nulla** — non dà errore, semplicemente nessun segnale viene validato.
+> Il riconoscimento per ID è utilizzabile solo se gli ID li riempie qualcuno: un **parser
+> personalizzato** che li estrae o li imposta come valori fissi, oppure il **dizionario Betfair
+> locale** che li risolve dai nomi. In quel caso vale la conferma del proprietario: **con gli ID
+> la «Lingua Palinsesto» non entra in gioco**.
 
 > **Il percorso deve essere lo stesso da entrambe le parti.** Il campo «Nome File» qui e il campo
 > «📄 CSV Path» nel bridge devono puntare **allo stesso file**. È l'errore di configurazione più
@@ -146,8 +155,10 @@ Le 14 colonne che BetRelay scrive e il loro significato stanno in
 [`docs/xtrader_csv_contract.md`](xtrader_csv_contract.md). Da ricordare qui:
 
 - **`Provider`** — l'azione di piazzamento può filtrare per provider (confronto **non**
-  case-sensitive). Tenerlo **stabile**: cambiarlo è anche il trucco documentato per far riusare
-  un segnale già giocato.
+  case-sensitive). Tenerlo **stabile**. ⚠️ Cambiarlo su un segnale **già giocato** è il modo
+  documentato per farlo rigiocare: non è una rinomina innocua, è un **replay esplicito** che
+  scavalca la protezione «un segnale si usa una volta sola». Farlo solo deliberatamente,
+  sapendo che la scommessa può essere piazzata di nuovo.
 - **`Price`** — usata solo se la strategia attiva «Usa quota segnale se indicata».
 - **`MinPrice` / `MaxPrice`** — condizioni di validità: se la quota richiesta è fuori range la
   scommessa **non parte**, a meno che la strategia non spunti «Ignora limite quote».

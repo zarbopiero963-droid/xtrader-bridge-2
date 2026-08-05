@@ -131,6 +131,13 @@ def controlla_pagine(pagina, base: str, es: Esito, errori: list[str], out: str) 
             # le altre rotte vanno provate lo stesso.
             es.add("rotta %s" % rotta, False, str(exc).splitlines()[0][:120])
             continue
+        if r is None:
+            # `goto` torna None quando la navigazione non produce una risposta principale
+            # (about:blank, cambio di solo fragment). Qui non dovrebbe succedere, ma leggere
+            # `r.status` alla cieca trasformerebbe un caso anomalo in una traceback che
+            # nasconde tutti i controlli successivi.
+            es.add("rotta %s (%s)" % (rotta, nome), False, "nessuna risposta principale")
+            continue
         es.add("rotta %s (%s)" % (rotta, nome), r.status == 200, "HTTP %s" % r.status)
 
         titolo = pagina.title().strip()

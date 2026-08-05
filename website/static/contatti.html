@@ -76,7 +76,9 @@ document.getElementById("contactForm").addEventListener("submit",function(e){
   var n=document.getElementById("cfName").value.trim(),
       m=document.getElementById("cfMail").value.trim(),
       t=document.getElementById("cfMsg").value.trim();
-  var body="Nome: "+n+"%0AEmail: "+m+"%0A%0A"+encodeURIComponent(t);
+  // tutto il body va codificato insieme: `&`, `#` o `%` nel nome o nell'email
+  // altrimenti diventano separatori di query e tagliano il messaggio
+  var body=encodeURIComponent("Nome: "+n+"\nEmail: "+m+"\n\n"+t);
   // TODO(owner): sostituire con l'indirizzo di supporto reale
   window.location.href="mailto:supporto@example.com?subject="+encodeURIComponent("Supporto BetRelay")+"&body="+body;
   var st=(window.SITE_T&&window.SITE_T("contact.sent"))||"Si apre il tuo client email con il messaggio precompilato.";

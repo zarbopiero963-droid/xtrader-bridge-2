@@ -1,7 +1,7 @@
 # Screenshot XTrader — automazione (condizioni, azioni, strategie)
 
 Materiale **sorgente** per le guide BetRelay, fornito dal proprietario del progetto:
-103 screenshot reali dell'automazione di XTrader + il PDF `FORMULA.pdf`.
+102 screenshot reali dell'automazione di XTrader + il PDF `FORMULA.pdf` (103 file in tutto).
 
 > ⚠️ Questi file **non sono ancora una guida**. Sono la materia prima da cui vengono scritte
 > le pagine di `/documentazione`. Nessuna pagina del sito li linka al momento: ci finiranno

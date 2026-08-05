@@ -50,8 +50,13 @@ def test_le_tre_lingue_hanno_la_stessa_finestra():
     spagnolo prima di parametrizzare le coordinate)."""
     for nome in _ATTESE:
         misure = {lang: _png_size(_DIR / lang / nome) for lang in _LINGUE}
-        larghezze = {m[0] for m in misure.values()}
-        assert len(larghezze) == 1, "%s: larghezze diverse fra lingue → %s" % (nome, misure)
+        assert len({m[0] for m in misure.values()}) == 1, \
+            "%s: larghezze diverse fra lingue → %s" % (nome, misure)
+        # anche le altezze: una cattura che prende un dialog sovrapposto o una finestra
+        # tagliata di solito cambia l'altezza, non la larghezza — controllare solo quella
+        # lasciava passare esattamente il caso che questo test esiste per bloccare
+        assert len({m[1] for m in misure.values()}) == 1, \
+            "%s: altezze diverse fra lingue → %s" % (nome, misure)
 
 
 def test_lo_script_di_cattura_e_versionato_ed_eseguibile():

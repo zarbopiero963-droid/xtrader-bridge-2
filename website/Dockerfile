@@ -21,4 +21,6 @@ USER betrelay
 # Railway inietta PORT; 8000 è il default per l'uso locale. Il `:-8000` copre anche il caso in
 # cui la variabile esista ma sia VUOTA: senza, uvicorn riceverebbe `--port ` e non partirebbe.
 ENV PORT=8000
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# `exec`: senza, PID 1 resta `sh`, che NON inoltra SIGTERM a uvicorn — il deploy verrebbe
+# ucciso a fine grace period invece di chiudersi pulito.
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
