@@ -83,7 +83,12 @@ def scansiona(radice):
             if not fn.endswith(".py"):
                 continue
             path = os.path.join(dirpath, fn)
-            src = open(path, encoding="utf-8").read()
+            # `with`, non `open(...).read()`: quest'ultimo lascia il file alla mercé del GC e
+            # CPython emette un ResourceWarning reale (verificato con `-W error::ResourceWarning`
+            # su tutti i 38 file). Su un ciclo che apre l'intero package non è teorico, ed è il
+            # tipo di dettaglio che si liquida come «minore» finché non lo è (rilievo Fugu Ultra).
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
             righe = src.split("\n")
             tree = ast.parse(src)
             qmap = qualname_map(tree)
