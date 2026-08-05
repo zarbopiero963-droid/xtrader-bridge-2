@@ -159,6 +159,33 @@ def test_256_chiavi_profilo_NON_CONFRONTABILI_non_rompono_lo_START():
         assert isinstance(avvisi, list), nome
 
 
+def test_256_due_chiavi_che_NORMALIZZANO_UGUALI_restano_deterministiche():
+    """Suggerito da GPT-5.5 sulla #261, ed era un buco vero: la chiave secondaria `repr` l'avevo
+    *scritta in un commento* senza provarla.
+
+    `"Prof"` e `" Prof "` coesistono nelle config legacy/editate a mano (P3-22 #76) e
+    normalizzano allo stesso nome: sulla sola chiave primaria pareggerebbero, e `sorted` essendo
+    stabile ricadrebbe sull'ordine di inserimento — cioè esattamente il non-determinismo che il
+    fix dell'ordine toglie, sopravvissuto dentro il fix stesso.
+
+    I due profili devono avere contenuti **diversi**, altrimenti il test non discrimina: il primo
+    tentativo dava a entrambi le stesse voci, e siccome entrambi si mostrano come «Prof» l'output
+    era identico con o senza la chiave secondaria. Passava senza dimostrare nulla.
+    """
+    assert mms._norm_profile_name("Prof") == mms._norm_profile_name(" Prof "), \
+        "se non normalizzassero uguali il test non coprirebbe il pareggio"
+    alfa, beta = _profilo_in_conflitto("alfa", 1), _profilo_in_conflitto("beta", 1)
+
+    diretto = {"Prof": alfa, " Prof ": beta}
+    inverso = {" Prof ": beta, "Prof": alfa}
+    assert list(diretto) != list(inverso)
+
+    wa = mms.ambiguous_phrase_warnings({"market_mappings": diretto})
+    wb = mms.ambiguous_phrase_warnings({"market_mappings": inverso})
+    assert len(wa) == 2, wa           # entrambi i profili producono il loro conflitto
+    assert wa == wb, (wa, wb)
+
+
 def test_256_un_profilo_SALTATO_non_consuma_il_budget_globale():
     """Rilievo Fable 5 sulla #261, ed è un difetto logico, non di stile.
 
