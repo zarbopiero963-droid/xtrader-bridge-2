@@ -767,12 +767,6 @@ class LicenseManagerApp(ctk.CTk):
             message=f"XTrader: lista revoche ({count} revoc.)")
         if not result.get("ok"):
             return {"ok": False, "message": str(result.get("message", "Pubblicazione non riuscita."))}
-        # Registra l'istante SOLO su esito riuscito, e solo qui: questo metodo è il passaggio unico di
-        # entrambe le strade (🚀 «Pubblica ora» e tick automatico), quindi l'etichetta non può
-        # divergere fra le due. Best-effort: `save_last_publish` non solleva.
-        self._save_last_publish(int(self._now()), directory=self._key_dir)
-        messaggio = (f"{result.get('message', '')} "
-                     f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")
         # L'avviso di disallineamento va IN TESTA al messaggio di successo (#234). Qui accanto
         # veniva già stampato «URL per il bridge: …» — cioè proprio l'indirizzo che dovrebbe
         # combaciare con `REVOCATION_LIST_URL` — ma nessuno li confrontava, e la riga si leggeva
@@ -780,6 +774,28 @@ class LicenseManagerApp(ctk.CTk):
         # silenzioso che questa issue esiste per rendere rumoroso: se resta in coda a «✅
         # Pubblicato» non lo legge nessuno.
         avviso = publisher.disallineamento_bridge(cfg["repo"], cfg["path"], cfg["branch"])
+        # Registra l'istante SOLO su esito riuscito **e destinazione allineata**, e solo qui: questo
+        # metodo è il passaggio unico di entrambe le strade (🚀 «Pubblica ora» e tick automatico),
+        # quindi l'etichetta non può divergere fra le due. Best-effort: `save_last_publish` non
+        # solleva.
+        #
+        # La condizione sull'avviso è la #271 (finding Fugu Ultra sulla PR #270): con una
+        # destinazione disallineata la `PUT` riesce, ma la lista finisce dove nessun bridge legge.
+        # Registrare l'istante lasciava «ultima pubblicazione» verde accanto all'avviso — due
+        # indicatori in disaccordo, e quello silenzioso è più facile da guardare. Non
+        # registrandolo, l'etichetta continua a significare *l'ultima volta che le revoche hanno
+        # davvero raggiunto i bridge*: invecchia da sola fino ad avviso e poi a scaduto, quindi il
+        # guasto emerge anche se nessuno ha letto il messaggio di quel giro.
+        #
+        # NON si blocca la pubblicazione (scelta del proprietario fra le tre opzioni della #271):
+        # un falso positivo di `disallineamento_bridge` fermerebbe la propagazione delle revoche, e
+        # un falso positivo lì è emerso davvero durante la #270 (il case di owner/repo, che su
+        # raw.githubusercontent.com non conta). Un'etichetta pessimista si corregge da sé alla
+        # prima pubblicazione allineata; una revoca non propagata no.
+        if not avviso:
+            self._save_last_publish(int(self._now()), directory=self._key_dir)
+        messaggio = (f"{result.get('message', '')} "
+                     f"URL per il bridge: {publisher.raw_url(cfg['repo'], cfg['path'], cfg['branch'])}")
         if avviso:
             messaggio = f"{avviso}\n\n{messaggio}"
         return {"ok": True, "message": messaggio}

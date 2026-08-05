@@ -999,10 +999,16 @@ def _pubblicazione_pronta(gui, fake):
                                          "6", True)
 
 
-def test_pubblicazione_riuscita_registra_l_istante(gui, tmp_path):
+def test_pubblicazione_riuscita_registra_l_istante(gui, tmp_path, monkeypatch):
     """Il timestamp si scrive **solo** in `_evaluate_publish_now`, che è il passaggio unico di
     entrambe le strade (🚀 «Pubblica ora» e tick automatico) → l'etichetta non può divergere fra le
-    due. Qui si verifica che l'istante finisca davvero su disco, non in memoria."""
+    due. Qui si verifica che l'istante finisca davvero su disco, non in memoria.
+
+    Da #271 serve anche che la destinazione sia **allineata** ai bridge: senza
+    `_allinea_url_bridge` questo test pubblicherebbe su `tizio/…` mentre la costante reale punta
+    altrove, cioè proprio il caso che dalla #271 in poi NON registra l'istante.
+    """
+    _allinea_url_bridge(monkeypatch)
     fake = _fake(gui, tmp_path)
     _pubblicazione_pronta(gui, fake)
     assert publish_store.load_last_publish(directory=str(tmp_path)) is None
@@ -1073,10 +1079,15 @@ def test_etichetta_ridipinta_anche_dopo_un_tentativo_FALLITO(gui, tmp_path):
     assert "2 ore fa" in testo
 
 
-def test_tick_automatico_registra_l_istante_come_il_pulsante(gui, tmp_path):
+def test_tick_automatico_registra_l_istante_come_il_pulsante(gui, tmp_path, monkeypatch):
     """La strada automatica passa per lo stesso metodo: `_publish_tick` → `_publish_async` →
     `_publish_worker` → `_evaluate_publish_now`. Se un domani qualcuno pubblicasse fuori da quel
-    passaggio, l'etichetta resterebbe indietro e questo test diventerebbe rosso."""
+    passaggio, l'etichetta resterebbe indietro e questo test diventerebbe rosso.
+
+    Allineato ai bridge come il test del pulsante, e per lo stesso motivo (#271): la condizione
+    «registra l'istante» è ora «riuscita **e** destinazione allineata», su entrambe le strade.
+    """
+    _allinea_url_bridge(monkeypatch)
     fake = _fake(gui, tmp_path)
     _pubblicazione_pronta(gui, fake)
 
@@ -2482,3 +2493,88 @@ def test_234_verifica_accesso_allineata_resta_pulita(gui, tmp_path, monkeypatch)
 
     assert out["ok"] is True
     assert out["message"] == "OK finto", out["message"]
+
+
+# ── #271: il timestamp «ultima pubblicazione» non deve mentire ────────────────
+# Finding di Fugu Ultra sulla PR #270. L'avviso di disallineamento c'è, ma accanto
+# resta un indicatore che dice «pubblicato adesso» mentre la lista è finita dove
+# nessun bridge legge: due indicatori in disaccordo, e quello silenzioso è più
+# facile da guardare. È la #234 spostata di un passo.
+#
+# Scelta del proprietario: opzione B — non registrare l'istante quando la
+# destinazione è disallineata, SENZA bloccare la pubblicazione. Un blocco
+# sbagliato fermerebbe la propagazione delle revoche, e un falso positivo in
+# `disallineamento_bridge` è emerso davvero durante la #270 (il case di
+# owner/repo, che su raw.githubusercontent.com NON conta).
+
+def test_271_pubblicazione_DISALLINEATA_non_registra_il_timestamp(gui, tmp_path, monkeypatch):
+    """Il cuore della issue: la `PUT` avviene, l'avviso c'è, ma l'orologio NON riparte.
+
+    «Ultima pubblicazione» deve continuare a significare *l'ultima volta che le revoche hanno
+    davvero raggiunto i bridge*. Registrarla qui la trasformerebbe in «l'ultima volta che un file
+    è stato caricato da qualche parte», che è vero e inutile.
+    """
+    from xtrader_bridge.licensing import revocation_client
+    monkeypatch.setattr(
+        revocation_client, "REVOCATION_LIST_URL",
+        "https://raw.githubusercontent.com/altro/xtrader-revocation/main/revocation_list.txt")
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_publish_now()
+
+    # la pubblicazione NON è bloccata: è il punto dell'opzione B
+    assert out["ok"] is True, out
+    assert fake._publish_calls, "l'upload deve avvenire comunque: bloccarlo fermerebbe le revoche"
+    assert out["message"].startswith("⚠️"), out["message"]
+    # ...ma l'indicatore non deve dire che è tutto a posto
+    assert publish_store.load_last_publish(directory=str(tmp_path)) is None, \
+        "destinazione disallineata: l'istante NON va registrato, o l'indicatore mente"
+
+
+def test_271_pubblicazione_ALLINEATA_registra_il_timestamp(gui, tmp_path, monkeypatch):
+    """Contro-guardia indispensabile: senza, un'implementazione che non registra MAI passerebbe
+    il test qui sopra — e l'indicatore resterebbe in allarme perpetuo, che è il difetto opposto
+    e ugualmente educativo a ignorarlo."""
+    _allinea_url_bridge(monkeypatch)
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    out = fake._evaluate_publish_now()
+
+    assert out["ok"] is True and "⚠️" not in out["message"], out["message"]
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == _NOW
+
+
+def test_271_una_pubblicazione_disallineata_non_RINFRESCA_un_istante_precedente(gui, tmp_path,
+                                                                                monkeypatch):
+    """La proprietà che rende onesto l'indicatore nel tempo, non solo al primo colpo.
+
+    Scenario reale: la configurazione era giusta, viene cambiata in una sbagliata, e da lì in poi
+    ogni tick pubblica altrove. Se ogni giro rinfrescasse l'istante, l'indicatore resterebbe
+    verde per sempre mentre le revoche non arrivano più a nessuno. Non rinfrescandolo invece
+    **invecchia**, e da solo passa ad avviso e poi a scaduto: il guasto emerge senza che nessuno
+    debba accorgersene.
+    """
+    from xtrader_bridge.licensing import revocation_client
+    vecchio = _NOW - 100_000
+    publish_store.save_last_publish(vecchio, directory=str(tmp_path))    # una riuscita ALLINEATA
+    monkeypatch.setattr(
+        revocation_client, "REVOCATION_LIST_URL",
+        "https://raw.githubusercontent.com/altro/xtrader-revocation/main/revocation_list.txt")
+    fake = _fake(gui, tmp_path)
+    gui.LicenseManagerApp._ensure_keypair(fake)
+    fake._kr_token = "ghp_ABC"
+    fake._evaluate_save_publish_settings(_PUB_OK["repo"], _PUB_OK["path"], _PUB_OK["branch"],
+                                         _SOPRA_IL_TETTO, True)
+
+    assert fake._evaluate_publish_now()["ok"] is True
+
+    assert publish_store.load_last_publish(directory=str(tmp_path)) == vecchio, \
+        "l'istante deve restare quello dell'ultima volta che le revoche sono ARRIVATE ai bridge"

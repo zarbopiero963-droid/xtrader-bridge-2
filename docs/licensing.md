@@ -931,6 +931,19 @@ token è nuovo, va anche concesso su quel repository.
   permanente, dipinta **all'apertura della finestra** e dopo ogni tentativo (riuscito **o** fallito:
   dopo un fallimento serve proprio sapere quanto è vecchia l'ultima riuscita).
 
+  «Riuscita» significa **riuscita e arrivata a destinazione** (#271, finding Fugu Ultra sulla
+  #270): se `disallineamento_bridge` segnala che si sta pubblicando dove nessun bridge legge,
+  l'istante **non** viene registrato, pur non bloccando la pubblicazione. Registrarlo lasciava
+  l'etichetta verde accanto all'avviso — due indicatori in disaccordo, e quello silenzioso è più
+  facile da guardare. Non registrandolo, l'etichetta continua a significare *l'ultima volta che le
+  revoche hanno davvero raggiunto i bridge*: invecchia da sola fino a `warn` e poi a `expired`,
+  quindi una configurazione sbagliata emerge anche se nessuno ha letto il messaggio di quel giro.
+
+  Non si **blocca** la pubblicazione perché un falso positivo di `disallineamento_bridge`
+  fermerebbe la propagazione delle revoche — e un falso positivo lì è emerso davvero nella #270
+  (il case di `owner/repo`, che su `raw.githubusercontent.com` non conta). Un'etichetta pessimista
+  si corregge da sé alla prima pubblicazione allineata; una revoca non propagata no.
+
   Stati e soglie **derivate** da `MAX_LIST_AGE_S`, non ricopiate: `ok` (verde) sotto un terzo della
   finestra; `warn` (arancio) da un terzo in su — è la cadenza massima ammessa, quindi **almeno un giro
   è saltato**, con ancora due terzi di finestra per rimediare; `expired` (rosso) oltre la finestra, con

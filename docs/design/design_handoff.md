@@ -933,7 +933,9 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
   propagarsi — un bridge che **non ha ancora ricevuto** la revoca continua a funzionare finché non riceve una
   lista aggiornata; le revoche **già arrivate restano applicate** anche offline, quindi il lock da revoca non
   «scade» col passare del tempo. È questo
-  il motivo per cui il License Manager mostra l'etichetta «Ultima pubblicazione riuscita».
+  il motivo per cui il License Manager mostra l'etichetta «Ultima pubblicazione riuscita» — dove
+  «riuscita» significa **riuscita e arrivata dove i bridge leggono** (#271): una pubblicazione su
+  una destinazione disallineata non aggiorna l'etichetta, che quindi invecchia e segnala da sola.
 
 ### 6.4 Barra pulsanti principali
 - **"▶  AVVIA"** (verde `#2e7d32`, bold)
@@ -1739,11 +1741,43 @@ contrario.
 | prova **ACCETTATA** (anomalia) | «⚠️ ANOMALIA: la prova di scrittura è stata ACCETTATA da GitHub (HTTP *n*) nonostante fosse costruita per fallire. La lista revoche «*path*» è **intatta** — la prova scrive solo su «*path*.xtrader-verifica-accesso». Il file temporaneo è stato rimosso automaticamente. Segnala l'accaduto.» *(se la rimozione fallisce, la coda diventa «… NON è stato rimosso: cancellalo a mano dal repository»)* |
 | esito **incerto** (rete KO · 429 · 5xx) | «⚠️ Verifica NON completata: il token risulta abilitato su «*repo*» e il branch «*X*» esiste, ma la prova del permesso di SCRITTURA non è andata a buon fine (HTTP *n* / rete non disponibile). Non è detto che ci sia un problema di permessi: riprova fra poco.» — **nessuna spunta verde**: incerto non è OK |
 | **401** | «⚠️ Token rifiutato da GitHub (401): non è un problema di permessi, è il token in sé — sbagliato, scaduto o revocato. Rigeneralo e reincollalo, senza spazi ai bordi.» |
-| **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). Se è un token fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» |
+| **403** | «⚠️ Token accettato ma senza permesso di SCRITTURA su «*repo*» (403). **Due cause possibili, e vanno controllate IN QUEST'ORDINE:** 1) il **REPOSITORY** configurato non è quello giusto — dev'essere lo stesso da cui i bridge scaricano la lista. Se è questo il caso, **NON allargare il token**: la pubblicazione riuscirebbe nel posto sbagliato e nessuna revoca si propagherebbe, senza più alcun errore visibile; 2) il **token** è troppo stretto — se è fine-grained: in «Repository access» dev'esserci questo repository, e in «Permissions → Repository permissions» serve «Contents: Read and write».» — *l'ordine è parte del messaggio, non impaginazione: chi legge dall'alto deve incontrare per prima l'ipotesi che, se ignorata, produce il fallimento silenzioso (#234, da un incidente reale del proprietario)* |
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
 | **404** sul branch | «⚠️ Il branch «*X*» non esiste su «*repo*» (404): controlla il nome (spesso è «main» o «master»). Il permesso di scrittura c'è.» |
 | token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
 | rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
+
+#### Avviso di disallineamento — l'unico che compare **sopra un successo** (#234 · #271)
+
+Introdotto dopo lo stesso incidente del 403. Se l'indirizzo che la configurazione produce non è
+quello da cui i bridge scaricano la lista, un avviso viene messo **in testa** al messaggio — sia
+in «🔍 Verifica accesso» sia in «🚀 Pubblica ora», e **anche quando l'esito è ✅ riuscito**. È
+l'unico caso in tutta l'app in cui un ⚠️ precede un successo, ed è deliberato: è proprio lì che il
+guasto si manifesta, perché un token con i permessi giusti sul repository sbagliato **passa ogni
+controllo**. Accanto veniva già stampato «URL per il bridge: …» — l'indirizzo da confrontare — ma
+nessuno lo confrontava, e quella riga si leggeva come una conferma.
+
+Il messaggio **nomina** la differenza invece di dire genericamente che qualcosa non torna, perché
+due URL che differiscono per uno spazio o una maiuscola si leggono come identici e un avviso che
+*sembra* sbagliato è un avviso che nessuno rilegge:
+
+| differenza | forma del messaggio |
+|---|---|
+| solo **spazi o slash in eccesso** | «⚠️ … differiscono solo per SPAZI (a inizio o fine) o SLASH finali.» + i due URL con `repr()` (rende visibile l'invisibile) + «… un file con slash o spazio in coda risponde 404 …» |
+| solo **maiuscole/minuscole** in branch o percorso | «⚠️ … differiscono SOLO per maiuscole/minuscole. … Su raw.githubusercontent.com branch e percorso sono case-sensitive (owner e repository no) …» |
+| **indirizzo diverso** | «⚠️ Stai pubblicando a un indirizzo DIVERSO … Pubblicare qui NON propagherà alcuna revoca. Correggi Repository/Branch/Percorso …» |
+
+Tutti e tre chiudono con **«NON allargare il token»**: è il rimedio sbagliato che l'incidente reale
+ha dimostrato: risolve l'errore visibile e crea il fallimento silenzioso. Nessun avviso quando la
+configurazione è **allineata** — un ⚠️ su una configurazione giusta insegna a ignorare quello vero.
+
+**Conseguenza sull'etichetta «Ultima pubblicazione riuscita» (#271).** Con destinazione
+disallineata la pubblicazione **avviene comunque** (non si blocca: un falso positivo fermerebbe la
+propagazione delle revoche), ma l'istante **non** viene registrato. Altrimenti l'etichetta
+resterebbe verde accanto all'avviso — due indicatori in disaccordo, e chi guarda sceglie quello
+silenzioso. Non registrandolo, l'etichetta invecchia da sola verso `warn` e poi `expired`: chi
+disegna la UI deve sapere che «ultima pubblicazione riuscita» significa **«… e arrivata ai
+bridge»**, e che quello stato può quindi peggiorare anche mentre le pubblicazioni «riescono».
 
 **Perché la sonda tenta una scrittura.** `permissions.push` è un'**inferenza**: se un token
 *fine-grained* con «Contents» in sola lettura lo riportasse `true`, la verifica direbbe «Accesso OK»
