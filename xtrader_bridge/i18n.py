@@ -45,6 +45,20 @@ def get_language() -> str:
         return _lang
 
 
+def tr_in(lang, text: str) -> str:
+    """Come `tr`, ma nella lingua indicata invece di quella attiva.
+
+    Serve a chi deve riconoscere una stringa **senza dipendere dallo stato globale**: il
+    selettore Modalità bridge confronta l'etichetta scelta con quelle di TUTTE le lingue
+    (#281), perché una funzione di riconoscimento che dà risultati diversi a seconda di quando
+    la chiami è una trappola — e quella governa la scrittura del CSV operativo.
+
+    Fail-safe come `tr`: lingua sconosciuta o traduzione mancante → `text` invariato."""
+    if lang == _DEFAULT:
+        return text
+    return _CATALOG.get(lang, {}).get(text, text)
+
+
 def tr(text: str) -> str:
     """Traduce `text` nella lingua attiva; senza traduzione ritorna `text`
     (l'italiano è il riferimento: per IT il catalogo non serve affatto)."""

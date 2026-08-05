@@ -152,15 +152,22 @@ def mode_for_form_value(value):
     tre**. Tradurre la resa senza estendere qui sarebbe una regressione mascherata da
     miglioramento; il test `test_269_l_etichetta_TRADOTTA_resta_riconoscibile` la blocca.
 
-    L'etichetta **italiana** resta riconosciuta in ogni lingua: un `config.json` scritto da
-    un'altra installazione continua a caricarsi. La traduzione AGGIUNGE una forma, non ne
-    toglie — e `None` sullo sconosciuto resta l'invariante."""
+    **Indipendente dalla lingua attiva** (bloccante ① di Claude Fable 5 sulla #281): confronta
+    le etichette di TUTTE le lingue, non solo di quella corrente. Oggi il rischio che la review
+    nomina — una modalità salvata e persa in silenzio — non si realizza, perché
+    `settings_controller` scrive a disco il **nome canonico** e non l'etichetta; ma una funzione
+    di riconoscimento che dà risultati diversi a seconda di *quando* la chiami è una trappola
+    anche quando nessuno ci cade, e questo è il controllo che decide se il CSV operativo viene
+    scritto. L'etichetta **italiana** resta riconosciuta ovunque, e `None` sullo sconosciuto
+    resta l'invariante: la traduzione AGGIUNGE forme, non ne toglie."""
     canon = normalize_mode(value)
     if canon:
         return canon
     testo = str(value or "").strip()
+    if not testo:
+        return None
     for mode, label in LABELS.items():
-        if testo in (label, i18n.tr(label)):
+        if testo == label or any(testo == i18n.tr_in(lang, label) for lang in i18n.LANGUAGES):
             return mode
     return None
 

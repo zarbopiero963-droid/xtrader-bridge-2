@@ -41,6 +41,12 @@ class HealthItem:
     detail: str = ""
 
 
+#: Unico posto in cui vive il template del dettaglio interpolato «ultimo errore» (Regola 3):
+#: `build_semaphores` lo riempie in italiano canonico, `localized` lo ri-traduce alla
+#: presentazione. Scriverlo in due punti significherebbe due copie che divergono.
+DETTAGLIO_ERRORE = "nessun segnale; ultimo errore: {err}"
+
+
 def localized(item: "HealthItem") -> "HealthItem":
     """Copia di `item` con etichetta e dettaglio tradotti nella lingua attiva (#269).
 
@@ -53,8 +59,20 @@ def localized(item: "HealthItem") -> "HealthItem":
     `key` e `state` non si toccano mai: se cambiassero, il pannello dipingerebbe il colore
     sbagliato o non troverebbe più il semaforo. I dettagli dinamici (percorso CSV, ultimo
     messaggio, errore del runtime) non sono catalogabili: `tr` è fail-safe e li restituisce
-    tali e quali."""
-    return HealthItem(item.key, i18n.tr(item.label), item.state, i18n.tr(item.detail))
+    tali e quali.
+
+    L'unico dettaglio **interpolato** (`DETTAGLIO_ERRORE`) non è una chiave di catalogo una
+    volta riempito, quindi si riconosce dal prefisso e si ri-traduce come template. È la
+    ragione per cui `build_semaphores` NON deve tradurlo in costruzione: farlo lo rendeva non
+    canonico e produceva una doppia traduzione qui (bloccante ② di Claude Fable 5 sulla
+    #281)."""
+    prefisso = DETTAGLIO_ERRORE.split("{err}")[0]
+    dettaglio = str(item.detail or "")
+    if dettaglio.startswith(prefisso):
+        reso = i18n.tr(DETTAGLIO_ERRORE).format(err=dettaglio[len(prefisso):])
+    else:
+        reso = i18n.tr(dettaglio)
+    return HealthItem(item.key, i18n.tr(item.label), item.state, reso)
 
 
 def csv_writable(path, *, platform=None) -> "tuple[str, str]":
@@ -136,8 +154,7 @@ def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parse
     elif err:
         # Nessun segnale ma un errore recente: il motivo va MOSTRATO (mai nascosto).
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
-                                i18n.tr("nessun segnale; ultimo errore: {err}"
-                                        ).format(err=err)))
+                                DETTAGLIO_ERRORE.format(err=err)))
     else:
         items.append(HealthItem("signal", "Ultimo segnale", YELLOW,
                                 "nessun segnale in questa sessione"))

@@ -253,3 +253,63 @@ def test_269_la_frase_di_conferma_REALE_e_mostrata_NON_tradotta(lingua):
         f"{lingua}: il dialog non mostra la frase grezza — l'utente digiterebbe una parola "
         f"che il gate rifiuta: {testo!r}")
     assert real_mode.confirmation_ok(real_mode.CONFIRM_PHRASE) is True
+
+
+# ── i due bloccanti trovati da Claude Fable 5 sulla PR #281 ────────────────────────────────
+
+@pytest.mark.parametrize("lingua", ["EN", "ES"])
+def test_269_build_semaphores_e_canonico_anche_nei_DETTAGLI(lingua):
+    """Bloccante ② di Fable, ed era un difetto vero introdotto da questa PR.
+
+    La prima stesura chiamava `i18n.tr` **dentro** `build_semaphores` per il solo dettaglio
+    interpolato «ultimo errore: {err}» — contraddicendo la canonicità che il docstring della
+    funzione dichiara, e producendo una **doppia traduzione** quando `localized` ci ripassa
+    sopra. Non era visibile all'utente (la seconda `tr` non trova la chiave e restituisce
+    l'input), ma rompeva il contratto su cui si appoggiano i test esistenti e l'assistente,
+    che legge lo stato canonico via `explain_health`.
+
+    Il mio `test_269_build_semaphores_resta_CANONICO` non l'ha visto perché guardava **solo le
+    etichette**. Questo guarda i dettagli — che è dove il difetto stava.
+    """
+    i18n.set_language(lingua)
+
+    segnale = next(i for i in _semafori(last_error="boom", last_signal="") if i.key == "signal")
+
+    assert segnale.detail == "nessun segnale; ultimo errore: boom", (
+        f"build_semaphores deve restare canonico: {segnale.detail!r}")
+
+
+@pytest.mark.parametrize("lingua", ["EN", "ES"])
+def test_269_il_dettaglio_interpolato_e_tradotto_alla_presentazione(lingua):
+    """...e la traduzione deve comunque avvenire, ma nel posto giusto: `localized`."""
+    i18n.set_language(lingua)
+
+    segnale = next(i for i in _semafori(last_error="boom", last_signal="") if i.key == "signal")
+    reso = health_check.localized(segnale)
+
+    assert "nessun segnale" not in reso.detail, reso.detail
+    assert "boom" in reso.detail, f"il testo dell'errore runtime deve sopravvivere: {reso.detail!r}"
+
+
+@pytest.mark.parametrize("lingua_scelta", ["IT", "EN", "ES"])
+@pytest.mark.parametrize("lingua_etichetta", ["IT", "EN", "ES"])
+def test_269_l_etichetta_di_QUALUNQUE_lingua_e_riconosciuta(lingua_scelta, lingua_etichetta):
+    """Bloccante ① di Fable. Il rischio che nomina — una modalità salvata e persa in silenzio —
+    **non si realizza** per come sta il codice oggi: `settings_controller` scrive a disco il
+    **nome canonico** (`REALE`), non l'etichetta, quindi la stringa tradotta non arriva mai al
+    `config.json`. L'ho misurato prima di rispondere.
+
+    Ma la correzione che propone è comunque migliore, e gratuita: confrontare le etichette di
+    **tutte** le lingue invece che della sola lingua attiva rende `mode_for_form_value`
+    **indipendente dallo stato globale** di `i18n`. Una funzione di riconoscimento che dà
+    risultati diversi a seconda di quando la chiami è una trappola anche se oggi nessuno ci
+    cade — e questo è il controllo che decide se il CSV operativo viene scritto.
+    """
+    i18n.set_language(lingua_etichetta)
+    etichetta = i18n.tr(bridge_mode.LABELS[bridge_mode.REALE])
+
+    i18n.set_language(lingua_scelta)
+
+    assert bridge_mode.mode_for_form_value(etichetta) == bridge_mode.REALE, (
+        f"etichetta scritta in {lingua_etichetta}, letta con lingua {lingua_scelta}: "
+        f"{etichetta!r} non riconosciuta")
