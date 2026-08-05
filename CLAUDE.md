@@ -1013,6 +1013,9 @@ In pratica, nello stesso PR aggiorna, quando applicabile:
   compatibilità XTrader (se è un breaking change, segnalalo nel PR body);
 - **`docs/audit/roadmap.md`** → cambiamenti architetturali, roadmap, safety policy o debito
   tecnico rilevante;
+- **`docs/policy_lingue_sito.md`** → qualsiasi cosa tocchi lingue del sito, screenshot per lingua,
+  sezioni per software (XTrader / BETTINGTOOLKIT.COM / .ES / .LAT) o il disclaimer di
+  non-affiliazione. Vedi la regola qui sotto;
 - **`docs/design/design_handoff.md`** → qualsiasi modifica che tocca l'aspetto **GUI / UX /
   design** (schermate, tab, controlli/campi/pulsanti, stati o indicatori dinamici, flussi di
   conferma, palette colori, copy/microcopy della UI, information architecture o le invarianti
@@ -1040,6 +1043,29 @@ Se hai toccato il codice e non hai toccato nessuna doc, fermati e verifica se se
 aggiornarne una; se davvero non serve (es. fix interno senza impatto su comportamento/API
 documentata), dichiara `N/A` con il motivo. Non considerare completa una PR di codice senza
 questo controllo documentale.
+
+### REGOLA LINGUE SITO E SCREENSHOT — PERMANENTE
+
+Decisione del proprietario, **non reinterpretabile**. Riferimento completo:
+[`docs/policy_lingue_sito.md`](docs/policy_lingue_sito.md).
+
+- **Il testo si traduce in tutte le lingue del sito. Gli screenshot no.**
+- Gli screenshot esistono in **IT, EN, ES** — le sole tre lingue in cui esiste il software di
+  destinazione. Per **qualunque altra lingua** (francese, rumeno, portoghese…) si usano quelli in
+  **INGLESE**, mentre il testo che li spiega è tradotto nella lingua dell'utente.
+- Motivo: un XTrader in francese **non esiste**. Fabbricare uno screenshot in una lingua che il
+  programma non ha significa mostrare all'utente una schermata che non vedrà mai.
+- Quando il testo cita un'etichetta dell'interfaccia, la cita **verbatim nella lingua dello
+  screenshot mostrato**, con la traduzione fra parentesi se serve. Mai tradurre un'etichetta
+  facendo credere che il programma la mostri così: l'utente non troverebbe il pulsante.
+- Il sito ha **una sezione per prodotto di destinazione** (BetRelay per XTrader · for
+  BETTINGTOOLKIT.COM · para .ES · para .LAT). È lo **stesso programma** con nomi e lingue diverse:
+  non scrivere mai che sono programmi diversi.
+- **Ogni pagina** porta nel footer, tradotto, il disclaimer di **non-affiliazione** a
+  TradingSportivo e Betting Toolkit. È un requisito, non una cortesia: il sito nomina quei
+  prodotti ovunque e ne mostra le schermate.
+
+---
 
 ### GATE DESIGN HANDOFF — OBBLIGATORIO PRIMA DI PROPORRE IL MERGE
 

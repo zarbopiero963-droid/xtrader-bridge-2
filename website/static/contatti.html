@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contatti — BetRelay</title>
+<meta name="description" content="Contatta il supporto di BetRelay.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/" data-i18n="nav.home">Home</a>
+    <a href="/demo" data-i18n="nav.demo">Demo interattiva</a>
+    <a href="/documentazione" data-i18n="nav.docs">Documentazione</a>
+    <a href="/faq" data-i18n="nav.faq">FAQ</a>
+    <a href="/contatti" aria-current="page" data-i18n="nav.contact">Contatti</a>
+  </div>
+  <div class="lang-sw" role="group" aria-label="Lingua / Language / Idioma">
+    <button data-lang="it" aria-pressed="false">IT</button>
+    <button data-lang="en" aria-pressed="false">EN</button>
+    <button data-lang="es" aria-pressed="false">ES</button>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1 style="font-size:1.6rem" data-i18n="contact.h1">Contatti</h1>
+  <p class="secsub" style="margin-top:6px" data-i18n="contact.sub">Per assistenza rapida prova prima il
+  <b>chatbot di supporto</b> (in basso a destra) o le <a href="/faq">FAQ</a>. Per tutto il resto,
+  scrivici da qui.</p>
+
+  <div class="contact-grid">
+    <div class="card">
+      <h3 style="margin-bottom:12px" data-i18n="contact.form.h">✉️ Scrivici</h3>
+      <form id="contactForm">
+        <div class="field"><label for="cfName" data-i18n="contact.name">Nome</label>
+          <input id="cfName" name="name" required autocomplete="name"></div>
+        <div class="field"><label for="cfMail" data-i18n="contact.email">La tua email</label>
+          <input id="cfMail" name="email" type="email" required autocomplete="email"></div>
+        <div class="field"><label for="cfMsg" data-i18n="contact.msg">Messaggio</label>
+          <textarea id="cfMsg" name="message" required data-i18n-ph="contact.ph"
+            placeholder="Descrivi il problema o la domanda. NON incollare mai il token del bot o dati del conto."></textarea></div>
+        <button class="btn primary" type="submit" data-i18n="contact.send">Invia</button>
+        <p id="cfStatus" style="color:var(--muted);font-size:.85rem;margin-top:10px"></p>
+      </form>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h3 data-i18n="contact.warn.h">🔒 Prima di scrivere</h3>
+        <p data-i18n="contact.warn.p">Non condividere <b>mai</b> il token del bot Telegram, password o dati del conto
+        Betfair: per la diagnosi non servono. Utile invece: cosa mostra il <b>📋 Log</b>
+        (il motivo di un blocco è sempre lì) e la tab <b>🚦 Salute</b>.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="contact.time.h">⏱️ Tempi di risposta</h3>
+        <p data-i18n="contact.time.p">Rispondiamo di norma entro 1–2 giorni lavorativi. Il chatbot è disponibile 24/7 per
+        le domande coperte dalla documentazione.</p>
+      </div>
+    </div>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span data-i18n="footer.tag">Il bridge non piazza scommesse: scrive solo il CSV che il tuo software legge.</span>
+  <span data-i18n="footer.independent">Progetto indipendente: BetRelay non è affiliato, associato, autorizzato né sponsorizzato da TradingSportivo (XTrader) né da Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader, Betting Toolkit, Betfair, Telegram e i relativi marchi appartengono ai rispettivi proprietari e sono citati solo a scopo descrittivo, per indicare la compatibilità.</span>
+</div></footer>
+
+<script>
+// Fase locale: il form apre il client email precompilato (mailto).
+// In produzione si potrà sostituire con un endpoint /api/contact (invio email dal backend).
+document.getElementById("contactForm").addEventListener("submit",function(e){
+  e.preventDefault();
+  var n=document.getElementById("cfName").value.trim(),
+      m=document.getElementById("cfMail").value.trim(),
+      t=document.getElementById("cfMsg").value.trim();
+  // tutto il body va codificato insieme: `&`, `#` o `%` nel nome o nell'email
+  // altrimenti diventano separatori di query e tagliano il messaggio
+  var body=encodeURIComponent("Nome: "+n+"\nEmail: "+m+"\n\n"+t);
+  // Indirizzo di supporto del proprietario. Nel sorgente sta SPEZZATO e ricomposto qui:
+  // i raccoglitori automatici leggono l'HTML statico cercando la forma `nome@dominio`, e
+  // trovarla in chiaro su una pagina pubblica significa spam per sempre. Non è cifratura —
+  // chi vuole leggerlo lo legge — è solo il minimo che evita la raccolta automatica.
+  var supporto=["pier.zar69","gmail.com"].join("@");
+  window.location.href="mailto:"+supporto+"?subject="+encodeURIComponent("Supporto BetRelay")+"&body="+body;
+  var st=(window.SITE_T&&window.SITE_T("contact.sent"))||"Si apre il tuo client email con il messaggio precompilato.";
+  var alt=(window.SITE_T&&window.SITE_T("contact.fallback"))||"Se non si apre nulla, scrivimi direttamente a:";
+  // Il `mailto:` funziona solo se sul dispositivo c'è un client email configurato. Dove non
+  // c'è — capita su parecchi PC Windows e su chi usa solo webmail — NON succede niente: la
+  // pagina direbbe «si apre il tuo client» e la richiesta di supporto si perderebbe in
+  // silenzio. Qui l'indirizzo viene mostrato in chiaro DOPO l'invio, così è copiabile.
+  // Aggiunto via JavaScript, quindi non finisce nell'HTML servito ai raccoglitori.
+  var stato=document.getElementById("cfStatus");
+  stato.textContent=st+" ";
+  var nota=document.createElement("span");
+  nota.className="cf-fallback";
+  nota.textContent=alt+" ";
+  var link=document.createElement("a");
+  link.href="mailto:"+supporto; link.textContent=supporto;
+  nota.appendChild(link);
+  stato.appendChild(nota);
+});
+</script>
+<script src="/static/i18n.js" defer></script>
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

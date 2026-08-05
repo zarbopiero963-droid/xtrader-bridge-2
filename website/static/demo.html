@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XTrader Signal Bridge — Demo interattiva guidata</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<style>
+  /* ============ TOKENS — palette dal design handoff §10 (tema scuro storico) ============ */
+  :root{
+    /* chrome pagina (blu-bias, distinto dall'app) */
+    --page-bg:#0e1117; --page-panel:#151a22; --page-border:#232b38;
+    --page-text:#e8ecf3; --page-muted:#93a0b4; --tour-accent:#ffb74d; --tour-accent-dim:#8a5a1a;
+    /* replica app (CustomTkinter dark) */
+    --app-bg:#242424; --app-panel:#2b2b2b; --app-panel2:#333333;
+    --field:#343638; --field-border:#565b5e; --field-text:#e6e6e6; --placeholder:#7d838a;
+    --hdr:#1a1a2e; --title-cyan:#4fc3f7;
+    --green:#2e7d32; --green-txt:#66bb6a;
+    --red:#c62828; --red-txt:#ef5350; --red-banner:#7f1d1d;
+    --orange:#ffa726; --rows-orange:#ffb74d; --amber-banner:#8a4b00;
+    --blue:#1f6aa5; --blue-hov:#144870;
+    --violet:#4527a0; --teal:#00695c; --greybtn:#37474f;
+    --mono:Consolas,"Cascadia Mono","Courier New",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  [hidden]{display:none!important}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--page-bg);color:var(--page-text);
+    font-family:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    font-size:15px;line-height:1.5;min-height:100vh;
+  }
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+  /* ============ INTESTAZIONE PAGINA ============ */
+  .masthead{max-width:1240px;margin:0 auto;padding:26px 20px 8px}
+  .masthead h1{font-size:1.45rem;font-weight:650;letter-spacing:.2px;text-wrap:balance}
+  .masthead h1 .bdg{color:var(--tour-accent)}
+  .masthead p.sub{color:var(--page-muted);max-width:72ch;margin-top:4px;font-size:.95rem}
+  .disclaimer{
+    max-width:1240px;margin:10px auto 0;padding:8px 20px;
+  }
+  .disclaimer div{
+    border:1px solid var(--page-border);border-left:3px solid var(--tour-accent);
+    background:var(--page-panel);border-radius:6px;padding:8px 14px;
+    color:var(--page-muted);font-size:.85rem;
+  }
+  .topbar{max-width:1240px;margin:12px auto 0;padding:0 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .tbtn{
+    border:1px solid var(--page-border);background:var(--page-panel);color:var(--page-text);
+    padding:8px 16px;border-radius:6px;font-size:.9rem;cursor:pointer;font-family:inherit;
+  }
+  .tbtn:hover{border-color:var(--tour-accent)}
+  .tbtn.primary{background:var(--tour-accent);border-color:var(--tour-accent);color:#1a1206;font-weight:650}
+  .tbtn.primary:hover{background:#ffc670}
+  .tbtn:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--tour-accent);outline-offset:2px}
+
+  /* ============ LAYOUT ============ */
+  .stage{
+    max-width:1240px;margin:18px auto 60px;padding:0 20px;
+    display:grid;grid-template-columns:740px minmax(320px,1fr);gap:22px;align-items:start;
+  }
+  @media (max-width:1120px){.stage{grid-template-columns:1fr}.sidecol{order:-1}}
+  .sidecol{position:sticky;top:14px;display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 28px);overflow:auto}
+  @media (max-width:1120px){.sidecol{position:static;max-height:none}}
+
+  /* ============ FINESTRA APP (replica) ============ */
+  .win{
+    width:720px;max-width:100%;background:var(--app-bg);border-radius:8px;
+    border:1px solid #000;box-shadow:0 18px 50px rgba(0,0,0,.55);
+    overflow:hidden;font-size:13.5px;color:var(--field-text);
+  }
+  .titlebar{
+    background:#191919;display:flex;align-items:center;gap:8px;
+    padding:6px 10px;font-size:12px;color:#cfcfcf;user-select:none;
+  }
+  .titlebar .appico{width:16px;height:16px;border-radius:3px;background:var(--blue);display:inline-flex;align-items:center;justify-content:center;font-size:10px}
+  .titlebar .wbtns{margin-left:auto;display:flex;gap:14px;color:#9a9a9a;font-size:13px}
+  .winpad{padding:12px 14px 16px;position:relative}
+
+  /* header app */
+  .apphdr{
+    background:var(--hdr);border-radius:10px;padding:12px 16px;
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:relative;
+  }
+  .apphdr .t{color:var(--title-cyan);font-size:19px;font-weight:700}
+  .apphdr .right{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px}
+  .rows-ind{color:var(--rows-orange);font-weight:600}
+  .status{font-weight:700;letter-spacing:.4px}
+  .status.offline{color:var(--red-txt)} .status.active{color:var(--green-txt)} .status.reconn{color:var(--orange)}
+
+  /* banner modalità */
+  .banner{display:none;margin-top:10px;border-radius:8px;padding:9px 14px;font-size:12.5px;font-weight:600;color:#fff;line-height:1.45}
+  .banner.amber{background:var(--amber-banner)} .banner.red{background:var(--red-banner)}
+  .banner.show{display:block}
+
+  /* tabview config */
+  .tabrow{display:flex;justify-content:center;gap:4px;margin:14px 0 10px;flex-wrap:wrap}
+  .tab{
+    background:#3a3a3a;color:#cfcfcf;border:none;border-radius:6px;padding:6px 12px;
+    font-size:12.5px;cursor:pointer;font-family:inherit;position:relative;
+  }
+  .tab[aria-selected="true"]{background:var(--blue);color:#fff}
+  .cfgpane{background:var(--app-panel);border-radius:10px;padding:14px 16px;min-height:218px;position:relative}
+  .frow{display:grid;grid-template-columns:190px 1fr;gap:10px;align-items:center;margin-bottom:9px;position:relative}
+  .frow label{font-size:12.5px;color:#d6d6d6}
+  .fin{
+    background:var(--field);border:1px solid var(--field-border);border-radius:6px;
+    color:var(--field-text);padding:6px 10px;font-size:12.5px;width:100%;font-family:inherit;
+  }
+  .fin::placeholder{color:var(--placeholder)}
+  select.fin{cursor:pointer}
+  .chkrow{display:flex;align-items:flex-start;gap:9px;margin-bottom:9px;font-size:12.5px;color:#d6d6d6}
+  .chkrow input{width:16px;height:16px;accent-color:var(--blue);margin-top:2px;flex:none}
+  .pane-note{color:#9aa0a6;font-size:11.5px;margin-top:6px;line-height:1.45}
+
+  /* barra pulsanti */
+  .btnbar{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;position:relative}
+  .abtn{
+    border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;
+    color:#fff;cursor:pointer;font-family:inherit;position:relative;
+  }
+  .abtn:disabled{opacity:.45;cursor:not-allowed}
+  .abtn.green{background:var(--green)} .abtn.green:hover:not(:disabled){background:#1b5e20}
+  .abtn.red{background:var(--red)} .abtn.red:hover:not(:disabled){background:#7f0000}
+  .abtn.blue{background:var(--blue)} .abtn.blue:hover:not(:disabled){background:var(--blue-hov)}
+  .abtn.grey{background:var(--greybtn)} .abtn.grey:hover:not(:disabled){background:#263238}
+  .abtn.violet{background:var(--violet)} .abtn.violet:hover:not(:disabled){background:#311b92}
+  .abtn.teal{background:var(--teal)} .abtn.teal:hover:not(:disabled){background:#004d40}
+
+  /* tabview monitoraggio */
+  .montabs{display:flex;justify-content:center;gap:4px;margin:16px 0 10px;flex-wrap:wrap}
+  .monpane{background:#1f1f1f;border-radius:10px;padding:12px 14px;min-height:190px;font-size:12.5px;position:relative}
+  .warn-nochat{color:var(--orange);font-size:12.5px}
+  .chatline{color:#d6d6d6;margin-bottom:4px}
+  .chatline .ok{color:var(--green-txt)}
+  .miniactions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .mbtn{background:#37474f;color:#dbe2e8;border:none;border-radius:6px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .mbtn:hover{background:#263238}
+
+  /* salute */
+  .sem{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:baseline}
+  .sem .lamp{font-size:12px}
+  .sem .lbl b{color:#e6e6e6}
+  .sem .lbl span{color:#9aa0a6}
+  .sem .g{color:var(--green-txt)} .sem .y{color:var(--orange)} .sem .r{color:var(--red-txt)}
+
+  /* stato */
+  .strow{display:flex;gap:8px;margin-bottom:6px;color:#d6d6d6}
+  .strow b{min-width:190px;font-weight:600;color:#bfc6cc}
+
+  /* dashboard */
+  .dash{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:8px}
+  .dcard{background:#2a2a2a;border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+  .dcard span{color:#c7cdd3;font-size:12px}
+  .dcard b{font-variant-numeric:tabular-nums;font-size:15px}
+
+  /* log */
+  .logbox{
+    background:#161616;border-radius:8px;padding:8px 10px;height:150px;overflow:auto;
+    font-family:var(--mono);font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;
+  }
+  .lg-info{color:#c9d1d9} .lg-ok{color:var(--green-txt)} .lg-warn{color:var(--orange)}
+  .lg-err{color:var(--red-txt)} .lg-sig{color:var(--title-cyan)} .lg-dim{color:#8b949e}
+
+  /* ============ HOTSPOT ============ */
+  .hs{
+    position:absolute;width:18px;height:18px;border-radius:50%;cursor:pointer;z-index:5;
+    background:var(--tour-accent);border:2px solid #1a1206;box-shadow:0 0 0 0 rgba(255,183,77,.65);
+    animation:pulse 1.8s infinite;padding:0;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,183,77,.55)}
+    70%{box-shadow:0 0 0 12px rgba(255,183,77,0)}
+    100%{box-shadow:0 0 0 0 rgba(255,183,77,0)}
+  }
+  .hs::after{content:"";position:absolute;inset:4px;border-radius:50%;background:#1a1206;opacity:.35}
+  body.tour-off .hs{display:none}
+  .hl-ring{box-shadow:0 0 0 3px var(--tour-accent),0 0 22px 2px rgba(255,183,77,.35)!important;border-radius:8px;transition:box-shadow .25s}
+
+  /* ============ PANNELLI LATERALI ============ */
+  .panel{background:var(--page-panel);border:1px solid var(--page-border);border-radius:10px;overflow:hidden}
+  .panel>.phead{
+    padding:9px 14px;font-size:.78rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--page-muted);border-bottom:1px solid var(--page-border);display:flex;align-items:center;gap:8px;
+  }
+  .panel>.pbody{padding:12px 14px}
+
+  /* tour card */
+  #tourCard .step-eyebrow{color:var(--tour-accent);font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+  #tourCard h3{font-size:1.06rem;margin:4px 0 8px;text-wrap:balance}
+  #tourCard .step-body{color:#c6cfdc;font-size:.92rem;line-height:1.6}
+  #tourCard .step-body b{color:var(--page-text)}
+  #tourCard .step-body code{font-family:var(--mono);font-size:.85em;background:#0c0f14;border:1px solid var(--page-border);border-radius:4px;padding:1px 5px}
+  .tour-nav{display:flex;gap:8px;margin-top:14px;align-items:center}
+  .tour-nav .spacer{flex:1}
+  .progress{height:4px;background:#232b38;border-radius:2px;margin-top:14px;overflow:hidden}
+  .progress i{display:block;height:100%;background:var(--tour-accent);width:0;transition:width .3s}
+
+  /* telegram demo */
+  .tg-msg{
+    background:#17212b;border:1px solid #24303d;border-radius:10px 10px 10px 2px;
+    padding:9px 12px;font-size:.86rem;color:#dbe4ec;max-width:340px;line-height:1.5;
+  }
+  .tg-msg .from{color:#5eb5f7;font-weight:650;font-size:.8rem;margin-bottom:2px}
+  .tg-hint{color:var(--page-muted);font-size:.8rem;margin-top:8px}
+
+  /* CSV viewer */
+  .csvbox{
+    font-family:var(--mono);font-size:.72rem;background:#0c0f14;border:1px solid var(--page-border);
+    border-radius:8px;padding:10px;overflow-x:auto;white-space:pre;line-height:1.7;
+  }
+  .csvbox .hdrline{color:#7d8b9f}
+  .csvbox .rowline{color:#7ee787}
+  .csv-meta{display:flex;gap:10px;align-items:center;margin-top:9px;font-size:.82rem;color:var(--page-muted);flex-wrap:wrap}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:2px 11px;
+    font-size:.76rem;font-weight:650;border:1px solid var(--page-border);
+  }
+  .chip.empty{color:var(--page-muted)}
+  .chip.active{color:#7ee787;border-color:#2b4a33;background:#12210f}
+  .chip.count{color:var(--tour-accent);border-color:var(--tour-accent-dim);background:#1d1508;font-variant-numeric:tabular-nums}
+
+  /* ============ MODALI ============ */
+  .overlay{
+    position:fixed;inset:0;background:rgba(4,6,10,.66);display:none;
+    align-items:center;justify-content:center;z-index:60;padding:18px;
+  }
+  .overlay.show{display:flex}
+  .dlg{
+    background:var(--app-bg);border:1px solid #000;border-radius:8px;max-width:520px;width:100%;
+    box-shadow:0 24px 70px rgba(0,0,0,.7);color:var(--field-text);font-size:13px;overflow:hidden;
+  }
+  .dlg .dtitle{background:#191919;padding:8px 14px;font-size:12.5px;color:#e0e0e0;font-weight:650}
+  .dlg .dbody{padding:16px;line-height:1.6;white-space:pre-line}
+  .dlg .dbtns{display:flex;gap:10px;justify-content:flex-end;padding:0 16px 16px}
+  .dlg input.fin{margin-top:10px}
+  .dlg .derr{color:var(--red-txt);font-size:12px;margin-top:6px;min-height:16px}
+
+  .bigdlg{max-width:700px;max-height:88vh;display:flex;flex-direction:column}
+  .bigdlg .dbody{overflow:auto;white-space:normal}
+  .toolstabs{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:14px}
+  .feat{background:var(--app-panel);border-radius:8px;padding:12px 14px;margin-bottom:10px}
+  .feat h4{font-size:13px;margin-bottom:4px;color:#eaeaea}
+  .feat p{font-size:12px;color:#b9bfc6;line-height:1.55}
+  .feat .fbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .fakebtn{background:var(--blue);color:#fff;border-radius:5px;padding:3px 9px;font-size:11px;display:inline-block}
+  .fakebtn.grn{background:var(--green)} .fakebtn.rd{background:var(--red)} .fakebtn.gry{background:#3a3a3a;color:#cfcfcf}
+
+  .wizstep{display:grid;grid-template-columns:34px 1fr;gap:10px;margin-bottom:12px;align-items:start}
+  .wizstep .n{
+    width:28px;height:28px;border-radius:50%;background:var(--teal);color:#fff;font-weight:700;
+    display:flex;align-items:center;justify-content:center;font-size:13px;
+  }
+  .wizstep b{display:block;font-size:12.5px;color:#eaeaea}
+  .wizstep span{font-size:12px;color:#b9bfc6;line-height:1.5}
+
+  .srlonly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  footer{max-width:1240px;margin:0 auto;padding:0 20px 40px;color:var(--page-muted);font-size:.8rem}
+</style>
+</head>
+<body>
+
+<div style="max-width:1240px;margin:14px auto 0;padding:0 20px;font-size:.9rem">
+  <a href="/" style="color:#4fc3f7;text-decoration:none">← Torna al sito</a>
+  <span style="color:#93a0b4"> · XTrader Signal Bridge — demo interattiva · 🌐 Demo in italiano — the app itself supports IT/EN/ES · la app está disponible en IT/EN/ES</span>
+</div>
+<header class="masthead">
+  <h1>XTrader Signal Bridge <span class="bdg">— demo interattiva guidata</span></h1>
+  <p class="sub">Replica navigabile dell'applicazione Windows: segui il tour con gli hotspot, oppure esplora
+  liberamente. Puoi avviare il bridge simulato, ricevere un segnale Telegram di prova e vedere il CSV
+  scriversi e svuotarsi — esattamente come nel programma vero.</p>
+</header>
+<div class="disclaimer"><div>⚠️ Questa è una <b>replica dimostrativa</b> a scopo di guida: nessun collegamento reale a
+Telegram, Betfair o XTrader; nessun dato viene inviato o salvato. Il timeout CSV (90&nbsp;s reali) è accelerato a 12&nbsp;s.</div></div>
+
+<div class="topbar">
+  <button class="tbtn primary" id="btnTourStart">▶ Avvia il tour guidato</button>
+  <button class="tbtn" id="btnAutoplay">⏯ Auto-play (modalità video)</button>
+  <button class="tbtn" id="btnFree">Esplora liberamente</button>
+</div>
+
+<main class="stage">
+  <!-- ================= FINESTRA APP ================= -->
+  <section class="win" aria-label="Replica della finestra XTrader Signal Bridge">
+    <div class="titlebar">
+      <span class="appico">🤖</span> XTrader Signal Bridge v0.1.0
+      <span class="wbtns"><span>—</span><span>□</span><span>✕</span></span>
+    </div>
+    <div class="winpad">
+
+      <!-- header -->
+      <div class="apphdr" id="zHeader">
+        <span class="t">🤖&nbsp; XTrader Signal Bridge</span>
+        <span class="right">
+          <span class="rows-ind" id="zRows">Righe attive: <span id="rowsN">0</span>/<span id="rowsM">2</span></span>
+          <span class="status offline" id="statusTxt">⬤&nbsp; OFFLINE</span>
+        </span>
+        <span class="hs" role="button" tabindex="0" style="top:8px;right:8px" data-step="1" aria-label="Hotspot: stato e righe attive"></span>
+      </div>
+
+      <div class="banner amber" id="bannerCollaudo">🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto:
+XTrader deve essere in Modalità Simulazione (nessuna scommessa reale).</div>
+      <div class="banner red" id="bannerReale">⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV operativo e XTrader può piazzare scommesse REALI.</div>
+
+      <!-- tab config -->
+      <div class="tabrow" role="tablist" aria-label="Configurazione">
+        <button class="tab" role="tab" aria-selected="true" data-pane="pGen">⚙️ Generale</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="pRic">🎯 Riconoscimento</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="pSic">🛡️ Sicurezza<span class="hs" role="button" tabindex="0" style="top:-9px;right:-9px" data-step="4" aria-label="Hotspot: tab Sicurezza"></span></button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="pCon">✅ Conferme XTrader</button>
+      </div>
+
+      <div class="cfgpane">
+        <!-- Generale -->
+        <div id="pGen" role="tabpanel">
+          <div class="frow"><label>🔑 Bot Token</label><input class="fin" type="password" value="1234567890:DEMO-TOKEN-non-reale" placeholder="incolla qui il token del bot" aria-label="Bot Token">
+            <span class="hs" role="button" tabindex="0" style="top:6px;right:-7px" data-step="2" aria-label="Hotspot: campi Generale"></span></div>
+          <div class="frow"><label>💬 Chat ID</label><input class="fin" value="-1001234567890" placeholder="es. -1001234567890" aria-label="Chat ID"></div>
+          <div class="frow"><label>📄 CSV Path</label><input class="fin" value="C:\XTrader\segnali.csv" placeholder="es. C:\XTrader\segnali.csv" aria-label="CSV Path"></div>
+          <div class="frow"><label>⏱️ Timeout (sec)</label><input class="fin" value="90" placeholder="es. 90" aria-label="Timeout secondi"></div>
+          <div class="frow"><label>🏷️ Provider</label><input class="fin" value="TelegramBot" placeholder="es. TelegramBot" aria-label="Provider"></div>
+        </div>
+        <!-- Riconoscimento -->
+        <div id="pRic" role="tabpanel" hidden>
+          <div class="frow"><label>🎯 Modalità riconoscimento</label>
+            <select class="fin" aria-label="Modalità riconoscimento"><option>NAME_ONLY</option><option>ID_ONLY</option><option>BOTH</option></select></div>
+          <p class="pane-note">NAME_ONLY: il parser lavora sui <b>nomi</b> (evento, mercato, selezione) tradotti dal
+          dizionario. ID_ONLY: servono MarketId/SelectionId espliciti. BOTH: entrambi. La scelta determina
+          quali colonne del CSV devono essere popolate.</p>
+        </div>
+        <!-- Sicurezza -->
+        <div id="pSic" role="tabpanel" hidden>
+          <div class="frow"><label>🚦 Modalità bridge</label>
+            <select class="fin" id="selMode" aria-label="Modalità bridge">
+              <option value="sim">🧪 Simulazione Bridge — NON scrive il CSV operativo</option>
+              <option value="collaudo">🔬 Collaudo XTrader — scrive il CSV (XTrader in simulazione)</option>
+              <option value="reale">⚠️ Reale — scommesse vere (richiede conferma)</option>
+            </select></div>
+          <div class="frow"><label>📅 Limite segnali al giorno</label><input class="fin" value="200" aria-label="Limite segnali al giorno"></div>
+          <div class="frow"><label>🧮 Modalità coda segnali</label>
+            <select class="fin" aria-label="Modalità coda segnali"><option>OVERWRITE_LAST</option><option>APPEND_ACTIVE</option><option>QUEUE_UNTIL_CONFIRMED</option></select></div>
+          <div class="frow"><label>🔢 Max segnali attivi</label><input class="fin" value="2" aria-label="Max segnali attivi"></div>
+          <div class="chkrow"><input type="checkbox" id="ckAuto" aria-label="Avvio automatico"><label for="ckAuto">▶️ Avvio automatico all'apertura (in modalità REALE chiede conferma)</label></div>
+          <div class="chkrow"><input type="checkbox" id="ckDbg" aria-label="Log testo completo"><label for="ckDbg">🕵️ Logga il testo completo dei messaggi (debug; OFF = solo hash + 1ª riga)</label></div>
+        </div>
+        <!-- Conferme -->
+        <div id="pCon" role="tabpanel" hidden>
+          <div class="frow"><label>💬 Chat notifiche XTrader</label><input class="fin" placeholder="chat dove XTrader notifica gli esiti" aria-label="Chat notifiche XTrader"></div>
+          <div class="frow"><label>⏳ Timeout conferma (sec)</label><input class="fin" value="120" aria-label="Timeout conferma"></div>
+          <div class="frow"><label>✅ Parole conferma (separate da virgola)</label><input class="fin" placeholder="es. piazzata, confermata" aria-label="Parole conferma"></div>
+          <div class="frow"><label>❌ Parole rifiuto (separate da virgola)</label><input class="fin" placeholder="es. rifiutata, errore" aria-label="Parole rifiuto"></div>
+        </div>
+      </div>
+
+      <!-- pulsanti -->
+      <div class="btnbar" id="zBtns">
+        <button class="abtn green" id="btnStart">▶&nbsp; AVVIA<span class="hs" role="button" tabindex="0" style="top:-9px;left:-9px" data-step="8" aria-label="Hotspot: AVVIA"></span></button>
+        <button class="abtn red" id="btnStop" disabled>■&nbsp; STOP</button>
+        <button class="abtn blue" id="btnClear">🗑️&nbsp; Svuota CSV ora</button>
+        <button class="abtn grey" id="btnSave">💾&nbsp; Salva Config</button>
+      </div>
+      <div class="btnbar">
+        <button class="abtn violet" id="btnTools">🧰&nbsp; Strumenti<span class="hs" role="button" tabindex="0" style="top:-9px;right:-9px" data-step="7" aria-label="Hotspot: Strumenti"></span></button>
+        <button class="abtn teal" id="btnWiz">🧙&nbsp; Wizard prima configurazione<span class="hs" role="button" tabindex="0" style="top:-9px;right:-9px" data-step="6" aria-label="Hotspot: Wizard"></span></button>
+      </div>
+
+      <!-- tab monitoraggio -->
+      <div class="montabs" role="tablist" aria-label="Monitoraggio">
+        <button class="tab" role="tab" aria-selected="true" data-mpane="mChat">📡 Chat ascoltate</button>
+        <button class="tab" role="tab" aria-selected="false" data-mpane="mSalute">🚦 Salute<span class="hs" role="button" tabindex="0" style="top:-9px;right:-9px" data-step="12" aria-label="Hotspot: Salute"></span></button>
+        <button class="tab" role="tab" aria-selected="false" data-mpane="mStato">📡 Stato</button>
+        <button class="tab" role="tab" aria-selected="false" data-mpane="mDash">📊 Dashboard</button>
+        <button class="tab" role="tab" aria-selected="false" data-mpane="mLog">📋 Log</button>
+      </div>
+
+      <div class="monpane">
+        <div id="mChat" role="tabpanel">
+          <p class="chatline"><span class="ok">✅</span> Canale Segnali (demo) — chat_id <code style="font-family:var(--mono)">-1001234567890</code> · Parser: <b>DemoParser</b> (NAME_ONLY)</p>
+          <p class="chatline" style="color:#9aa0a6">Il bridge ascolta <b>solo</b> le chat configurate qui: ogni altro messaggio viene ignorato (filtro chat_id).</p>
+          <div class="miniactions">
+            <button class="mbtn">🧾 Esporta audit reale</button>
+            <button class="mbtn">📂 Apri cartella log</button>
+            <button class="mbtn">📋 Copia diagnostica</button>
+          </div>
+        </div>
+        <div id="mSalute" role="tabpanel" hidden>
+          <div class="sem" id="semList"></div>
+          <div class="miniactions"><button class="mbtn" id="btnSem">🔄 Aggiorna</button></div>
+        </div>
+        <div id="mStato" role="tabpanel" hidden>
+          <div class="strow"><b>Ultimo segnale:</b><span id="stSig">—</span></div>
+          <div class="strow"><b>Ultimo messaggio:</b><span id="stMsg">—</span></div>
+          <div class="strow"><b>Ultimo CSV:</b><span id="stCsv">—</span></div>
+          <div class="strow"><b>Ultimo errore:</b><span id="stErr">—</span></div>
+          <div class="strow"><b>Ultima conferma XTrader:</b><span id="stConf">—</span></div>
+        </div>
+        <div id="mDash" role="tabpanel" hidden>
+          <p style="color:#c7cdd3;font-weight:600">Contatori dall'avvio</p>
+          <div class="dash">
+            <div class="dcard"><span>📥 Ricevuti</span><b id="cRic">0</b></div>
+            <div class="dcard"><span>✅ Scritti</span><b id="cScr">0</b></div>
+            <div class="dcard"><span>⚠️ Scartati</span><b id="cSca">0</b></div>
+            <div class="dcard"><span>♻️ Duplicati</span><b id="cDup">0</b></div>
+            <div class="dcard"><span>🚦 Limitati</span><b id="cLim">0</b></div>
+            <div class="dcard"><span>🧪 Simulati</span><b id="cSim">0</b></div>
+            <div class="dcard"><span>❌ Errori</span><b id="cErr">0</b></div>
+          </div>
+        </div>
+        <div id="mLog" role="tabpanel" hidden>
+          <div class="logbox" id="logBox" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= COLONNA LATERALE ================= -->
+  <aside class="sidecol">
+    <!-- tour -->
+    <div class="panel" id="tourCard" hidden>
+      <div class="phead">🧭 Tour guidato <span id="stepCount" style="margin-left:auto;font-variant-numeric:tabular-nums"></span></div>
+      <div class="pbody">
+        <div class="step-eyebrow" id="stepEyebrow"></div>
+        <h3 id="stepTitle"></h3>
+        <div class="step-body" id="stepBody"></div>
+        <div class="tour-nav">
+          <button class="tbtn" id="btnPrev">◀ Indietro</button>
+          <button class="tbtn primary" id="btnNext">Avanti ▶</button>
+          <span class="spacer"></span>
+          <button class="tbtn" id="btnExit" title="Chiudi il tour">✕</button>
+        </div>
+        <div class="progress"><i id="progBar"></i></div>
+      </div>
+    </div>
+
+    <!-- telegram -->
+    <div class="panel" id="tgPanel">
+      <div class="phead">📱 Canale Telegram (demo)</div>
+      <div class="pbody">
+        <div class="tg-msg" id="tgMsg" hidden>
+          <div class="from">Canale Segnali (demo)</div>
+          ⚽ Serie A — Inter v Milan<br>Mercato: Match Odds · Selezione: Inter<br>Quota: <b>1,85</b>
+        </div>
+        <p class="tg-hint" id="tgHint">Avvia il bridge, poi invia un segnale di prova per vedere l'intera catena
+        <b>Telegram → parser → CSV</b>.</p>
+        <div style="margin-top:10px">
+          <button class="tbtn" id="btnSignal" disabled>📨 Invia segnale di prova</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- csv -->
+    <div class="panel" id="csvPanel">
+      <div class="phead">📄 segnali.csv <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0">quello che XTrader legge</span></div>
+      <div class="pbody">
+        <div class="csvbox" id="csvBox"><span class="hdrline">Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId,SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points</span></div>
+        <div class="csv-meta">
+          <span class="chip empty" id="csvChip">solo header — nessun segnale attivo</span>
+          <span class="chip count" id="csvTimer" hidden>⏱ svuotamento tra <span id="csvTimerN">12</span>s</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer>Demo generata dalle docs reali del progetto (design handoff, contratto CSV, guide utente).
+Le etichette e i flussi di conferma replicano l'app v0.1.0; il comportamento è simulato nel browser.
+<br>Progetto indipendente: BetRelay non è affiliato, associato, autorizzato né sponsorizzato da
+TradingSportivo (XTrader) né da Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader,
+Betting Toolkit, Betfair, Telegram e i relativi marchi appartengono ai rispettivi proprietari e
+sono citati solo a scopo descrittivo, per indicare la compatibilità.</footer>
+
+<!-- ============ DIALOGHI ============ -->
+<div class="overlay" id="ovConfirm" role="dialog" aria-modal="true" aria-labelledby="dlgConfTitle">
+  <div class="dlg">
+    <div class="dtitle" id="dlgConfTitle">Conferma</div>
+    <div class="dbody" id="dlgConfBody"></div>
+    <div class="dbtns">
+      <button class="abtn grey" id="dlgNo">No</button>
+      <button class="abtn blue" id="dlgYes">Sì</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ovReale" role="dialog" aria-modal="true" aria-labelledby="dlgRealeTitle">
+  <div class="dlg">
+    <div class="dtitle" id="dlgRealeTitle">Conferma MODALITÀ REALE</div>
+    <div class="dbody">ATTENZIONE: stai per attivare la MODALITÀ REALE.
+XTrader potrà piazzare scommesse REALI.
+
+Per confermare digita:  REALE
+      <input class="fin" id="realeInput" placeholder="digita qui" aria-label="Digita REALE per confermare">
+      <div class="derr" id="realeErr"></div>
+    </div>
+    <div class="dbtns">
+      <button class="abtn grey" id="realeCancel">Annulla</button>
+      <button class="abtn red" id="realeOk">Conferma</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ovTools" role="dialog" aria-modal="true" aria-labelledby="toolsTitle">
+  <div class="dlg bigdlg">
+    <div class="dtitle" id="toolsTitle">🧰 Strumenti</div>
+    <div class="dbody">
+      <div class="toolstabs" id="toolsTabs"></div>
+      <div id="toolsBody"></div>
+    </div>
+    <div class="dbtns"><button class="abtn grey" id="toolsClose">Chiudi</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="ovWiz" role="dialog" aria-modal="true" aria-labelledby="wizTitle">
+  <div class="dlg bigdlg">
+    <div class="dtitle" id="wizTitle">🧙 Wizard di prima configurazione</div>
+    <div class="dbody">
+      <p style="color:#b9bfc6;font-size:12.5px;margin-bottom:14px">Cinque step con verifica <b>dal vivo</b>; il pulsante
+      «Avanti ▶» resta bloccato finché la verifica dello step non è ✅. Il wizard <b>non attiva mai</b> la modalità
+      Reale e il token non compare mai negli esiti.</p>
+      <div class="wizstep"><span class="n">1</span><div><b>Token + connessione</b><span>Campo mascherato + «🔌 Prova connessione (getMe)»: verifica il token chiamando Telegram.</span></div></div>
+      <div class="wizstep"><span class="n">2</span><div><b>Chat ID + messaggio di prova</b><span>Invii un messaggio nella chat sorgente e premi «📡 Controlla ora»: conferma che arriva da quella chat.</span></div></div>
+      <div class="wizstep"><span class="n">3</span><div><b>Parser su un messaggio reale</b><span>Incolli un segnale vero: «🧪 Valuta messaggio» mostra l'anteprima della riga CSV che verrebbe scritta.</span></div></div>
+      <div class="wizstep"><span class="n">4</span><div><b>CSV</b><span>«🔎 Verifica percorso» + «📄 Scrivi CSV di prova» a solo header — mai sovrascrive una riga attiva o un file estraneo.</span></div></div>
+      <div class="wizstep"><span class="n">5</span><div><b>Checklist finale</b><span>Riepilogo ✅/⛔ a 5 voci prima di partire. «Fine ✔» applica token/chat/csv al form e salva.</span></div></div>
+    </div>
+    <div class="dbtns"><button class="abtn grey" id="wizClose">Chiudi</button></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s){return document.querySelector(s)},$$=function(s){return Array.prototype.slice.call(document.querySelectorAll(s))};
+
+  /* ---------- stato demo ---------- */
+  var S={running:false,mode:"sim",rows:0,max:2,timer:null,timerLeft:0,
+         c:{ric:0,scr:0,sca:0,dup:0,lim:0,sim:0,err:0}};
+
+  /* ---------- log ---------- */
+  function ts(){var d=new Date(),p=function(n){return (n<10?"0":"")+n};return "["+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())+"]"}
+  function log(msg,cls){
+    var el=document.createElement("div");el.className=cls||"lg-info";
+    el.textContent=ts()+" "+msg;
+    var box=$("#logBox");box.appendChild(el);box.scrollTop=box.scrollHeight;
+  }
+  log("ℹ️ Demo pronta. Configurazione di esempio caricata (nessun dato reale).","lg-dim");
+
+  /* ---------- tab switching ---------- */
+  function bindTabs(sel,attr){
+    $$(sel).forEach(function(t){
+      t.addEventListener("click",function(e){
+        if(e.target.classList.contains("hs"))return;
+        $$(sel).forEach(function(x){x.setAttribute("aria-selected","false");
+          var p=document.getElementById(x.dataset[attr]);if(p)p.hidden=true});
+        t.setAttribute("aria-selected","true");
+        var pane=document.getElementById(t.dataset[attr]);if(pane)pane.hidden=false;
+        if(attr==="mpane"&&t.dataset[attr]==="mSalute")renderSalute();
+      });
+    });
+  }
+  bindTabs(".tabrow .tab","pane");
+  bindTabs(".montabs .tab","mpane");
+  function showCfgTab(id){var t=$$('.tabrow .tab').filter(function(x){return x.dataset.pane===id})[0];if(t)t.click()}
+  function showMonTab(id){var t=$$('.montabs .tab').filter(function(x){return x.dataset.mpane===id})[0];if(t)t.click()}
+
+  /* ---------- contatori / stato ---------- */
+  function paintCounters(){
+    $("#cRic").textContent=S.c.ric;$("#cScr").textContent=S.c.scr;$("#cSca").textContent=S.c.sca;
+    $("#cDup").textContent=S.c.dup;$("#cLim").textContent=S.c.lim;$("#cSim").textContent=S.c.sim;$("#cErr").textContent=S.c.err;
+  }
+  function setStatus(st){
+    var e=$("#statusTxt");e.className="status "+st;
+    e.textContent=st==="active"?"⬤  ATTIVO":st==="reconn"?"⬤  RICONNESSIONE…":"⬤  OFFLINE";
+  }
+  function setRows(n){S.rows=n;$("#rowsN").textContent=n}
+  function now(){var d=new Date(),p=function(n){return (n<10?"0":"")+n};return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())}
+
+  /* ---------- salute ---------- */
+  function renderSalute(){
+    var rows=[
+      ["Telegram",S.running?["g","🟢","connesso e in ascolto"]:["r","🔴","listener fermo (OFFLINE)"]],
+      ["Ultimo messaggio",S.c.ric>0?["g","🟢",$("#stMsg").textContent]:["y","🟡","nessun messaggio ricevuto finora"]],
+      ["Parser Personalizzato",["g","🟢","«DemoParser» attivo per la chat sorgente"]],
+      ["Ultimo segnale",(S.c.scr+S.c.sim)>0?["g","🟢",$("#stSig").textContent]:["y","🟡","nessun segnale elaborato finora"]],
+      ["CSV scrivibile",["g","🟢","C:\\XTrader\\segnali.csv (percorso verificato)"]],
+      ["Conferme XTrader",["y","🟡","chat notifiche non configurata (facoltativa)"]],
+      ["Modalità",S.mode==="sim"?["g","🟢","Simulazione (DRY_RUN): il CSV operativo NON viene scritto"]:
+                  S.mode==="collaudo"?["y","🟡","Collaudo XTrader: CSV scritto, XTrader deve essere in simulazione"]:
+                  ["r","🔴","MODALITÀ REALE: scommesse vere possibili"]]
+    ];
+    var h="";
+    rows.forEach(function(r){h+='<span class="lamp '+r[1][0]+'">'+r[1][1]+'</span><span class="lbl"><b>'+r[0]+':</b> <span>'+r[1][2]+"</span></span>"});
+    $("#semList").innerHTML=h;
+  }
+  renderSalute();
+  $("#btnSem").addEventListener("click",function(){renderSalute();log("🚦 Salute aggiornata (controllo fresco, cache bypassata).","lg-dim")});
+
+  /* ---------- CSV ---------- */
+  var CSV_ROW='TelegramBot,,Inter v Milan,,Match Odds,MATCH_ODDS,,Inter,,"1,85",,,BACK,';
+  function csvWrite(){
+    var box=$("#csvBox");
+    if(!box.querySelector(".rowline")){
+      var r=document.createElement("span");r.className="rowline";r.textContent="\n"+CSV_ROW;box.appendChild(r);
+    }
+    $("#csvChip").className="chip active";$("#csvChip").textContent="1 segnale attivo — in attesa di XTrader";
+    startCsvTimer();
+  }
+  function csvClear(reason){
+    var r=$("#csvBox .rowline");if(r)r.remove();
+    $("#csvChip").className="chip empty";$("#csvChip").textContent="solo header — nessun segnale attivo";
+    stopCsvTimer();setRows(0);
+    if(reason)log(reason,"lg-info");
+    $("#stCsv").textContent="svuotato ("+now()+")";renderSalute();
+  }
+  function startCsvTimer(){
+    stopCsvTimer();S.timerLeft=12;
+    $("#csvTimer").hidden=false;$("#csvTimerN").textContent=S.timerLeft;
+    S.timer=setInterval(function(){
+      S.timerLeft--;$("#csvTimerN").textContent=S.timerLeft;
+      if(S.timerLeft<=0){
+        csvClear("🗑️  1 segnale/i scaduto/i rimosso/i dal CSV (timeout 90s — accelerato nel demo)");
+      }
+    },1000);
+  }
+  function stopCsvTimer(){if(S.timer){clearInterval(S.timer);S.timer=null}$("#csvTimer").hidden=true}
+
+  /* ---------- dialoghi ---------- */
+  function askConfirm(title,body,onYes,onNo){
+    $("#dlgConfTitle").textContent=title;$("#dlgConfBody").textContent=body;
+    $("#ovConfirm").classList.add("show");
+    var yes=$("#dlgYes"),no=$("#dlgNo");
+    function close(){$("#ovConfirm").classList.remove("show");yes.onclick=no.onclick=null}
+    yes.onclick=function(){close();if(onYes)onYes()};
+    no.onclick=function(){close();if(onNo)onNo()};
+    yes.focus();
+  }
+  function askReale(onYes,onNo){
+    $("#realeInput").value="";$("#realeErr").textContent="";
+    $("#ovReale").classList.add("show");
+    var ok=$("#realeOk"),ca=$("#realeCancel");
+    function close(){$("#ovReale").classList.remove("show");ok.onclick=ca.onclick=null}
+    ok.onclick=function(){
+      if($("#realeInput").value.trim().toUpperCase()==="REALE"){close();if(onYes)onYes()}
+      else $("#realeErr").textContent="⛔ Testo diverso da «REALE»: modalità NON attivata."
+    };
+    ca.onclick=function(){close();if(onNo)onNo()};
+    $("#realeInput").focus();
+  }
+
+  /* ---------- modalità bridge ---------- */
+  var prevMode="sim";
+  function applyMode(m){
+    S.mode=m;prevMode=m;
+    $("#bannerCollaudo").classList.toggle("show",m==="collaudo");
+    $("#bannerReale").classList.toggle("show",m==="reale");
+    renderSalute();
+  }
+  $("#selMode").addEventListener("change",function(){
+    var v=this.value,sel=this;
+    if(v==="collaudo"){
+      askConfirm("Conferma MODALITÀ COLLAUDO",
+"Stai attivando la MODALITÀ COLLAUDO XTRADER:\nil CSV operativo verrà scritto e XTrader lo importerà.\n\nXTrader è impostato in Modalità Simulazione?\n(Se è in reale, le scommesse sarebbero VERE.)",
+        function(){applyMode("collaudo");log("🔬 Modalità COLLAUDO attiva: il CSV operativo VIENE scritto.","lg-warn")},
+        function(){sel.value=prevMode;log("↩️ Attivazione modalità COLLAUDO ANNULLATA: torno a "+modeName(prevMode)+".","lg-info")});
+    }else if(v==="reale"){
+      askReale(
+        function(){applyMode("reale");log("⚠️ MODALITÀ REALE ATTIVA — evento REAL_MODE_ENABLED registrato nell'audit.","lg-err")},
+        function(){sel.value=prevMode;log("↩️ Attivazione modalità REALE ANNULLATA: torno a "+modeName(prevMode)+".","lg-info")});
+    }else{applyMode("sim");log("🧪 Modalità Simulazione (DRY_RUN): il CSV operativo NON verrà scritto.","lg-info")}
+  });
+  function modeName(m){return m==="sim"?"SIMULAZIONE":m==="collaudo"?"COLLAUDO":"REALE"}
+
+  /* ---------- START / STOP ---------- */
+  function doStart(){
+    if(S.running)return;
+    function reallyStart(){
+      S.running=true;
+      $("#btnStart").disabled=true;$("#btnStop").disabled=false;$("#btnSignal").disabled=false;
+      setStatus("active");
+      log("🚀 Bridge avviato!","lg-ok");
+      log("📄 CSV: C:\\XTrader\\segnali.csv","lg-info");
+      log("⏱️  Auto-clear dopo: 90s","lg-info");
+      if(S.mode==="sim")log("🧪 DRY_RUN attivo (simulazione): il CSV operativo NON verrà scritto.","lg-warn");
+      if(S.mode!=="sim")log("⚠️ Modalità "+modeName(S.mode)+": i segnali validi verranno scritti nel CSV.","lg-warn");
+      setTimeout(function(){if(S.running){log("✅ Connesso a Telegram.","lg-ok");log("👂 In ascolto su Telegram...","lg-info");renderSalute()}},700);
+      renderSalute();showMonTab("mLog");
+    }
+    if(S.mode==="reale"){
+      askConfirm("START — MODALITÀ REALE",
+"Sei in MODALITÀ REALE: il bridge scriverà i segnali nel CSV (scommesse reali) appena ricevuti.\n\nAvviare ora il listener?",
+        reallyStart,
+        function(){log("⏸️ Avvio in modalità reale annullato.","lg-info")});
+    }else reallyStart();
+  }
+  function doStop(){
+    if(!S.running)return;
+    S.running=false;
+    $("#btnStart").disabled=false;$("#btnStop").disabled=true;$("#btnSignal").disabled=true;
+    setStatus("offline");
+    csvClear(null);
+    log("🛑 Bridge fermato.","lg-info");
+    log("🧹 CSV riportato a solo header allo stop.","lg-dim");
+    renderSalute();
+  }
+  $("#btnStart").addEventListener("click",function(e){if(e.target.classList.contains("hs"))return;doStart()});
+  $("#btnStop").addEventListener("click",doStop);
+  $("#btnClear").addEventListener("click",function(){
+    if($("#csvBox .rowline")){csvClear("🗑️  CSV svuotato manualmente");}
+    else log("🗑️  CSV già a solo header: niente da svuotare.","lg-dim");
+  });
+  $("#btnSave").addEventListener("click",function(){log("💾 Configurazione salvata","lg-ok")});
+
+  /* ---------- segnale di prova ---------- */
+  function sendSignal(){
+    if(!S.running){log("⚠️ Il bridge è fermo: premi AVVIA prima di inviare un segnale.","lg-warn");return}
+    $("#tgMsg").hidden=false;
+    $("#tgHint").textContent="Messaggio ricevuto dal canale configurato (chat_id corretto): il parser lo sta elaborando…";
+    S.c.ric++;paintCounters();
+    $("#stMsg").textContent="Inter v Milan · Match Odds ("+now()+")";
+    log("📱 Messaggio ricevuto dalla chat -1001234567890","lg-sig");
+    setTimeout(function(){
+      if(!S.running)return;
+      log("🧾 Messaggio→CSV | msg: Inter v Milan · Match Odds · Inter @1,85 | parser: DemoParser","lg-sig");
+      $("#stSig").textContent="Inter v Milan · Inter @1,85 ("+now()+")";
+      if(S.mode==="sim"){
+        S.c.sim++;paintCounters();
+        log("🧪 [SIMULAZIONE] segnale valido riconosciuto — riga NON scritta (DRY_RUN).","lg-warn");
+        $("#tgHint").textContent="In Simulazione il segnale è riconosciuto e contato, ma il CSV operativo non viene toccato. Passa a Collaudo per vederlo scritto.";
+      }else{
+        S.c.scr++;paintCounters();setRows(1);
+        csvWrite();
+        $("#stCsv").textContent="1 riga scritta ("+now()+")";
+        log("✅ Riga scritta nel CSV (scrittura atomica, header + 1 riga attiva).","lg-ok");
+        $("#tgHint").textContent="Riga scritta in segnali.csv: XTrader la legge e piazza. Dopo il timeout il CSV torna a solo header.";
+      }
+      renderSalute();
+    },900);
+  }
+  $("#btnSignal").addEventListener("click",sendSignal);
+
+  /* ---------- strumenti hub ---------- */
+  var TOOLS=[
+    ["🧩 Parser","Parser Personalizzato",
+     "<div class='feat'><h4>Il pannello più potente: insegna al bridge a leggere il TUO canale</h4><p>Per ogni colonna del CSV (Provider, EventName, MarketType, SelectionName, Price, BetType…) definisci come estrarla dal messaggio: «Inizia dopo» / «Finisce prima», valore fisso, trasformazioni e value-map. Modalità NAME_ONLY / ID_ONLY / BOTH; parser salvati, duplicabili, per-chat.</p><div class='fbtns'><span class='fakebtn'>💾 Salva</span><span class='fakebtn'>🧪 Prova messaggio</span><span class='fakebtn'>📋 Copia diagnostica</span><span class='fakebtn gry'>🆕 Nuovo</span><span class='fakebtn gry'>📑 Duplica</span></div></div><div class='feat'><h4>Prova messaggio con anteprima e diagnostica</h4><p>Incolli un messaggio reale del canale: vedi l'anteprima delle righe CSV generate e una diagnostica riga-per-colonna. Se un campo obbligatorio manca, NESSUNA riga piazzabile viene prodotta: il parser non inventa mai dati.</p></div><div class='feat'><h4>Output multi-riga</h4><p>MultiMarket (più mercati) e MultiSelection (più selezioni, dutching): un messaggio può generare un blocco coerente di più righe CSV, mai spezzato dai limiti.</p></div>"],
+    ["📡 Chat sorgenti","Chat sorgenti (multi-chat)",
+     "<div class='feat'><h4>Una riga per ogni chat/canale da cui accettare segnali</h4><p>Ogni sorgente ha: Attiva, Nome, Chat ID (obbligatorio e univoco), Modalità, Provider e Parser dedicato. Una sorgente disattivata viene ignorata. Il filtro chat_id è un'invariante di sicurezza: messaggi da chat non configurate non vengono MAI processati.</p><div class='fbtns'><span class='fakebtn'>➕ Aggiungi sorgente</span><span class='fakebtn grn'>💾 Salva</span></div></div>"],
+    ["📇 Provider","Anagrafica Provider",
+     "<div class='feat'><h4>Nomi Provider riutilizzabili</h4><p>I nomi definiti qui compaiono nella colonna Provider del CSV e valgono per tutti i parser. Servono a XTrader per riconoscere la fonte del segnale.</p><div class='fbtns'><span class='fakebtn grn'>➕ Aggiungi</span><span class='fakebtn rd'>🗑 Rimuovi</span></div></div>"],
+    ["📁 Profili","Profili impostazioni",
+     "<div class='feat'><h4>Salva e ricarica intere configurazioni</h4><p>La configurazione corrente si salva come profilo con un nome (es. «Prematch») e si ricarica quando vuoi. Il token Telegram NON viene mai salvato nei profili. Eliminazioni con conferma modale.</p><div class='fbtns'><span class='fakebtn grn'>💾 Salva profilo</span><span class='fakebtn'>📂 Carica</span></div></div>"],
+    ["🗺️ Mapping","Dizionari nomi e mercati",
+     "<div class='feat'><h4>Dizionario nomi squadra</h4><p>Traduce i nomi come li scrive il canale nel nome atteso da Betfair/XTrader (es. «Inter» → «Inter Milan»), per sport e tipo, organizzati in profili selezionabili nel parser.</p></div><div class='feat'><h4>Dizionario mercati</h4><p>Ritaglia il testo-mercato dal messaggio («Inizia dopo»/«Finisce prima») e lo mappa su Mercato/Selezione del catalogo (es. «0,5 HT» → mercato Over/Under HT).</p></div><div class='feat'><h4>🌳 Mapping guidato</h4><p>Albero Sport → Competizione → Squadre: scrivi accanto a ogni squadra come la chiama il tuo canale e salvi tutto nel profilo.</p></div>"],
+    ["📖 Dizionario","Dizionario Betfair (locale, sola lettura)",
+     "<div class='feat'><h4>Consultazione del palinsesto locale</h4><p>Sfoglia Sport / Competizioni / Squadre del dizionario locale, filtra e cerca. Sola lettura: serve al riconoscimento NAME_ONLY per tradurre i nomi in valori validi.</p><div class='fbtns'><span class='fakebtn'>🔄 Aggiorna</span><span class='fakebtn gry'>Pulisci</span></div></div>"]
+  ];
+  function renderTools(i){
+    var tabs=$("#toolsTabs");tabs.innerHTML="";
+    TOOLS.forEach(function(t,j){
+      var b=document.createElement("button");b.className="tab";b.textContent=t[0];
+      b.setAttribute("aria-selected",j===i?"true":"false");
+      b.addEventListener("click",function(){renderTools(j)});
+      tabs.appendChild(b);
+    });
+    $("#toolsBody").innerHTML="<h4 style='font-size:13.5px;margin-bottom:10px;color:#eaeaea'>"+TOOLS[i][1]+"</h4>"+TOOLS[i][2];
+  }
+  $("#btnTools").addEventListener("click",function(e){if(e.target.classList.contains("hs"))return;renderTools(0);$("#ovTools").classList.add("show")});
+  $("#toolsClose").addEventListener("click",function(){$("#ovTools").classList.remove("show")});
+  $("#btnWiz").addEventListener("click",function(e){if(e.target.classList.contains("hs"))return;$("#ovWiz").classList.add("show")});
+  $("#wizClose").addEventListener("click",function(){$("#ovWiz").classList.remove("show")});
+  $$(".overlay").forEach(function(ov){ov.addEventListener("click",function(e){if(e.target===ov&&ov.id!=="ovReale")ov.classList.remove("show")})});
+
+  /* ============ TOUR ============ */
+  var STEPS=[
+    {t:"Benvenuto",title:"Il ponte tra Telegram e XTrader",sel:"#zHeader",
+     b:"XTrader Signal Bridge legge i <b>segnali</b> da una chat/canale Telegram, li traduce in una riga <b>CSV nel formato XTrader</b> e svuota il file dopo il timeout. Il bridge <b>non piazza scommesse</b>: scrive solo il CSV che XTrader monitora. La catena è sempre: <code>Telegram → parsing → CSV → XTrader → CSV pulito</code>."},
+    {t:"Header",title:"Stato del bridge e righe attive",sel:"#zHeader",
+     b:"A destra vedi lo <b>stato del listener</b>: <span style='color:#ef5350;font-weight:700'>⬤ OFFLINE</span> da fermo, <span style='color:#66bb6a;font-weight:700'>⬤ ATTIVO</span> in ascolto, <span style='color:#ffa726;font-weight:700'>⬤ RICONNESSIONE…</span> se cade la connessione (riprova da solo con backoff). <b>«Righe attive: N/M»</b> conta le scommesse attive nel CSV sul massimo consentito."},
+    {t:"Configurazione · 1/4",title:"⚙️ Generale — i 5 campi essenziali",sel:".cfgpane",act:function(){showCfgTab("pGen")},
+     b:"<b>🔑 Bot Token</b> (da @BotFather, salvato nel keyring di Windows, mai in chiaro nei log) · <b>💬 Chat ID</b> della chat sorgente · <b>📄 CSV Path</b> del file che XTrader legge (con «📁 Sfoglia…» e «📄 Crea CSV») · <b>⏱️ Timeout</b> di svuotamento · <b>🏷️ Provider</b>. Ogni campo vuoto mostra un segnaposto d'aiuto."},
+    {t:"Configurazione · 2/4",title:"🎯 Riconoscimento — come identificare l'evento",sel:".cfgpane",act:function(){showCfgTab("pRic")},
+     b:"<b>NAME_ONLY</b>: il bridge lavora sui nomi (squadre, mercato) tradotti dai dizionari. <b>ID_ONLY</b>: servono MarketId/SelectionId espliciti nel messaggio. <b>BOTH</b>: entrambi. La modalità determina quali colonne del CSV vengono popolate."},
+    {t:"Configurazione · 3/4",title:"🛡️ Sicurezza — la tendina a 3 modalità",sel:".cfgpane",act:function(){showCfgTab("pSic")},
+     b:"<b>🧪 Simulazione</b> (default): riconosce i segnali ma NON scrive il CSV operativo. <b>🔬 Collaudo</b>: scrive il CSV con XTrader in simulazione (conferma Sì/No). <b>⚠️ Reale</b>: richiede di <b>digitare la parola REALE</b>. Qui trovi anche limite giornaliero, modalità coda e avvio automatico."},
+    {t:"Configurazione · 4/4",title:"✅ Conferme XTrader — il cerchio si chiude",sel:".cfgpane",act:function(){showCfgTab("pCon")},
+     b:"Se configuri la <b>chat notifiche</b> di XTrader, il bridge legge gli esiti: una scommessa <b>confermata o rifiutata</b> viene rimossa subito dal CSV senza aspettare il timeout. Parole di conferma/rifiuto personalizzabili."},
+    {t:"Strumenti · Wizard",title:"🧙 Wizard di prima configurazione",sel:"#btnWiz",act:function(){$("#ovWiz").classList.add("show")},
+     b:"Cinque step con verifiche <b>dal vivo</b>: token (getMe), chat, parser su un messaggio reale, CSV di prova e checklist finale. «Avanti» resta bloccato finché la verifica non è ✅. Il wizard non attiva mai la modalità Reale. <i>(Chiudi la finestra per proseguire.)</i>"},
+    {t:"Strumenti · Hub",title:"🧰 Strumenti — parser, sorgenti, dizionari",sel:"#btnTools",act:function(){renderTools(0);$("#ovTools").classList.add("show")},
+     b:"L'hub raccoglie: <b>🧩 Parser Personalizzato</b> (insegna al bridge a leggere il tuo canale, con prova messaggio e diagnostica), <b>📡 Chat sorgenti</b> multi-chat, <b>📇 Provider</b>, <b>📁 Profili</b>, <b>🗺️ Mapping</b> nomi/mercati e <b>📖 Dizionario Betfair</b>. Sfoglia le schede, poi chiudi per proseguire."},
+    {t:"In azione · 1/4",title:"▶ AVVIA — il bridge si mette in ascolto",sel:"#zBtns",act:function(){$("#ovTools").classList.remove("show");$("#ovWiz").classList.remove("show");doStart()},
+     b:"Premuto AVVIA: lo stato passa a <span style='color:#66bb6a;font-weight:700'>⬤ ATTIVO</span>, STOP si abilita e il <b>📋 Log</b> racconta tutto: «🚀 Bridge avviato!», «✅ Connesso a Telegram.», «👂 In ascolto su Telegram...». Siamo in <b>Simulazione</b>: nessun CSV operativo verrà toccato."},
+    {t:"In azione · 2/4",title:"📨 Arriva un segnale (in Simulazione)",sel:"#tgPanel",act:function(){sendSignal()},
+     b:"Il canale demo invia: <i>«Serie A — Inter v Milan · Match Odds · Inter · Quota 1,85»</i>. Il bridge verifica il <b>chat_id</b>, il parser estrae i campi e valida. In Simulazione il segnale è riconosciuto e contato (🧪 Simulati +1 nella Dashboard) ma la riga <b>non viene scritta</b>."},
+    {t:"In azione · 3/4",title:"🔬 Passiamo in Collaudo (con conferma)",sel:".cfgpane",
+     act:function(){showCfgTab("pSic");var s=$("#selMode");if(S.mode!=="collaudo"){s.value="collaudo";s.dispatchEvent(new Event("change"))}},
+     b:"Per scrivere davvero il CSV serve uscire dalla Simulazione. Il passaggio a <b>Collaudo</b> chiede conferma: XTrader deve essere in Modalità Simulazione. Conferma con <b>Sì</b>: appare il banner ambra persistente. (La modalità <b>Reale</b> chiederebbe di digitare la parola REALE.)"},
+    {t:"In azione · 4/4",title:"📄 Il segnale finisce nel CSV — e poi sparisce",sel:"#csvPanel",act:function(){sendSignal()},
+     b:"Stesso segnale, ora in Collaudo: la riga viene scritta con <b>scrittura atomica</b> (mai file parziali) sotto l'header a <b>14 colonne</b> del contratto XTrader. «Righe attive» passa a 1/2. Dopo il timeout (90&nbsp;s reali, 12&nbsp;s nel demo) il CSV torna a <b>solo header</b>: mai segnali vecchi lasciati attivi."},
+    {t:"Monitoraggio",title:"🚦 Salute, Stato, Dashboard e Log",sel:".monpane",act:function(){showMonTab("mSalute")},
+     b:"La scheda <b>🚦 Salute</b> mostra 7 semafori (Telegram, messaggio, parser, segnale, CSV scrivibile, conferme, modalità): un dato assente non è mai verde, è un «giallo onesto». <b>📡 Stato</b> tiene gli ultimi eventi, <b>📊 Dashboard</b> i contatori, <b>📋 Log</b> il racconto completo con livelli colorati."},
+    {t:"Fine",title:"■ STOP — e le regole che non cambiano mai",sel:"#zBtns",act:function(){doStop()},
+     b:"STOP ferma l'ascolto e riporta il CSV a solo header. Invarianti di sicurezza del bridge: <b>solo le chat configurate</b> vengono ascoltate, il parser <b>non inventa dati</b>, <b>un solo flusso</b> scrive il CSV, i duplicati sono bloccati, e dopo un crash il CSV stantio viene ripulito all'avvio. Ora esplora liberamente: tutti i controlli della replica sono attivi."}
+  ];
+
+  var cur=-1,autoTimer=null,auto=false;
+  var hlEl=null;
+  function highlight(sel){
+    if(hlEl)hlEl.classList.remove("hl-ring");
+    hlEl=sel?document.querySelector(sel):null;
+    if(hlEl){hlEl.classList.add("hl-ring");
+      try{hlEl.scrollIntoView({block:"nearest",behavior:"smooth"})}catch(e){}}
+  }
+  function showStep(i){
+    if(i<0||i>=STEPS.length)return;
+    cur=i;var st=STEPS[i];
+    $("#tourCard").hidden=false;
+    $("#stepEyebrow").textContent=st.t;
+    $("#stepTitle").textContent=st.title;
+    $("#stepBody").innerHTML=st.b;
+    $("#stepCount").textContent=(i+1)+" / "+STEPS.length;
+    $("#progBar").style.width=(100*(i+1)/STEPS.length)+"%";
+    $("#btnPrev").disabled=i===0;
+    $("#btnNext").textContent=i===STEPS.length-1?"Fine ✔":"Avanti ▶";
+    highlight(st.sel);
+    if(st.act)try{st.act()}catch(e){}
+    // auto-confirm dialoghi in autoplay
+    if(auto){
+      // `auto` va ricontrollato DENTRO i callback: se il tour finisce prima che scattino,
+      // il primo confermerebbe al posto dell'utente una dialog che ha aperto lui — proprio
+      // il gate di sicurezza che questa pagina serve a mostrare.
+      setTimeout(function(){
+        if(auto&&$("#ovConfirm").classList.contains("show"))$("#dlgYes").click();
+      },2200);
+      setTimeout(function(){
+        if(!auto)return;
+        $("#ovTools").classList.remove("show");$("#ovWiz").classList.remove("show");
+      },6200);
+    }
+  }
+  function endTour(){
+    cur=-1;auto=false;if(autoTimer){clearInterval(autoTimer);autoTimer=null}
+    $("#tourCard").hidden=true;highlight(null);
+    document.body.classList.remove("tour-off");
+  }
+  function next(){
+    if(cur>=STEPS.length-1){endTour();return}
+    showStep(cur+1);
+  }
+  $("#btnNext").addEventListener("click",function(){if(auto){auto=false;clearInterval(autoTimer);autoTimer=null}next()});
+  $("#btnPrev").addEventListener("click",function(){if(auto){auto=false;clearInterval(autoTimer);autoTimer=null}if(cur>0)showStep(cur-1)});
+  $("#btnExit").addEventListener("click",endTour);
+
+  $("#btnTourStart").addEventListener("click",function(){
+    auto=false;if(autoTimer){clearInterval(autoTimer);autoTimer=null}
+    document.body.classList.remove("tour-off");showStep(0);
+  });
+  $("#btnAutoplay").addEventListener("click",function(){
+    auto=true;document.body.classList.remove("tour-off");showStep(0);
+    if(autoTimer)clearInterval(autoTimer);
+    autoTimer=setInterval(function(){
+      if(!auto){clearInterval(autoTimer);autoTimer=null;return}
+      if(cur>=STEPS.length-1){auto=false;clearInterval(autoTimer);autoTimer=null;return}
+      next();
+    },9000);
+  });
+  $("#btnFree").addEventListener("click",function(){endTour();document.body.classList.add("tour-off")});
+
+  /* hotspot → step */
+  $$(".hs").forEach(function(h){
+    function go(e){
+      e.stopPropagation();e.preventDefault();
+      auto=false;if(autoTimer){clearInterval(autoTimer);autoTimer=null}
+      showStep(parseInt(h.dataset.step,10));
+    }
+    h.addEventListener("click",go);
+    h.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" ")go(e)});
+  });
+
+  paintCounters();
+})();
+</script>
+
+</body>
+</html>

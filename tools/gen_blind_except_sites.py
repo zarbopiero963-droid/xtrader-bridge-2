@@ -37,7 +37,14 @@ _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #
 # Con questo elenco l'affermazione è verificabile: `git ls-files '*.py'` non produce nulla al di
 # fuori di queste voci. Le voci possono essere cartelle o FILE SINGOLI (vedi `scansiona_tutte`).
-RADICI = ("xtrader_bridge", "license_manager", "tests", "tools",
+#
+# `website/` entra insieme al codice del sito: è l'unico Python del repo esposto su INTERNET
+# (FastAPI + il proxy verso l'API Anthropic), quindi il posto dove un handler cieco farebbe più
+# danno — un errore ingoiato lì diventa una risposta sbagliata a un utente, non una riga di log.
+# Oggi ha zero blind-except (`except OSError` sulla knowledge base, `except httpx.HTTPError` sulla
+# chiamata al modello): la radice serve perché domani il gate lo veda comunque, che è l'intera
+# ragione per cui la #265 ha aggiunto `tools/` e i due `main.py`.
+RADICI = ("xtrader_bridge", "license_manager", "tests", "tools", "website",
           "main.py", "license_manager_main.py")
 
 # NIENTE costante `PKG` che punti a una sola radice (riserva Fable 5 sulla #263). Ce n'era una,

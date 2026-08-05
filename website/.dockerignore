@@ -1,0 +1,45 @@
+# Cosa NON deve finire nell'immagine pubblicata.
+#
+# Il Dockerfile fa `COPY . .`: senza questo file, qualunque cosa si trovi in `website/` al
+# momento del build entra nell'immagine che gira su internet. Oggi ci sarebbe già `__pycache__`
+# (rumore); domani basterebbe un `.env` di prova dimenticato dopo una sessione locale perché una
+# API key finisse dentro un'immagine pubblicata. È il motivo per cui questo file esiste PRIMA del
+# primo deploy e non dopo il primo incidente.
+#
+# Regola: si esclude per categoria (segreti, cache, ambienti, log), non per nome del file visto
+# una volta.
+
+# --- segreti e configurazione locale: mai nell'immagine
+.env
+.env.*
+*.env
+secrets.json
+config.json
+*.pem
+*.key
+
+# --- cache e artefatti Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- ambienti virtuali locali
+.venv/
+venv/
+env/
+
+# --- log e temporanei
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# --- roba di sviluppo che non serve a runtime
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+README.md
