@@ -513,10 +513,17 @@ def test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate():
 
     Se `git` manca si FALLISCE dicendolo, non si salta: un gate che smette di controllare in
     silenzio è il difetto che questo file intero esiste per chiudere.
+
+    `encoding="utf-8"` esplicito e non il solo `text=True` (rilievo Fable 5): senza, Python
+    decodifica con `locale.getpreferredencoding(False)` — su Linux UTF-8, su **Windows** la
+    codepage ANSI (tipicamente cp1252). `git` emette i path in UTF-8 grezzo, e cp1252 mappa
+    quasi ogni byte: la decodifica non solleverebbe, restituirebbe solo un nome **diverso**
+    (`città.py` → `cittÃ .py`). Oggi il repository è tutto ASCII, quindi non morde; è il tipo
+    di difetto che aspetta il primo file con un accento.
     """
     try:
         res = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=_RADICE,
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
     except OSError as exc:      # NON blind: `git` assente/non eseguibile, niente altro
         pytest.fail(f"`git` non disponibile ({exc}): questo gate non può verificare la "
                     f"copertura, e non deve fingere di averlo fatto.")
@@ -530,6 +537,33 @@ def test_nessun_file_python_del_repo_resta_fuori_dalle_radici_sorvegliate():
         f"Radici attuali: {_GEN.RADICI}.\n"
         "Aggiungili a `RADICI` in tools/gen_blind_except_sites.py (una voce può essere una "
         "cartella o un file singolo), poi rigenera il baseline e LEGGI il diff.")
+
+
+def test_una_voce_di_RADICI_sparita_lo_DICE_invece_di_schiantare(tmp_path):
+    """Rilievo Fugu Ultra sulla #265.
+
+    `os.path.isdir()` è `False` anche per ciò che **non esiste**: una voce di `RADICI`
+    rinominata o rimossa finiva nel ramo «file singolo» e il gate moriva con un
+    `FileNotFoundError` grezzo — che non dice a chi legge che il problema è `RADICI` stantia,
+    non il codice sotto esame.
+
+    Si solleva comunque, e deliberatamente: una radice sparita significa **copertura ridotta**,
+    e degradarla a un `continue` sarebbe il difetto che questo gate esiste per chiudere —
+    controllare meno senza dirlo.
+    """
+    (tmp_path / "presente.py").write_text("x = 1\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError) as errore:
+        _GEN.scansiona_tutte(base=str(tmp_path), radici=("presente.py", "sparita.py"))
+
+    messaggio = str(errore.value)
+    assert "sparita.py" in messaggio, messaggio          # dice QUALE voce
+    # Frase INTERA, non la sola parola «RADICI»: `tmp_path` prende il nome dal nome del test,
+    # che contiene «RADICI», quindi il path finito dentro il messaggio la conteneva già e
+    # l'assert passava anche col ramo vecchio — verificando il nome della cartella temporanea
+    # invece del messaggio. Un assert vero per la ragione sbagliata non è una guardia.
+    assert "voce di RADICI inesistente" in messaggio, messaggio
+    assert "gen_blind_except_sites.py" in messaggio, messaggio    # e dove correggerla
 
 
 def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():

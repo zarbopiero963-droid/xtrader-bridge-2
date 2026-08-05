@@ -174,10 +174,21 @@ def scansiona_tutte(base=None, radici=RADICI):
         if os.path.isdir(percorso):
             for rel, trovati in scansiona(percorso).items():
                 fuori[f"{voce}/{rel}"] = trovati
-        else:
+        elif os.path.isfile(percorso):
             trovati = siti_del_file(percorso)
             if trovati:
                 fuori[voce.replace(os.sep, "/")] = trovati
+        else:
+            # Ramo esplicito (rilievo Fugu Ultra sulla #265). Senza, una voce cancellata o
+            # rinominata cadeva nel ramo «file» — `isdir` è False anche per ciò che non esiste —
+            # e il gate moriva con un `FileNotFoundError` grezzo, che non dice a chi legge che il
+            # problema è `RADICI` stantia. Si SOLLEVA comunque, perché una radice sparita
+            # significa copertura ridotta: degradarla a `continue` sarebbe il difetto che questo
+            # gate esiste per chiudere, cioè controllare meno senza dirlo.
+            raise FileNotFoundError(
+                f"voce di RADICI inesistente: {voce!r} (cercata in {base!r}). Il file o la "
+                f"cartella è stato rinominato/rimosso: aggiorna RADICI in "
+                f"tools/gen_blind_except_sites.py, altrimenti il gate copre meno di quanto dice.")
     return fuori
 
 
