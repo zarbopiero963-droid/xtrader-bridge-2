@@ -1745,6 +1745,7 @@ contrario.
 | **404** sul repo | «⚠️ Repository «*repo*» non trovato (404): controlla «owner/nome». Con un token fine-grained un repo esistente ma NON concesso al token risponde comunque 404.» |
 | **404** sul branch | «⚠️ Il branch «*X*» non esiste su «*repo*» (404): controlla il nome (spesso è «main» o «master»). Il permesso di scrittura c'è.» |
 | token assente | «⚠️ Token assente nel keyring: salvalo nelle impostazioni di pubblicazione.» |
+| rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
 
 #### Avviso di disallineamento — l'unico che compare **sopra un successo** (#234 · #271)
 
@@ -1777,7 +1778,6 @@ resterebbe verde accanto all'avviso — due indicatori in disaccordo, e chi guar
 silenzioso. Non registrandolo, l'etichetta invecchia da sola verso `warn` e poi `expired`: chi
 disegna la UI deve sapere che «ultima pubblicazione riuscita» significa **«… e arrivata ai
 bridge»**, e che quello stato può quindi peggiorare anche mentre le pubblicazioni «riescono».
-| rete KO | «⚠️ Rete non disponibile: impossibile contattare GitHub.» |
 
 **Perché la sonda tenta una scrittura.** `permissions.push` è un'**inferenza**: se un token
 *fine-grained* con «Contents» in sola lettura lo riportasse `true`, la verifica direbbe «Accesso OK»
