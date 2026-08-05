@@ -1173,7 +1173,7 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > **come usciranno davvero nel CSV**, tramite lo **stesso** localizzatore del write-path
 > (`csv_writer.localize_row`). È solo la **vista**: il dato interno resta canonico col punto
 > (validatori/dedup invariati) e le colonne testuali («Over 2.5 Goals») non sono mai toccate.
-
+>
 > **A-capo nell'anteprima = a-capo nel file (#251, opzione C del proprietario).** Oltre ai
 > decimali, l'anteprima neutralizza anche gli **a-capo** come fa il write-path: un valore
 > estratto `"Inter⏎Milan"` è mostrato `Inter Milan`, perché è il nome che verrà davvero
@@ -1188,7 +1188,7 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > no — non totale**. La stessa regola vale per la riga di log «📱 Segnale (…)» e per
 > l'etichetta **ULTIMO SEGNALE**, che passano dalla stessa neutralizzazione
 > (`csv_writer.neutralize_linebreaks`, fonte unica condivisa col write-path).
-
+>
 > **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore del
 > runtime e, quando il dizionario locale è popolato, **risolve gli ID dal dizionario**: la
 > GUI inoltra a `test_message`, `diagnose` e `preview_rows` un `id_resolver` opzionale, ottenuto

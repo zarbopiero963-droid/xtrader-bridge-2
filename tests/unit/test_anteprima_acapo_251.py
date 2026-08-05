@@ -139,12 +139,64 @@ def test_251_localizzazione_e_acapo_insieme():
     assert fuori["EventName"] == "Inter Milan"
 
 
+def test_251_i_valori_NON_stringa_restano_INTATTI():
+    """La #251 doveva cambiare **una cosa sola**: gli a-capo nelle stringhe. Non i tipi.
+
+    La prima stesura passava *ogni* valore da `neutralize_linebreaks`, che coercizza a stringa —
+    quindi `None` diventava `""` e `42` diventava `"42"`. Rilievo di GPT-5.5 e Fable 5,
+    indipendentemente, ed era fondato: **cambiava l'output dell'anteprima** su un caso che non
+    c'entra nulla con gli a-capo. Misurato prima della correzione, sul riepilogo che filtra i
+    valori vuoti (`if v != ""`):
+
+        PRIMA: A=None, B=42, C=1.85, E=Inter
+        DOPO : B=42, C=1.85, E=Inter          <- la colonna A è SPARITA dall'anteprima
+
+    Un non-stringa non può contenere un a-capo, quindi restringere la neutralizzazione alle
+    sole stringhe non perde niente e riporta la patch a fare esattamente ciò che dichiara.
+
+    Il test precedente qui asseriva `fuori["A"] in ("", None)` — un'asserzione permissiva, che
+    è ciò che si scrive quando non si è sicuri, e infatti nascondeva proprio questo."""
+    riga = {"A": None, "B": 42, "C": 1.85, "D": "", "E": "Inter", "F": True}
+    fuori = csv_writer.localize_row(riga, "EN")
+    for chiave, atteso in riga.items():
+        assert fuori[chiave] is atteso or fuori[chiave] == atteso, (
+            f"{chiave}: {atteso!r} ({type(atteso).__name__}) -> "
+            f"{fuori[chiave]!r} ({type(fuori[chiave]).__name__})")
+        assert type(fuori[chiave]) is type(atteso), (
+            f"{chiave}: tipo cambiato da {type(atteso).__name__} a {type(fuori[chiave]).__name__}")
+
+
+def test_251_il_riepilogo_dell_anteprima_non_perde_colonne():
+    """Il modo in cui la regressione dei tipi si sarebbe VISTA: i due siti dell'anteprima
+    compongono il riepilogo filtrando i valori vuoti (`if v != ""`). Con `None` coercizzato a
+    `""`, la colonna spariva dalla riga mostrata all'operatore — che è esattamente il tipo di
+    silenzio che questa PR esiste per togliere.
+
+    **La colonna di prova è `SelectionName`, NON un decimale, e la distinzione è il punto.**
+    Sulle colonne decimali (`Handicap`, `Price`, `MinPrice`, `MaxPrice`, `Points`) `None`
+    diventava `""` **già prima** di questa PR: lo fa `_localize_decimal`, ed è comportamento
+    di `main` che qui non si tocca. La regressione introdotta dalla #259 riguardava **tutte le
+    altre** colonne.
+
+    La prima stesura di questo test usava `Handicap` e falliva anche dopo la correzione: stava
+    attribuendo alla patch un comportamento che non era suo. Misurato:
+
+        _localize_row({'Handicap': None, 'EventName': None})  ->  {'Handicap': '', 'EventName': None}
+    """
+    riga = {"EventName": "Inter", "SelectionName": None, "Price": "1.85"}
+    fuori = csv_writer.localize_row(riga, "EN")
+    riepilogo = ", ".join(f"{k}={v}" for k, v in fuori.items() if v != "")
+    assert "SelectionName=None" in riepilogo, riepilogo
+    # ...e la colonna decimale resta com'era su main: `None` -> `""`, quindi filtrata
+    decimale = csv_writer.localize_row({"Handicap": None}, "EN")
+    assert decimale["Handicap"] == "", decimale
+
+
 def test_251_non_stringhe_e_None_non_esplodono():
     """Fail-safe: nell'anteprima arrivano righe costruite dal parser, che su input ostile può
     produrre valori non-stringa. Un'anteprima non deve mai sollevare."""
-    fuori = csv_writer.localize_row({"A": None, "B": 42, "C": 1.85, "D": ""})
-    assert fuori["A"] in ("", None)
-    assert "\r" not in str(fuori["B"]) and "\n" not in str(fuori["B"])
+    for riga in ({"A": None}, {"B": 42}, {"C": 1.85}, {"D": ""}, {"E": []}, {"F": {}}, {}):
+        csv_writer.localize_row(riga)          # non deve sollevare
 
 
 # ── End-to-end: i TRE consumatori, non i due della issue ────────────────────
@@ -212,16 +264,46 @@ def test_251_il_log_del_segnale_non_altera_i_valori_normali():
     assert out.last_signal == "🏆 Inter - Milan  |  Over 2,5 goal  |  q.1,85"
 
 
-def test_251_end_to_end_tool_test_message_dell_assistente():
-    """Il TERZO consumatore, che la issue non citava: `config_agent.test_message` compone le
-    sue `columns` con lo stesso `localize_row` e il suo commento dichiara «riga COME uscirebbe
-    nel file».
+def test_251_end_to_end_tool_test_message_dell_assistente(tmp_path):
+    """Il TERZO consumatore, che la issue non citava: il tool `test_message` dell'assistente
+    (`config_agent.build_message_preview`) compone le sue `columns` con lo stesso
+    `localize_row`, e il suo commento dichiara già «riga COME uscirebbe nel file».
 
     Se l'anteprima della GUI e quella dell'assistente divergessero, sarebbe una nuova istanza
     della stessa classe di difetto — due viste della stessa cosa che dicono cose diverse.
     Nessun file dell'assistente è stato modificato: si allinea perché la funzione condivisa è
     una sola (area dichiarata sana dall'audit, regola 5).
+
+    **Il tool viene invocato DAVVERO** (rilievo CodeRabbit sulla #259, fondato): la prima
+    stesura di questo test si chiamava «end-to-end tool dell'assistente» ma chiamava solo
+    `localize_row` — un test che prometteva più di quanto faceva, cioè la stessa classe di
+    difetto che questa PR corregge, dentro il test che la verifica.
+    `build_message_preview` è pura, sola lettura e accetta `parsers_dir` iniettabile, quindi
+    non serve né una API key né rete.
     """
-    riga = csv_writer.localize_row({"EventName": "Inter\r\nMilan", "Price": "1.85"}, "IT")
-    assert riga["EventName"] == "Inter Milan"
-    assert riga["Price"] == "1,85"
+    from xtrader_bridge import config_agent
+    from xtrader_bridge import custom_parser as cp
+
+    cp.save_parser(cp.CustomParserDef(
+        name="P251", mode="ID_ONLY", team_separator="v",
+        rules=[
+            cp.FieldRule(target="Provider", fixed_value="TG"),
+            cp.FieldRule(target="EventName", start_after="Match:", end_before="|", required=True),
+            cp.FieldRule(target="MarketId", fixed_value="1.23", required=True),
+            cp.FieldRule(target="SelectionId", fixed_value="99", required=True),
+            cp.FieldRule(target="Price", fixed_value="1.85", required=True),
+            cp.FieldRule(target="BetType", fixed_value="BACK", required=True),
+        ]), str(tmp_path))
+
+    cfg = {"provider": "TG", "chat_id": "42", "active_parser": "P251",
+           "recognition_mode": "ID_ONLY", "csv_language": "IT"}
+    fuori = config_agent.build_message_preview(
+        cfg, "Match: Inter\nMilan| fine\n", chat="42", parsers_dir=str(tmp_path))
+
+    assert "error" not in fuori, fuori
+    colonne = fuori["reports"][0]["rows"][0]["columns"]
+    # l'a-capo NON arriva all'assistente: vedrebbe un nome squadra che non esiste
+    assert colonne["EventName"] == "Inter Milan", colonne["EventName"]
+    assert "\n" not in colonne["EventName"] and "\r" not in colonne["EventName"]
+    # e i decimali restano localizzati come prima (csv_language IT)
+    assert colonne["Price"] == "1,85", colonne["Price"]

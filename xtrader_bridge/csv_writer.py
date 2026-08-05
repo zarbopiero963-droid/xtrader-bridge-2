@@ -188,7 +188,20 @@ def localize_row(row: dict, lang: str = None) -> dict:
     # Stesso ORDINE del write-path (`_sanitize_row(_localize_row(...))`): prima si localizza,
     # poi si neutralizza. All'inverso, un decimale localizzato dopo la pulizia potrebbe
     # reintrodurre differenze fra le due viste.
-    return {k: neutralize_linebreaks(v) for k, v in fuori.items()}
+    #
+    # SOLO le stringhe (rilievo GPT-5.5 e Fable 5 sulla #259, indipendentemente). La prima
+    # stesura passava OGNI valore da `neutralize_linebreaks`, che coercizza a stringa: `None`
+    # diventava `""` e `42` diventava `"42"`. Non è un dettaglio di tipi — i due siti
+    # dell'anteprima compongono il riepilogo filtrando i vuoti (`if v != ""`), quindi una
+    # colonna a `None` SPARIVA dalla riga mostrata:
+    #
+    #     prima: A=None, B=42, C=1.85, E=Inter
+    #     dopo : B=42, C=1.85, E=Inter            <- la colonna A non si vedeva più
+    #
+    # Un valore non-stringa non può contenere un a-capo, quindi restringere non perde nulla e
+    # riporta la patch a fare esattamente ciò che dichiara: toccare gli a-capo, non i tipi.
+    return {k: (neutralize_linebreaks(v) if isinstance(v, str) else v)
+            for k, v in fuori.items()}
 
 # Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
 # per scrivere (`_atomic_write_locked`) sia per spazzare gli orfani allo startup
