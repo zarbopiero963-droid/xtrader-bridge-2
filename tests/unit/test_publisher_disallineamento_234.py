@@ -128,9 +128,33 @@ def test_234_slash_o_spazi_finali_AVVISANO_e_lo_spiegano(monkeypatch):
         avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
                                                   "revocation_list.txt", "main")
         assert avviso, f"coda {coda!r}: un 404 per tutti i bridge non puo' essere silenzioso"
-        assert "SPAZI o SLASH finali" in avviso, coda
+        assert "SPAZI o SLASH in eccesso" in avviso, coda
         assert "404" in avviso, coda
         assert repr(_REALE + coda) in avviso, "il repr rende VISIBILE la differenza invisibile"
+
+
+def test_234_spazio_INIZIALE_avvisa_e_il_testo_NON_lo_chiama_finale(monkeypatch):
+    """Rilievo Fable 5 e GPT-5.5 sul confronto esatto, ed è il difetto di questa PR in miniatura.
+
+    Il ramo usa `strip()`, che toglie il bianco da **entrambi** i lati: uno spazio *iniziale* in
+    `REVOCATION_LIST_URL` finisce quindi nello stesso ramo — ma il messaggio lo chiamava «SPAZI o
+    SLASH **finali**», e chi legge va a guardare la coda dove non c'è niente.
+
+    È la stessa classe di difetto che questa PR corregge: **un testo che dichiara una cosa
+    diversa da quella che il codice fa**. Qui il codice è giusto (avvisare è corretto: uno spazio
+    iniziale rende l'URL inutilizzabile per i bridge quanto uno slash in coda) e il testo era
+    impreciso, quindi si corregge il testo — e lo si blocca con un test.
+    """
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", " " + _REALE)
+    avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                              "revocation_list.txt", "main")
+
+    assert avviso, "uno spazio iniziale rompe il download per tutti i bridge: va detto"
+    assert "SPAZI o SLASH in eccesso" in avviso, avviso
+    # e il testo non deve MENTIRE dicendo che la differenza è in coda
+    assert "finali" not in avviso, avviso
+    assert repr(" " + _REALE) in avviso, "il repr rende VISIBILE la differenza invisibile"
+    assert "NON allargare il token" in avviso, avviso
 
 
 def test_234_configurazione_ESATTAMENTE_uguale_non_avvisa(monkeypatch):

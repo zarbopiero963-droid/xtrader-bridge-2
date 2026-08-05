@@ -814,6 +814,17 @@ collaterale di questa PR.
   darebbe falsi disallineamenti su path con spazi/accenti, e un avviso falso insegna a ignorare
   quello vero), ed è **gated su `is_placeholder_url`** (con l'URL placeholder di sviluppo la
   revoca online è inattiva per costruzione: non esiste un termine di paragone).
+
+  Il confronto è **esatto: nessuna normalizzazione**. Una stesura intermedia toglieva spazi e
+  slash in eccesso «perché servono lo stesso file», ed era falso: su `raw.githubusercontent.com`
+  un file con slash in coda (`…/revocation_list.txt/`) risponde **404**, e uno spazio iniziale
+  rende la richiesta non valida — cioè sarebbero bridge **realmente rotti**, silenziati dentro la
+  funzione che esiste per non silenziare nulla. Branch e percorso sono inoltre
+  **case-sensitive**: un `Main` al posto di `main` è un 404 per tutti i bridge. Si avvisa quindi
+  su **qualunque** differenza, ma il messaggio la **nomina** — spazi/slash in eccesso,
+  maiuscole/minuscole, o indirizzo diverso — e mostra i due URL con `repr()`, perché due stringhe
+  che differiscono per uno spazio si leggono come identiche e un avviso che *sembra* sbagliato è
+  un avviso che la volta dopo nessuno legge.
 - **`check_access()`** — verifica **preventiva** che **non modifica nulla**. Tre `GET` (repo →
   branch → file) più **una `PUT` che non può riuscire**: porta uno `sha` costante e inesistente
   (`_SHA_PROBE`, quaranta zeri), e GitHub valida i **permessi prima dello sha**. Quindi `403` = il

@@ -109,13 +109,20 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     a, b = str(configurato), str(atteso or "")
     if a == b:
         return ""
+    # `strip()` toglie il bianco da ENTRAMBI i lati, quindi ci finisce anche uno spazio iniziale:
+    # il messaggio deve dire «in eccesso», non «finali» (rilievo Fable 5 + GPT-5.5 sul commit
+    # precedente). Chiamarlo «finale» mandava a cercare in coda una differenza che sta in testa —
+    # cioè di nuovo un testo che dichiara una cosa diversa da quella che il codice fa, che è
+    # esattamente il difetto che questa PR esiste per togliere.
     if a.strip().rstrip("/") == b.strip().rstrip("/"):
         return (
             "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono solo "
-            f"per SPAZI o SLASH finali.\nConfigurato:      {a!r}\nAtteso dai bridge: {b!r}\n"
-            "Sembrano identici ma non lo sono: su raw.githubusercontent.com un file con slash "
-            "o spazio in coda risponde 404, quindi i bridge NON scaricherebbero la lista. "
-            "Correggi REVOCATION_LIST_URL o la configurazione. NON allargare il token.")
+            f"per SPAZI o SLASH in eccesso (a inizio o fine).\nConfigurato:      {a!r}\n"
+            f"Atteso dai bridge: {b!r}\n"
+            "Sembrano identici ma non lo sono, e i bridge NON scaricherebbero la lista: su "
+            "raw.githubusercontent.com un file con slash o spazio in coda risponde 404, e uno "
+            "spazio iniziale rende la richiesta non valida. Correggi REVOCATION_LIST_URL o la "
+            "configurazione. NON allargare il token.")
     if a.lower() == b.lower():
         # Differenza di SOLE maiuscole/minuscole. Si avvisa comunque — perché su
         # `raw.githubusercontent.com` branch e percorso SONO case-sensitive, e un `Main` al posto
