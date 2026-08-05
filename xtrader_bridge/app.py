@@ -3272,6 +3272,13 @@ class App(ctk.CTk):
         # vederlo qui, non scoprirlo dal mercato non riconosciuto.
         for warn in market_mapping_store.malformed_entry_warnings(cfg):
             self._log(f"⚠️ {warn}")
+        # Avviso NON bloccante (#254): due voci mercato che combaciano con la STESSA frase ma
+        # indicano mercati diversi fanno ritornare `ambiguous` a `resolve_market`, che scarta
+        # il segnale (fail-closed, §5.2 D2) dicendolo solo al logger Python — invisibile
+        # nell'app windowed. È il gemello mercati di `ambiguous_alias_warnings`: senza, il
+        # conflitto si scopre da un segnale sparito, cioè quando è già perso.
+        for warn in market_mapping_store.ambiguous_phrase_warnings(cfg):
+            self._log(f"⚠️ {warn}")
         # Audit #259 C3 (decisione proprietario): filtro chat presente ma NESSUNA chat
         # effettivamente ascoltata (es. tutte le sorgenti disattivate) → lo START
         # manuale procede con avviso (il bridge sarebbe «sordo»), l'avvio AUTOMATICO

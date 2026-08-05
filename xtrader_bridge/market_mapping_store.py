@@ -61,6 +61,12 @@ _LOG = logging.getLogger(__name__)
 # Chiave di config che ospita i profili di mappatura mercati.
 _STORE_KEY = "market_mappings"
 
+# Tetto di voci per profilo oltre il quale il controllo delle frasi ambigue (#254) non viene
+# eseguito: il costo cresce col quadrato delle voci, e oltre ~512 frasi distinte la cache dei
+# regex compilati di `_phrase_in_text` va in thrashing. Misurato allo START: 100 voci 0,09 s ·
+# 400 voci 1,2 s · 800 voci 54 s. Oltre il tetto il controllo si ferma e LO DICE.
+_MAX_VOCI_CONTROLLO_AMBIGUITA = 300
+
 # Esito della risoluzione di un mercato da una frase.
 #   status: "ok"        → match univoco; `market` = {market_type, market_name, selection_name}
 #           "ambiguous" → più frasi combaciano con mercati DIVERSI (fail-closed, D2); market=None
@@ -174,6 +180,155 @@ def malformed_entry_warnings(cfg: dict) -> list:
                     f"Mappatura mercati «{_norm_profile_name(profile)}», voce «{phrase}»: "
                     f"{dove} non riconosciuto -> voce IGNORATA (fail-closed). "
                     f"Correggi il valore per riattivarla.")
+    return warnings
+
+
+def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
+    """Avvisi **non bloccanti** (#254): voci mercato che combaciano con la **stessa frase** ma
+    indicano mercati **diversi**. Su queste `resolve_market` ritorna ``ambiguous`` e il segnale
+    viene scartato (fail-closed, design §5.2 D2) — ma finora nessuno lo diceva: il conflitto si
+    scopriva solo da un segnale che spariva. Gemella di
+    `name_mapping_store.ambiguous_alias_warnings`; ``_start`` porta questi messaggi nel log
+    eventi, così il conflitto si vede **al load** invece che a segnale già perso.
+
+    **Chiede al runtime, non lo simula** — ed è la lezione più cara della #253, dove l'avviso
+    gemello *rifaceva* la detection e in quattro giri di review sono emersi quattro modi diversi
+    in cui le due divergevano (fra cui un avviso che taceva su un conflitto vivo e uno che
+    mandava a correggere un dizionario sano). Qui, per ogni voce, si costruisce dalla voce
+    **stessa** il testo minimo che la farebbe combaciare — ``start_after`` + frase +
+    ``end_before`` — e si chiede l'esito a `resolve_market`. Stessa estrazione
+    (`extract_between`), stesso match a confini di token, stessa canonicalizzazione, stesso
+    tier lingua: la divergenza non è improbabile, è impossibile.
+
+    **Si provano più chiamanti**, non uno solo (B21 #194): l'ambiguità dipende da quale
+    lingua-fonte dichiara il parser, quindi si sonda il chiamante senza filtro **più** ogni
+    lingua presente nelle voci. Due voci di lingue diverse non sono un conflitto per chi
+    dichiara la lingua, ma lo sono per chi non la dichiara — e va detto a quest'ultimo.
+
+    Fail-safe come i fratelli: la config arriva da un file editabile a mano, e un avviso
+    diagnostico non deve mai impedire l'avvio."""
+    warnings = []
+    for profile, righe in _store(cfg).items():
+        if not isinstance(righe, (list, tuple)):
+            continue
+        voci = [e for e in righe if isinstance(e, dict)]
+        if not voci:
+            continue
+        # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
+        # (e per lingua), e `_phrase_in_text` compila un regex per frase: oltre ~512 pattern
+        # distinti la cache di `re` va in thrashing e il costo esplode. Misurato allo START:
+        #
+        #     100 voci  0,09 s  ·  400 voci  1,2 s  ·  800 voci  54 s
+        #
+        # Un minuto di finestra bloccata all'avvio sarebbe un danno peggiore del difetto che
+        # questo avviso diagnostica. Oltre il tetto il controllo si ferma e **lo dice**: un cap
+        # che tace si legge come «nessun conflitto», che è esattamente la bugia da evitare.
+        if len(voci) > _MAX_VOCI_CONTROLLO_AMBIGUITA:
+            warnings.append(
+                f"Mappatura mercati «{_norm_profile_name(profile)}»: {len(voci)} voci, oltre il "
+                f"tetto di {_MAX_VOCI_CONTROLLO_AMBIGUITA} per il controllo delle frasi ambigue "
+                f"-> controllo NON eseguito su questo profilo (l'avvio resterebbe bloccato per "
+                f"decine di secondi). Le frasi ambigue restano fail-closed a runtime, ma qui non "
+                f"vengono elencate: se sospetti un conflitto, riduci il profilo o dividilo.")
+            continue
+        profili = [voci]
+        # I chiamanti plausibili: senza filtro-lingua, più ogni lingua che il dizionario
+        # stesso contiene. Sono le sole lingue-fonte per cui un parser può interrogare
+        # queste voci.
+        # Le lingue-fonte per cui un parser può interrogare queste voci. Se NESSUNA voce
+        # dichiara una lingua il filtro è inerte, quindi si sonda solo il chiamante agnostico:
+        # è il caso più comune, e vale un terzo del lavoro (misurato).
+        dichiarate = {recognition.normalize_source_language(e.get("language", "")) for e in voci}
+        dichiarate.discard("")
+        lingue = {""} | dichiarate
+        visti = set()
+        # Sonde già provate: due voci con delimitatori e frase identici producono lo stesso
+        # testo, e lo stesso testo con la stessa lingua dà lo stesso esito. Dedup esatta,
+        # nessuna perdita di copertura.
+        sondate = set()
+        for e in voci:
+            sa = str(e.get("start_after", "") or "")
+            eb = str(e.get("end_before", "") or "")
+            ph = str(e.get("phrase", "") or "").strip()
+            if not ph or (not sa.strip(" \t") and not eb.strip(" \t")):
+                continue        # voce non applicata dal runtime: non può essere ambigua
+            # Il testo minimo che FA combaciare questa voce, costruito dai suoi delimitatori:
+            # cercare la frase in tutto il messaggio sarebbe l'errore che il design §5.5 ha
+            # già corretto una volta sul percorso runtime (banner/menu → falsi match).
+            sonda = f"{sa}{ph}{eb}" if eb else f"{sa}{ph}\n"
+            for lingua in sorted(lingue):
+                if (_normalize_text(sonda), lingua) in sondate:
+                    continue
+                sondate.add((_normalize_text(sonda), lingua))
+                # Nessun `try` attorno alla chiamata: `resolve_market` è difensivo su tutto
+                # ciò che arriva da config (frase vuota, delimitatori assenti, coppia non
+                # canonica) e la frase passa da `re.escape`, quindi non c'è nulla da cui
+                # difendersi. Un blind-except qui sarebbe rumore, e il ratchet
+                # (`test_blind_except_allowlist`) lo rifiuta a ragione: la garanzia «non
+                # esplode» la dà `test_254_config_spazzatura_non_esplode`, che la MISURA
+                # sulle config rotte, invece di asserirla con un catch-all.
+                esito = resolve_market(sonda, profili, rows, lingua or None)
+                if esito.status != "ambiguous":
+                    continue
+                # Quali mercati si contendono la frase. Anche QUESTO lo decide il runtime,
+                # non un confronto di stringhe: si ripropone la sonda a una voce alla volta e
+                # si tiene chi risolve `ok`, cioè chi ha davvero combaciato. Ricostruirlo a
+                # mano divergeva in due modi opposti, trovati in review sulla #255 da GPT-5.5
+                # e Fable 5 indipendentemente:
+                #
+                # - confronto `==` sulla frase: «GG» e «gg» combaciano per il runtime ma non
+                #   per il reporting → l'avviso elencava UN solo mercato e diceva «1 mercati
+                #   diversi», mandando alla riga sbagliata;
+                # - delimitatori ignorati: una voce con la stessa frase ma altri delimitatori,
+                #   che col conflitto non c'entra nulla, veniva elencata come contendente →
+                #   accusava una riga sana.
+                #
+                # È la stessa classe corretta quattro volte sulla #253 — reporting che diverge
+                # dalla detection — e chiedere al runtime la chiude in entrambe le direzioni.
+                # I contendenti sono TUPLE CANONICHE `(tipo, mercato, selezione)`, non nomi
+                # di mercato: è ciò che confronta il resolver. Deduplicare per `market_name`
+                # dava «combacia con 1 mercati diversi» su due voci dello stesso mercato con
+                # selezioni opposte — Over e Under, cioè i due lati della scommessa — senza
+                # alcun modo per l'utente di capire quali righe correggere (GPT-5.5, Fugu).
+                contesi, viste_tuple = [], set()
+                for altra in voci:
+                    singola = resolve_market(sonda, [[altra]], rows, lingua or None)
+                    if singola.status != "ok":
+                        continue
+                    m = singola.market
+                    tupla = (m["market_type"], m["market_name"], m["selection_name"])
+                    if tupla not in viste_tuple:
+                        viste_tuple.add(tupla)
+                        contesi.append(tupla)
+                if len(contesi) < 2:
+                    continue        # niente da elencare: non si scrive un avviso vuoto
+                # La chiave include la SONDA: due conflitti fra gli stessi due mercati ma su
+                # frasi diverse sono due righe diverse da correggere. Senza, 150 conflitti
+                # distinti collassavano in **un solo** avviso (misurato), cioè 149 nascosti —
+                # una diagnostica che ne mostra uno su 150 è peggio di nessuna, perché dà la
+                # sensazione di aver capito il problema (Fugu Ultra, Fable 5).
+                # La sonda entra NORMALIZZATA come la normalizza il runtime: «GG» e «gg»
+                # sono la stessa sonda per `_phrase_in_text`, quindi lo stesso conflitto —
+                # due avvisi sarebbero rumore. Frasi davvero diverse restano distinte.
+                chiave = (profile, _normalize_text(sonda), frozenset(contesi))
+                if chiave in visti:
+                    break
+                visti.add(chiave)
+                # Mercato + selezione: col solo mercato due righe in conflitto sullo
+                # stesso mercato sarebbero indistinguibili nel messaggio.
+                dove = ", ".join(f"«{mn} / {sn}»" for _mt, mn, sn in contesi)
+                # «coppie mercato/selezione», non «mercati»: i contendenti sono tuple canoniche,
+                # quindi Over e Under dello STESSO mercato contano due — ed è giusto che contino
+                # due, sono i due lati opposti della scommessa. Dire «2 mercati diversi» davanti
+                # a un solo nome di mercato elencato due volte si legge come un errore
+                # dell'avviso (GPT-5.5 e Fable 5, indipendentemente): il conteggio deve dire
+                # esattamente cosa conta.
+                warnings.append(
+                    f"Mappatura mercati «{_norm_profile_name(profile)}», frase «{ph}»: "
+                    f"combacia con {len(contesi)} coppie mercato/selezione diverse ({dove}) -> il mercato "
+                    f"NON viene risolto e il segnale è scartato (fail-closed). Rendi le frasi "
+                    f"distinguibili, oppure togli una delle voci in conflitto.")
+                break
     return warnings
 
 

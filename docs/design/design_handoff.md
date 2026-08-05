@@ -555,7 +555,19 @@ varianti**, perché chiedono all'utente due azioni diverse:
   sport/tipo/lingua -> un parser che non li specifica NON traduce il nome (fail-closed). Va bene
   se i tuoi parser dichiarano lo scope; altrimenti lascia una riga agnostica come ripiego.»
 
-La seconda è la più lunga delle due e la più probabile su dizionari multi-sport o multilingua:
+A questi si aggiunge, dalla **#254**, l'avviso gemello sul **Dizionario mercati**: due voci che
+combaciano con la stessa frase ma indicano mercati diversi («Mappatura mercati «X», frase «gg»:
+combacia con 2 coppie mercato/selezione diverse («Entrambe le squadre a segno / Sì», «Over/Under
+2,5 gol / Over 2,5 goal») -> il mercato NON viene risolto e il segnale è scartato (fail-closed).
+Rendi le frasi distinguibili, oppure togli una delle voci in conflitto.»). Stessa forma
+`f"⚠️ {warn}"`, stessa regola «resta IT».
+
+Il conteggio è di **coppie mercato/selezione**, non di mercati: Over e Under dello stesso mercato
+contano due, perché sono i due lati opposti della scommessa e l'utente deve sapere quale delle due
+righe togliere. Per chi disegna il pannello questo allunga la riga — ogni contendente porta
+`«mercato / selezione»`, non il solo nome del mercato.
+
+La seconda variante dei nomi è la più lunga di tutte e la più probabile su dizionari multi-sport o multilingua:
 chi disegna il pannello non può assumere una riga corta. Per chi disegna la UI il punto resta che
 allo START il log può contenere **N righe ⚠️ di configurazione** prima delle righe di stato:
 l'elenco cresce col numero di conflitti, quindi il pannello non può assumere un numero fisso di
