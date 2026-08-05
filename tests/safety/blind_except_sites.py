@@ -15,7 +15,76 @@ in testa a `test_blind_except_allowlist.py`.
 
 # file → tuple ordinate di (funzione, motivo normalizzato)
 SITI = {
-    'app.py': (
+    'license_manager/core.py': (
+        ('_persist_key_file', 'cleanup del temporaneo su qualsiasi errore, anche keyboardinterrupt/systemexit, e poi rilancia: il seed privato non deve restare in un .tmp orfano a permessi non garantiti'),
+        ('_persist_key_file', "create fallita a meta': rimuove il file parziale appena creato e rilancia. non c'era una chiave prima (o_excl), quindi non si distrugge nulla di irrecuperabile"),
+    ),
+    'license_manager/gui.py': (
+        ('LicenseManagerApp.__init__', 'headless/senza window manager: best-effort'),
+        ('LicenseManagerApp._auto_backup_safe', 'il backup non deve poter far fallire emissione/revoca'),
+        ('LicenseManagerApp._build_ui', 'headless/tk assente: la gui non è il gate'),
+        ('LicenseManagerApp._cancel_publish_tick', 'id scaduto/invalido: ininfluente'),
+        ('LicenseManagerApp._check_access_async', 'thread non avviabile: libera il flag e segnala'),
+        ('LicenseManagerApp._check_access_worker', 'finestra distrutta: nessuna ui da aggiornare'),
+        ('LicenseManagerApp._check_access_worker', 'il thread non deve morire in silenzio'),
+        ('LicenseManagerApp._conferma', 'dialog tk best-effort, fail-closed'),
+        ('LicenseManagerApp._copia_negli_appunti', 'clipboard assente/occupata'),
+        ('LicenseManagerApp._evaluate_delete', 'la vista della revoca non è il gate: qui'),
+        ('LicenseManagerApp._evaluate_renew', 'stato ignoto: si ferma, non si chiede'),
+        ('LicenseManagerApp._on_close', 'finestra già distrutta: best-effort'),
+        ('LicenseManagerApp._on_export', 'dialog tk best-effort'),
+        ('LicenseManagerApp._on_export_backup', 'dialog tk best-effort'),
+        ('LicenseManagerApp._on_issue', 'render tk best-effort'),
+        ('LicenseManagerApp._on_publish_revocation', 'dialog tk best-effort'),
+        ('LicenseManagerApp._on_registry_refresh', 'vista registro best-effort (fetch + render)'),
+        ('LicenseManagerApp._on_registry_select', 'selezione best-effort, non deve mai sollevare'),
+        ('LicenseManagerApp._on_restore_backup', 'dialog tk best-effort'),
+        ('LicenseManagerApp._on_save_publish_settings', 'widget headless/distrutto: best-effort'),
+        ('LicenseManagerApp._propaga_revoca', 'config illeggibile: non si tace, si avvisa'),
+        ('LicenseManagerApp._propaga_revoca', 'vedi «non solleva mai» nel docstring'),
+        ('LicenseManagerApp._publish_async', 'thread non avviabile: libera il flag e segnala'),
+        ('LicenseManagerApp._publish_tick', 'il ciclo non deve morire per un errore imprevisto'),
+        ('LicenseManagerApp._publish_worker', 'finestra distrutta: nessuna ui da aggiornare'),
+        ('LicenseManagerApp._publish_worker', 'il thread non deve morire in silenzio'),
+        ('LicenseManagerApp._read', 'lettura tk best-effort'),
+        ('LicenseManagerApp._refresh_key_state', 'render tk best-effort'),
+        ('LicenseManagerApp._refresh_publish_fields', 'precompilazione best-effort (headless/widget assenti)'),
+        ('LicenseManagerApp._refresh_publish_status', 'render tk best-effort, come `_set_msg`'),
+        ('LicenseManagerApp._revoked_serials', 'vista best-effort; il gate passa `strict=true`'),
+        ('LicenseManagerApp._schedule_publish_tick', 'finestra distrutta/headless: niente ri-arm'),
+        ('LicenseManagerApp._schedule_publish_tick', 'finestra distrutta/headless: niente ri-arm'),
+        ('LicenseManagerApp._schedule_publish_tick', 'finestra distrutta/headless: niente ri-arm'),
+        ('LicenseManagerApp._schedule_publish_tick', 'impostazioni illeggibili: cadenza di default'),
+        ('LicenseManagerApp._set_msg', 'render tk best-effort'),
+        ('LicenseManagerApp._show_token', 'render tk best-effort'),
+        ('LicenseManagerApp._stila_tabella', 'lo stile è cosmetico: se fallisce la tabella resta usabile'),
+        ('LicenseManagerApp._testo_widget', 'lettura tk best-effort'),
+    ),
+    'license_manager/log_safe.py': (
+        ('RedazioneFilter.filter', 'args incoerenti: meglio il grezzo che nessun log'),
+        ('RedazioneFilter.filter', 'mai far cadere una chiamata di log'),
+        ('RedazioneFilter.filter', 'traceback non formattabile: si dice, non si perde'),
+    ),
+    'license_manager/publish_store.py': (
+        ('_keyring', 'dipendenza opzionale assente/rotta: fallback pulito'),
+        ('delete_publish_token', 'voce assente o backend giù: nulla da rimuovere'),
+        ('keyring_available', 'backend `fail`/non configurato → non disponibile'),
+        ('load_publish_token', 'lettura fallita = come assente (mai crash)'),
+        ('save_publish_token', 'backend non disponibile: il chiamante avvisa'),
+    ),
+    'license_manager/publisher.py': (
+        ('_rimuovi_file_di_prova', 'pulizia best-effort: mai un crash, si dice e basta'),
+        ('check_access', 'rete a metà verifica: si dichiara ciò che si sa'),
+        ('check_access', 'rete instabile a metà verifica: si dichiara ciò che si sa'),
+        ('check_access', 'rete: esito strutturato, mai crash'),
+        ('check_access', 'rete: esito strutturato, mai crash'),
+        ('get_file_sha', 'qualunque problema di rete: esito strutturato, mai crash'),
+        ('publish', 'rete: esito strutturato, mai crash'),
+    ),
+    'license_manager/registry.py': (
+        ('remove_record', 'cleanup del temporaneo su qualsiasi errore, anche keyboardinterrupt/systemexit, e poi rilancia: il registro vecchio resta intatto, mai un .tmp orfano accanto'),
+    ),
+    'xtrader_bridge/app.py': (
         ('App._apply_license_lock', 'best-effort'),
         ('App._apply_license_lock', 'best-effort'),
         ('App._betfair_competitions', 'best-effort: db assente/illeggibile → nessuna competizione'),
@@ -70,14 +139,14 @@ SITI = {
         ('App._set_license_banner', 'render tk best-effort'),
         ('App._set_operational_lock', 'widget senza `state`/distrutto: best-effort'),
     ),
-    'atomic_io.py': (
+    'xtrader_bridge/atomic_io.py': (
         ('atomic_write', 'cleanup del temporaneo su qualsiasi errore, anche keyboardinterrupt/systemexit, e poi rilancia: senza, un .tmp resterebbe orfano sul disco'),
     ),
-    'betfair/dictionary_viewer_gui.py': (
+    'xtrader_bridge/betfair/dictionary_viewer_gui.py': (
         ('DictionaryViewerPanel._apply_tree_style', 'lo stile è cosmetico, mai bloccante'),
         ('DictionaryViewerPanel._refresh', 'lettura best-effort, niente crash gui'),
     ),
-    'config_agent.py': (
+    'xtrader_bridge/config_agent.py': (
         ('RealAnthropicClient._ensure', 'soft-import: qualsiasi errore di import = libreria assente -> runtimeerror con messaggio guida'),
         ('ToolRegistry._audit', 'il logging non deve mai far fallire il dispatch'),
         ('ToolRegistry._safe_out', "la seconda rete non deve poter rompere l'assistente"),
@@ -91,7 +160,7 @@ SITI = {
         ('build_journal_report', 'risoluzione path (config_dir) difettosa: fail-safe'),
         ('build_message_preview', 'tester sola-lettura: un parser attivo malformato o'),
     ),
-    'config_agent_controller.py': (
+    'xtrader_bridge/config_agent_controller.py': (
         ('AgentController._emit', 'un handler della view non deve rompere il controller'),
         ('AgentController._handle_message', 'persistenza best-effort: mai scartare il turno'),
         ('AgentController.apply_pending', 'loader che solleva = config non leggibile ora: fail-safe'),
@@ -100,23 +169,23 @@ SITI = {
         ('AgentController.redact_for_log', 'config illeggibile: log comunque coi soli secret redatti'),
         ('AgentWorker._process_one', 'un turno fallito non deve uccidere il worker'),
     ),
-    'config_agent_gui.py': (
+    'xtrader_bridge/config_agent_gui.py': (
         ('AssistantPanel._append', 'logging best-effort'),
         ('AssistantPanel._hide_pending', 'widget già distrutto (teardown): best-effort'),
         ('AssistantPanel._on_event', 'root tk distrutta / assente (teardown): best-effort'),
     ),
-    'config_store.py': (
+    'xtrader_bridge/config_store.py': (
         ('_default_recognition_mode', 'qualunque errore nel gate → name_only (fail-closed, a10)'),
         ('_save_config_locked', 'rollback best-effort'),
         ('migrate_legacy_config', 'best-effort, ma ora loggato (non silenzioso)'),
     ),
-    'config_summary_gui.py': (
+    'xtrader_bridge/config_summary_gui.py': (
         ('ConfigSummaryPanel._render', 'provider best-effort'),
     ),
-    'csv_writer.py': (
+    'xtrader_bridge/csv_writer.py': (
         ('clear_stale_csv', 'diagnostica best-effort, mai bloccare il return'),
     ),
-    'custom_parser_gui.py': (
+    'xtrader_bridge/custom_parser_gui.py': (
         ('CustomParserPanel._add_provider', 'config illeggibile o salvataggio fallito -> messaggio nel pannello, mai crash della finestra'),
         ('CustomParserPanel._autoload_active_parser', 'parser attivo illeggibile: editor vuoto'),
         ('CustomParserPanel._builder_snapshot', 'fail-safe: non fotografabile = modificato'),
@@ -139,47 +208,47 @@ SITI = {
         ('CustomParserPanel.refresh_options', 'config illeggibile: niente refresh'),
         ('bind_accetta_add', 'firma non ispezionabile: si assume il tk vero'),
     ),
-    'custom_pipeline.py': (
+    'xtrader_bridge/custom_pipeline.py': (
         ('_default_registry', 'vedi allowlist blind-except'),
         ('_default_registry', 'vedi allowlist blind-except (p3-14)'),
         ('_resolve_ids_into', 'risoluzione best-effort: niente blocco del flusso'),
     ),
-    'dirty_csv_store.py': (
+    'xtrader_bridge/dirty_csv_store.py': (
         ('clear_dirty', 'come sopra'),
         ('dirty_paths', 'registro fail-safe: corrotto/assente = vuoto'),
         ('mark_dirty', 'un i/o rotto non deve bloccare stop/chiusura'),
     ),
-    'dizionario.py': (
+    'xtrader_bridge/dizionario.py': (
         ('is_validated', 'assente/header rotto/riga non-dict → non validato (fail-safe)'),
     ),
-    'dpi_awareness.py': (
+    'xtrader_bridge/dpi_awareness.py': (
         ('enable_dpi_awareness', "fail-open: l'app parte comunque (solo resa più sfocata)"),
         ('enable_dpi_awareness', "fail-open: senza windll niente dpi, mai bloccare l'avvio"),
         ('enable_dpi_awareness', 'shcore assente (win < 8.1): si prova il fallback'),
     ),
-    'gui_utils.py': (
+    'xtrader_bridge/gui_utils.py': (
         ('ask_confirm', 'dialog non disponibile: fail-closed, non confermare'),
         ('fit_to_screen', 'finestra non ancora mappata: winfo_screen* solleva -> nessun clamp, dimensioni richieste as-is'),
         ('running_edit_notice', 'una sonda difettosa non deve rompere il salvataggio'),
     ),
-    'guided_mapping_gui.py': (
+    'xtrader_bridge/guided_mapping_gui.py': (
         ('GuidedMappingPanel._load_cfg', 'fallback con messaggio'),
         ('GuidedMappingPanel._load_teams', 'best-effort: db assente/illeggibile → nessuna squadra'),
         ('GuidedMappingPanel._on_sport_change', 'best-effort: db assente/illeggibile → nessuna competizione'),
     ),
-    'instance_lock.py': (
+    'xtrader_bridge/instance_lock.py': (
         ('acquire', 'backstop fail-open per errori non gestiti nei rami'),
         ('release', 'best-effort: alla terminazione rilascia comunque il so'),
     ),
-    'journal_view_gui.py': (
+    'xtrader_bridge/journal_view_gui.py': (
         ('JournalPanel._open_folder', 'best-effort, no crash gui'),
         ('JournalPanel._refresh', 'lettura best-effort, niente crash gui'),
     ),
-    'known_teams_gui.py': (
+    'xtrader_bridge/known_teams_gui.py': (
         ('KnownTeamsPanel._on_delete', 'best-effort, niente crash gui'),
         ('KnownTeamsPanel._refresh', 'best-effort, niente crash gui'),
     ),
-    'license_gui.py': (
+    'xtrader_bridge/license_gui.py': (
         ('LicensePanel._copy_hardware_id', 'clipboard best-effort: non deve rompere la finestra'),
         ('LicensePanel._evaluate_activation', 'persistenza fallita (disco/permessi): attivazione'),
         ('LicensePanel._read_entry', 'entry non disponibile (headless/teardown)'),
@@ -188,32 +257,32 @@ SITI = {
         ('LicensePanel.current_status', 'provider difettoso: non determinabile → neutro'),
         ('LicensePanel.refresh_options', 'render tk best-effort'),
     ),
-    'license_store.py': (
+    'xtrader_bridge/license_store.py': (
         ('clear_license', 'rimozione best-effort'),
         ('load_license', 'json/schema corrotto: backup poi fail-safe «nessuna licenza»'),
     ),
-    'licensing/ed25519.py': (
+    'xtrader_bridge/licensing/ed25519.py': (
         ('verify', 'verifica fail-closed: qualunque errore = firma non valida'),
     ),
-    'licensing/hwid.py': (
+    'xtrader_bridge/licensing/hwid.py': (
         ('_mac_component', 'sorgente best-effort: assente = omessa'),
         ('_windows_machine_guid', 'assente/non leggibile = omesso'),
         ('_windows_volume_serial', 'assente = omesso'),
     ),
-    'licensing/license.py': (
+    'xtrader_bridge/licensing/license.py': (
         ('_b64u_canonico', 'non decodificabile = non canonico (fail-closed)'),
         ('verify_license', 'chiave pubblica malformata: rifiuta tutto (fail-closed)'),
         ('verify_license', 'token corrotto/incompleto: fail-closed'),
     ),
-    'licensing/revocation.py': (
+    'xtrader_bridge/licensing/revocation.py': (
         ('verify_revocation_list', 'chiave pubblica malformata: rifiuta (fail-closed)'),
         ('verify_revocation_list', 'lista corrotta/incompleta: fail-closed'),
         ('verify_revocation_list', 'payload non conforme: fail-closed'),
     ),
-    'licensing/revocation_client.py': (
+    'xtrader_bridge/licensing/revocation_client.py': (
         ('fetch_signed', 'qualunque problema di fetch: fail-closed → none'),
     ),
-    'name_mapping_gui.py': (
+    'xtrader_bridge/name_mapping_gui.py': (
         ('MarketMappingPanel._build_ui', 'variabile non tracciabile: nessuna evidenziazione viva'),
         ('MarketMappingPanel._delete_profile', "l'avviso è best-effort"),
         ('MarketMappingPanel._load_cfg', 'fallback con messaggio'),
@@ -226,24 +295,24 @@ SITI = {
         ('NameMappingPanel._profile_usage', 'parser illeggibili: nessun badge, mai un crash'),
         ('NameMappingPanel._rename_profile', 'il rename config resta valido'),
     ),
-    'parser_builder.py': (
+    'xtrader_bridge/parser_builder.py': (
         ('ParserBuilder.batch_report', 'isolamento per-messaggio (coderabbit'),
     ),
-    'provider_gui.py': (
+    'xtrader_bridge/provider_gui.py': (
         ('ProviderPanel._add', 'config illeggibile -> messaggio nel pannello e nessuna aggiunta, mai crash della finestra'),
         ('ProviderPanel._load_names', 'fallback sicuro'),
         ('ProviderPanel._provider_usage', 'parser illeggibili: stato ignoto, mai un falso «non usato»'),
         ('ProviderPanel._remove', 'anagrafica gestibile anche senza parser leggibili'),
         ('ProviderPanel._remove', 'config illeggibile -> messaggio nel pannello e nessuna rimozione, mai crash della finestra'),
     ),
-    'reconnect_policy.py': (
+    'xtrader_bridge/reconnect_policy.py': (
         ('_real_transient_types', 'telegram assente/incompleto → fallback per nome'),
     ),
-    'source_chats_gui.py': (
+    'xtrader_bridge/source_chats_gui.py': (
         ('SourceChatsPanel.refresh_options', 'config illeggibile: niente refresh'),
         ('_ParserListDialog.__init__', 'best-effort (test headless / stub tk)'),
     ),
-    'token_store.py': (
+    'xtrader_bridge/token_store.py': (
         ('_keyring', 'soft-import: qualsiasi errore = keyring non disponibile (dipendenza opzionale), mai propagato'),
         ('available', "probe non distruttivo: il backend 'fail' solleva -> keyring non utilizzabile, si ripiega"),
         ('delete_api_key', 'voce inesistente o backend assente -> niente da rimuovere'),
@@ -253,34 +322,34 @@ SITI = {
         ('save_api_key', 'backend che solleva = chiave non salvata; nessun fallback plaintext, resta assente (fail-safe)'),
         ('save_token', 'backend che solleva = token non salvato -> il chiamante ripiega sul plaintext'),
     ),
-    'tools_gui.py': (
+    'xtrader_bridge/tools_gui.py': (
         ('ToolsWindow.__init__', 'isolamento per-scheda'),
         ('ToolsWindow._on_tab_change', 'refresh best-effort'),
         ('ToolsWindow.select_tab', 'widget distrutto/titolo invalido: resta la scheda corrente'),
     ),
-    'ui_cards.py': (
+    'xtrader_bridge/ui_cards.py': (
         ('_best_effort', 'widget finto/distrutto: presentazione, mai crash'),
         ('badge', 'font ctk non costruibile (tk non pronto/headless) -> badge senza font, mai crash della vista'),
         ('card', 'doppio di test senza ctkfont funzionante'),
         ('hint', 'font ctk non costruibile (tk non pronto/headless) -> hint senza font, mai crash della vista'),
         ('tune_scrolling', 'accordatura best-effort: mai rompere la costruzione'),
     ),
-    'ui_widgets.py': (
+    'xtrader_bridge/ui_widgets.py': (
         ('evidenzia_profilo', 'widget distrutto durante un refresh'),
         ('rendi_attivabile', 'widget-spia o distrutto: resta cliccabile col mouse'),
     ),
-    'wizard.py': (
+    'xtrader_bridge/wizard.py': (
         ('check_chat', 'sonda: qualsiasi errore → esito sanificato'),
         ('check_csv', 'i/o reale: esito onesto, mai crash del wizard'),
         ('check_token', 'sonda: qualsiasi errore → esito sanificato'),
     ),
-    'wizard_gui.py': (
+    'xtrader_bridge/wizard_gui.py': (
         ('WizardWindow._probe_done', 'interprete tk già smontato: come finestra chiusa'),
         ('WizardWindow._run_async.worker', "fail-closed: solo la classe dell'errore (mai token/url grezzi)"),
         ('WizardWindow._run_async.worker', 'finestra/tk distrutti durante la sonda: niente da aggiornare'),
         ('WizardWindow._run_parser_check', 'fail-closed su tutta la valutazione, mai crash'),
     ),
-    'write_path.py': (
+    'xtrader_bridge/write_path.py': (
         ('commit_signal', 'riportato al chiamante, no crash'),
         ('commit_signals', 'riportato al chiamante, no crash'),
         ('commit_signals._realign_dirty_disk', 'riportato al chiamante, no crash'),

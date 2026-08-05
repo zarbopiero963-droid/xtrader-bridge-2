@@ -295,7 +295,7 @@ def remove_record(serial, *, directory: "str | None" = None) -> int:
                     "il registro è cambiato durante l'eliminazione (un'altra istanza del "
                     "License Manager?): nessuna riga eliminata, riprova")
             os.replace(tmp, path)
-        except BaseException:
+        except BaseException:   # noqa: BLE001 — cleanup del temporaneo su QUALSIASI errore, anche KeyboardInterrupt/SystemExit, e poi RILANCIA: il registro vecchio resta intatto, mai un .tmp orfano accanto
             try:
                 os.remove(tmp)
             except OSError:
