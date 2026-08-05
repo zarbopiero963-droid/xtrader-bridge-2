@@ -54,20 +54,44 @@ def _nome_chiamata(nodo: ast.Call) -> str:
     return "<expr>"
 
 
-def test_il_sito_non_importa_logging():
-    """Il modulo non ha un logger applicativo, e non deve averlo di soppiatto.
+# I nomi che, in `website/main.py`, contengono ciò che ha scritto l'utente.
+_CONVERSAZIONE = ("req", "message", "messages", "payload", "history")
+_LIVELLI_LOG = ("debug", "info", "warning", "warn", "error", "exception", "critical", "log")
 
-    `uvicorn` registra metodo e URL delle richieste, non il **corpo** del POST: il testo della
-    chat non passa dai suoi access log. Un logger scritto nel modulo, invece, ci passerebbe.
+
+def _nomi_citati(nodi) -> set:
+    """Tutti gli identificatori che compaiono in un pezzo di albero (`req.message` → `req`)."""
+    citati = set()
+    for nodo in nodi:
+        for interno in ast.walk(nodo):
+            if isinstance(interno, ast.Name):
+                citati.add(interno.id)
+    return citati
+
+
+def test_nessun_log_porta_con_se_la_conversazione():
+    """Si può loggare: non si può loggare **il messaggio dell'utente**.
+
+    Prima versione di questo test vietava del tutto `import logging`, ed era troppo rigida —
+    rilievo di GPT-5.5 sulla #284: un domani loggare «il provider ha risposto 502» è legittimo
+    e non conserva niente di nessuno. Quello che la privacy promette è che non finisca nei log
+    *la conversazione*, e questo è esattamente ciò che si controlla qui: qualunque chiamata a
+    un livello di log che si porti dietro `req`, `message`, `messages`, `payload` o `history`.
+
+    `uvicorn` da parte sua registra metodo e URL, non il **corpo** del POST: il testo della
+    chat non passa dai suoi access log.
     """
     for nodo in ast.walk(_albero()):
-        if isinstance(nodo, ast.Import):
-            for alias in nodo.names:
-                assert alias.name.split(".")[0] != "logging", (
-                    "website/main.py importa `logging`: la privacy dichiara che le "
-                    "conversazioni non vengono salvate — un logger applicativo le scriverebbe")
-        if isinstance(nodo, ast.ImportFrom) and (nodo.module or "").split(".")[0] == "logging":
-            raise AssertionError("website/main.py importa da `logging` (vedi sopra)")
+        if not isinstance(nodo, ast.Call) or not isinstance(nodo.func, ast.Attribute):
+            continue
+        if nodo.func.attr not in _LIVELLI_LOG:
+            continue
+        citati = _nomi_citati(list(nodo.args) + [kw.value for kw in nodo.keywords])
+        colpevoli = sorted(citati.intersection(_CONVERSAZIONE))
+        assert not colpevoli, (
+            "una chiamata `.%s(...)` in website/main.py si porta dietro %s: /privacy dichiara "
+            "che le conversazioni non vengono salvate, e un log è conservazione"
+            % (nodo.func.attr, ", ".join(colpevoli)))
 
 
 def test_la_chat_non_stampa_e_non_scrive_su_disco():
@@ -191,9 +215,18 @@ def _pulisci_sys_modules():
 
 
 def _carica_sito():
+    """Il sito **e** il suo `TestClient`, o uno skip se le dipendenze non ci sono.
+
+    Il `TestClient` viene da qui e non da un `import` in cima al test: `starlette` manca nella
+    CI del bridge esattamente come `fastapi`, e un import scritto nel corpo del test verrebbe
+    eseguito **prima** dello skip. È il motivo per cui la CI di `5e50486` è andata rossa: la
+    guardia c'era, ma arrivava seconda.
+    """
     pytest.importorskip("fastapi", reason="dipendenze del sito assenti: il controllo a runtime "
                                           "gira dove il sito gira davvero")
-    pytest.importorskip("starlette.testclient")
+    testclient = pytest.importorskip(
+        "starlette.testclient",
+        reason="starlette assente: il controllo a runtime gira dove il sito gira davvero")
     spec = importlib.util.spec_from_file_location(_NOME_MODULO, _MAIN)
     modulo = importlib.util.module_from_spec(spec)
     # in `sys.modules` PRIMA di eseguirlo: `main.py` usa `from __future__ import annotations`,
@@ -202,7 +235,8 @@ def _carica_sito():
     # La registrazione la disfa `_pulisci_sys_modules`, anche se l'import qui sotto solleva.
     sys.modules[_NOME_MODULO] = modulo
     spec.loader.exec_module(modulo)
-    return modulo
+    modulo.ANTHROPIC_API_KEY = ""  # modalità demo: nessuna chiamata di rete nei test
+    return modulo, testclient.TestClient
 
 
 def test_a_runtime_il_messaggio_non_finisce_nei_log_ne_nello_stato(caplog):
@@ -211,10 +245,7 @@ def test_a_runtime_il_messaggio_non_finisce_nei_log_ne_nello_stato(caplog):
     In modalità demo (nessuna API key) niente esce verso Anthropic, quindi tutto ciò che
     resta del messaggio è ciò che il sito stesso ne fa: qui, nulla.
     """
-    from starlette.testclient import TestClient
-
-    sito = _carica_sito()
-    sito.ANTHROPIC_API_KEY = ""  # modalità demo: nessuna chiamata di rete
+    sito, TestClient = _carica_sito()
     caplog.set_level(logging.DEBUG)
 
     with TestClient(sito.app) as client:
@@ -235,9 +266,7 @@ def test_a_runtime_il_messaggio_non_finisce_nei_log_ne_nello_stato(caplog):
 def test_a_runtime_il_conteggio_per_ip_tiene_solo_numeri():
     """`_hits` è l'unica cosa che resta fra una richiesta e l'altra. La privacy promette che
     contenga un conteggio, non contenuti: qui si guarda cosa c'è dentro davvero."""
-    sito = _carica_sito()
-    sito.ANTHROPIC_API_KEY = ""
-    from starlette.testclient import TestClient
+    sito, TestClient = _carica_sito()
 
     with TestClient(sito.app) as client:
         client.post("/api/chat", json={"message": _MARCATORE, "lang": "it"})
