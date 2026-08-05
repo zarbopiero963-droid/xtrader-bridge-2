@@ -214,3 +214,67 @@ def chiave_pubblica_di_test(monkeypatch):
     monkeypatch.setattr(_lic, "LICENSE_PUBLIC_KEY_HEX", pub)
     monkeypatch.setattr(_rev, "LICENSE_PUBLIC_KEY_HEX", pub)   # copia by-value: va patchata a parte
     return pub
+
+
+# ── i18n del sito: UN solo lettore, non tre ────────────────────────────────────────────────────
+#
+# `website/static/i18n.js` è un file JavaScript, e i test che lo controllano devono leggerlo da
+# Python. Fin qui ogni test si era scritto il suo parser a regex — tre copie, tutte ancorate a
+# «quattro spazi di indentazione», tutte destinate a rompersi insieme il giorno che qualcuno
+# riformatta il file (rilievo GPT-5.5 sulla #289: «regex molto dipendenti da indentazione: se il
+# file JS viene riformattato, il test può fallire pur con traduzioni valide»).
+#
+# Regola 3 di CLAUDE.md: se la stessa cosa va scritta in due posti, il posto giusto è **zero**.
+# Qui sta la fonte unica, e non guarda l'indentazione: trova l'inizio di ogni blocco di lingua e
+# conta le graffe, saltando quelle che stanno **dentro le stringhe** (ce ne sono: `{` compare nel
+# testo tradotto). Un blocco riformattato su una riga sola verrebbe letto lo stesso.
+def _fine_blocco(testo: str, inizio: int) -> int:
+    """L'indice della graffa che chiude quella aperta in `inizio`, ignorando le stringhe."""
+    profondita, i, apice, fuga = 0, inizio, "", False
+    while i < len(testo):
+        c = testo[i]
+        if apice:
+            if fuga:
+                fuga = False
+            elif c == "\\":
+                fuga = True
+            elif c == apice:
+                apice = ""
+        elif c in "\"'":
+            apice = c
+        elif c == "{":
+            profondita += 1
+        elif c == "}":
+            profondita -= 1
+            if profondita == 0:
+                return i
+        i += 1
+    raise AssertionError("graffa non chiusa in i18n.js a partire dall'indice %d" % inizio)
+
+
+def dizionari_i18n_sito(percorso=None) -> dict:
+    """`{lingua: {chiave: valore}}` letto da `website/static/i18n.js`.
+
+    L'italiano **non** c'è ed è corretto: è il default scritto nel markup delle pagine, non una
+    voce del dizionario (vedi `apply()` in `i18n.js`, che per `it` ripristina `data-i18n-orig`).
+    """
+    import re as _re
+
+    if percorso is None:
+        percorso = os.path.join(_REPO_ROOT, "website", "static", "i18n.js")
+    with open(percorso, encoding="utf-8") as f:
+        testo = f.read()
+
+    fuori = {}
+    for m in _re.finditer(r"\b([a-z]{2})\s*:\s*\{", testo):
+        apertura = testo.index("{", m.start())
+        blocco = testo[apertura:_fine_blocco(testo, apertura) + 1]
+        coppie = _re.findall(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"', blocco)
+        if coppie:                       # scarta i `xx: {` che non sono dizionari di lingua
+            # le sequenze di escape del sorgente JS non sono testo: `\"` a schermo è `"`.
+            # Senza questo, un test che cerca `class="num"` non lo troverebbe mai.
+            fuori[m.group(1)] = {
+                k: v.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+                for k, v in coppie}
+    assert fuori, "nessun dizionario di lingua trovato in i18n.js"
+    return fuori

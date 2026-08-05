@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import dizionari_i18n_sito
+
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "website" / "static"
 _GUIDA = _STATIC / "guida-bot.html"
@@ -34,17 +36,14 @@ if not _PAGINE:  # pragma: no cover - scatta solo se la cartella sparisce
 
 
 def _dizionari() -> dict:
-    testo = _I18N.read_text(encoding="utf-8")
-    fuori = {m.group(1): m.group(2)
-             for m in re.finditer(r"^    ([a-z]{2}): \{$(.*?)^    \},?$", testo, re.M | re.S)}
-    assert fuori, "nessun dizionario di lingua trovato in i18n.js"
-    return fuori
+    """`{lingua: {chiave: valore}}`. Il lettore sta in `tests/conftest.py`: era scritto tre
+    volte in tre test, tutte e tre ancorate all'indentazione del file JS (Regola 3)."""
+    return dizionari_i18n_sito(_I18N)
 
 
-def _valore(dizionario: str, chiave: str):
+def _valore(dizionario: dict, chiave: str):
     """Il valore tradotto per una chiave, o `None` se la chiave non c'è."""
-    match = re.search(r'"%s":\s*"((?:[^"\\]|\\.)*)"' % re.escape(chiave), dizionario)
-    return match.group(1) if match else None
+    return dizionario.get(chiave)
 
 
 def _chiavi(pagina: str) -> set:
@@ -146,9 +145,9 @@ def test_le_etichette_telegram_restano_verbatim_anche_in_en_es(etichetta):
     dizionari = _dizionari()
     for lingua in ("en", "es"):
         blocco = dizionari[lingua]
-        chiavi_guida = [c for c in re.findall(r'"(guida\.[^"]+)":', blocco)]
+        chiavi_guida = [c for c in blocco if c.startswith("guida.")]
         assert chiavi_guida, "«%s» non ha nessuna stringa della guida" % lingua
-        testo = " ".join(_valore(blocco, c) or "" for c in chiavi_guida)
+        testo = " ".join(blocco[c] for c in chiavi_guida)
         assert etichetta in testo, (
             "in «%s» l'etichetta Telegram «%s» non compare verbatim: l'utente non troverebbe "
             "il comando sullo schermo" % (lingua, etichetta))
@@ -164,3 +163,23 @@ def test_il_token_resta_descritto_come_una_password_in_ogni_lingua():
         assert atteso in valore.lower(), (
             "la versione «%s» dell'avviso non spiega più come revocare il token: %r"
             % (lingua, valore))
+
+
+def test_il_lettore_dei_dizionari_regge_una_riformattazione(tmp_path):
+    """Il lettore non deve dipendere da come è formattato il JavaScript.
+
+    Rilievo GPT-5.5 sulla #289: le tre copie del parser erano ancorate a «quattro spazi di
+    indentazione», quindi un `prettier` sul file avrebbe fatto fallire i test **pur con le
+    traduzioni giuste** — il modo peggiore di fallire, perché manda a cercare il problema nel
+    posto sbagliato. Qui il file viene riscritto su una riga sola, con graffe dentro le
+    stringhe: se il lettore regge questo, regge una riformattazione qualsiasi.
+    """
+    finto = tmp_path / "i18n.js"
+    finto.write_text(
+        '(function(){var T={en:{"a.x":"uno {non una graffa vera}","a.y":"due"},'
+        'es:{"a.x":"uno","a.y":"dos"}};})();',
+        encoding="utf-8")
+    letti = dizionari_i18n_sito(finto)
+    assert sorted(letti) == ["en", "es"], letti
+    assert letti["en"]["a.x"] == "uno {non una graffa vera}"
+    assert letti["es"]["a.y"] == "dos"

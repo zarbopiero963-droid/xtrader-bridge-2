@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import dizionari_i18n_sito
+
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "website" / "static"
 _PRIVACY = _STATIC / "privacy.html"
@@ -31,13 +33,8 @@ if not _PAGINE:  # pragma: no cover - scatta solo se la cartella sparisce
 
 
 def _dizionari() -> dict:
-    """I dizionari di traduzione, uno per lingua (stessa lettura di test_website_contatti)."""
-    testo = _I18N.read_text(encoding="utf-8")
-    fuori = {}
-    for match in re.finditer(r"^    ([a-z]{2}): \{$(.*?)^    \},?$", testo, re.M | re.S):
-        fuori[match.group(1)] = match.group(2)
-    assert fuori, "nessun dizionario di lingua trovato in i18n.js"
-    return fuori
+    """I dizionari di traduzione, uno per lingua. Il lettore sta in `tests/conftest.py`."""
+    return dizionari_i18n_sito(_I18N)
 
 
 def test_le_due_pagine_esistono():
@@ -173,11 +170,10 @@ def test_i_contenuti_nuovi_sono_tradotti_in_ogni_lingua(chiave):
     """Regola del sito: il testo si traduce in tutte le lingue attive (l'italiano è il default
     nel markup). Una pagina legale visibile solo agli italiani non protegge gli altri utenti."""
     for lingua, dizionario in _dizionari().items():
-        match = re.search(r'"%s":\s*"((?:[^"\\]|\\.)*)"' % re.escape(chiave), dizionario)
-        assert match, "«%s» non è tradotta in «%s»" % (chiave, lingua)
+        assert chiave in dizionario, "«%s» non è tradotta in «%s»" % (chiave, lingua)
         # il VALORE, non solo la chiave: `"privacy.h1": ""` passerebbe un controllo che
         # cerca il nome, e la pagina mostrerebbe uno spazio vuoto al posto del titolo
-        valore = match.group(1).strip()
+        valore = dizionario[chiave].strip()
         assert len(valore) >= 3, \
             "«%s» in «%s» è vuota o troppo corta: %r" % (chiave, lingua, valore)
 
@@ -186,5 +182,5 @@ def test_il_numero_verde_e_uguale_in_tutte_le_lingue():
     """Un numero di aiuto tradotto male è peggio di nessun numero: qui si verifica che le
     versioni EN/ES riportino lo stesso recapito italiano, non una traduzione creativa."""
     for lingua, dizionario in _dizionari().items():
-        assert "800 558822" in dizionario, \
+        assert any("800 558822" in v for v in dizionario.values()), \
             "il numero del Telefono Verde manca o è diverso in «%s»" % lingua

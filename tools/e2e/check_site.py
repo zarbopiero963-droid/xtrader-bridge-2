@@ -238,13 +238,21 @@ def controlla_guida_bot(pagina, base: str, es: Esito) -> None:
         return
     es.add("guida bot: selettore di lingua", True)
 
+    italiano = pagina.inner_text("main")
     pagina.click('button[data-lang="en"]')
     pagina.wait_for_timeout(300)
     corpo = pagina.inner_text("main")
-    es.add("  guida bot: il testo passa in inglese", "Create the Telegram bot" in corpo,
-           corpo.strip().splitlines()[0][:70] if corpo.strip() else "vuoto")
-    es.add("  guida bot: dice che le schermate sono in italiano",
-           "screenshots are in Italian" in corpo or "in Italian" in corpo)
+
+    # Si controlla che l'italiano SPARISCA, non che compaia una frase inglese esatta: il copy
+    # si riscrive di continuo e un controllo sulla frase esatta diventerebbe rosso a ogni
+    # ritocco legittimo, senza che nulla sia rotto (rilievo GPT-5.5 sulla #289). Che il titolo
+    # italiano non ci sia più, invece, è vero finché la traduzione viene davvero applicata.
+    titolo_it = italiano.strip().splitlines()[0] if italiano.strip() else ""
+    es.add("  guida bot: il testo passa in inglese",
+           bool(titolo_it) and titolo_it not in corpo,
+           "il titolo italiano %r è ancora lì" % titolo_it[:50] if titolo_it in corpo
+           else corpo.strip().splitlines()[0][:70])
+    es.add("  guida bot: dice che le schermate sono in italiano", "in Italian" in corpo)
     es.add("  guida bot: etichetta Telegram verbatim in inglese",
            "Amministratori" in corpo,
            "" if "Amministratori" in corpo else "l'etichetta è stata tradotta: il pulsante "
