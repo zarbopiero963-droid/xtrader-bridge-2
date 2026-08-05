@@ -2418,7 +2418,28 @@ class App(ctk.CTk):
                 "xtrader_notification_chat_id", "") or "").strip()),
             last_confirmation=self._last_vals.get("confirmation", ""),
             mode=bridge_mode.mode_from_cfg(cfg),
-            dictionary_state=diz.get("stato"), dictionary_detail=diz.get("titolo", ""))
+            dictionary_state=diz.get("stato"),
+            dictionary_detail=self._dettaglio_dizionari(diz))
+
+    @staticmethod
+    def _dettaglio_dizionari(diz: dict) -> str:
+        """Titolo + conflitti elencati + quanti ne restano nascosti (#258).
+
+        `stato_dizionari` cappa la lista a `MAX_DETTAGLI` e riporta i nascosti; una prima
+        stesura passava al semaforo il **solo titolo** e buttava via entrambi (rilievo
+        CodeRabbit sulla PR #276): l'utente leggeva «3 conflitti» senza poter vedere QUALI, e
+        il tetto documentato non esisteva nell'interfaccia perché non c'era nulla da cappare.
+        Un conteggio senza gli elementi contati chiede di fidarsi invece di far controllare.
+        """
+        righe = [str(diz.get("titolo", "") or "")]
+        righe.extend(f"   • {d}" for d in (diz.get("dettagli") or []))
+        nascosti = int(diz.get("nascosti") or 0)
+        if nascosti > 0:
+            # Il taglio si DICHIARA, come gli avvisi allo START: un cap muto si legge come
+            # «non ce ne sono altri».
+            righe.append(f"   …e altri {nascosti} conflitti non elencati "
+                         f"(tetto di {dictionary_health.MAX_DETTAGLI}).")
+        return "\n".join(r for r in righe if r)
 
     def _dizionari_cached(self, cfg, force: bool = False) -> dict:
         """Stato del semaforo Dizionari (#258) con cache TTL, come la sonda CSV.

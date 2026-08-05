@@ -130,3 +130,72 @@ def test_258_uno_stato_non_riconosciuto_e_ROSSO_non_verde():
     items = health_check.build_semaphores(dictionary_state="BOH", dictionary_detail="x")
     diz = next(i for i in items if i.key == "dictionary")
     assert diz.state == health_check.RED
+
+
+def test_258_il_semaforo_mostra_i_conflitti_non_solo_il_conteggio(make_app, app_mod, monkeypatch):
+    """Rilievo CodeRabbit sulla PR #276: `stato_dizionari` cappa i dettagli e riporta i
+    nascosti, ma una prima stesura passava al semaforo il **solo titolo** e buttava via
+    entrambi.
+
+    L'utente leggeva «3 conflitti su profili usati» senza poter vedere **quali**, e il tetto
+    documentato non esisteva nell'interfaccia perché non c'era nulla da cappare. Un conteggio
+    senza gli elementi contati chiede di fidarsi invece di far controllare — ed è la ragione
+    per cui il log eventi allo START li elenca uno per uno.
+    """
+    a = make_app(running=False)
+    _predisponi(a, app_mod)
+    monkeypatch.setattr(app_mod.dictionary_health, "stato_dizionari",
+                        lambda cfg: {"stato": health_check.RED,
+                                     "titolo": "12 conflitti su profili usati dai tuoi parser",
+                                     "dettagli": ["alias «Juve» punta a 2 nomi diversi",
+                                                  "frase «over» combacia con 2 mercati"],
+                                     "nascosti": 10})
+
+    diz = next(i for i in app_mod.App._live_health_items(a) if i.key == "dictionary")
+
+    assert "12 conflitti" in diz.detail, "il conteggio deve restare"
+    assert "alias «Juve»" in diz.detail, "i conflitti vanno MOSTRATI, non solo contati"
+    assert "frase «over»" in diz.detail
+    assert "altri 10" in diz.detail, "il taglio va dichiarato: un cap muto dice «non ce n'è altri»"
+
+
+def test_258_senza_dettagli_il_semaforo_resta_una_riga_sola(make_app, app_mod, monkeypatch):
+    """Contro-guardia: il caso verde non deve guadagnare righe vuote o un «…e altri 0»."""
+    a = make_app(running=False)
+    _predisponi(a, app_mod)
+    monkeypatch.setattr(app_mod.dictionary_health, "stato_dizionari",
+                        lambda cfg: {"stato": health_check.GREEN, "titolo": "nessun conflitto",
+                                     "dettagli": [], "nascosti": 0})
+
+    diz = next(i for i in app_mod.App._live_health_items(a) if i.key == "dictionary")
+
+    assert diz.detail == "nessun conflitto", diz.detail
+
+
+def test_258_un_guasto_nelle_funzioni_di_avviso_da_GIALLO_non_un_verde_parziale(
+        make_app, app_mod, monkeypatch):
+    """Secondo rilievo CodeRabbit, ed è il più importante dei due.
+
+    `dictionary_health` non cattura più nulla al suo interno: se una delle quattro funzioni di
+    avviso solleva, l'errore **sale** al confine unico (`_dizionari_cached`) che mostra il
+    giallo «non calcolabile». Prima, tre catture silenziose lo assorbivano e restituivano un
+    risultato **parziale** — che con zero conflitti raccolti diventava un VERDE su un calcolo
+    incompleto. Il fail-safe di troppo produceva la bugia che il fail-safe doveva impedire.
+    """
+    from xtrader_bridge import name_mapping_store as nms
+
+    def _esplode(cfg):
+        raise TypeError("chiavi di tipo misto")
+
+    monkeypatch.setattr(nms, "ambiguous_alias_warnings", _esplode)
+    a = make_app(running=False, config={"name_mappings": {"P": [{"provider": "x",
+                                                                 "betfair": "y"}]}})
+    _predisponi(a, app_mod)
+    monkeypatch.setattr(app_mod.dictionary_health, "profili_usati",
+                        lambda *a_, **k: {"nomi": {"P"}, "mercati": set(), "illeggibili": []})
+
+    diz = next(i for i in app_mod.App._live_health_items(a) if i.key == "dictionary")
+
+    assert diz.state == health_check.YELLOW, (
+        f"un guasto nel calcolo ha prodotto {diz.state}: un verde su un risultato parziale")
+    assert "non si sa" in diz.detail or "non calcolabile" in diz.detail, diz.detail

@@ -98,39 +98,19 @@ def profili_usati(cartella: "str | None" = None, *, elenca=None, carica=None) ->
 
 
 def _conflitti(cfg: dict, chiave: str, funzioni) -> list:
-    """Gli avvisi delle `funzioni` sulla `cfg` data. Totale: nessuna delle quattro solleva."""
+    """Gli avvisi delle `funzioni` sulla `cfg` data.
+
+    **Non cattura nulla** (rilievo CodeRabbit sulla PR #276). Una prima stesura avvolgeva ogni
+    chiamata in un blind-except «per non bloccare il pannello», ma il pannello ha già il suo
+    confine fail-safe — `App._dizionari_cached`, che su errore mostra il giallo «stato non
+    calcolabile». Tre catture silenziose a monte di quell'unico confine non aggiungevano
+    protezione: toglievano informazione, perché un guasto in una delle quattro funzioni sarebbe
+    diventato un risultato **parziale spacciato per completo** invece di un «non lo so» onesto.
+    """
     fuori = []
     for f in funzioni:
-        try:
-            fuori.extend(f(cfg) or [])
-        except Exception as exc:    # noqa: BLE001 — diagnostica: mai bloccare il pannello
-            _LOG.warning("Controllo dizionari non riuscito [%s]", type(exc).__name__)
+        fuori.extend(f(cfg) or [])
     return fuori
-
-
-def _solo_profili_esaminati(cfg_mercati: dict) -> dict:
-    """`cfg_mercati` senza i profili che il controllo frasi ambigue **non esaminerebbe**.
-
-    Serve a separare i conflitti veri dai messaggi di *struttura*. `ambiguous_phrase_warnings`
-    restituisce `struttura + conflitti` in un'unica lista: i primi dicono «questo profilo non
-    è stato controllato», e contarli come conflitti trasformerebbe un «non so» in un «stai
-    perdendo segnali» — la bugia opposta, ma sempre una bugia.
-
-    Distinguerli dal **testo** vorrebbe dire accoppiarsi a un messaggio di interfaccia. Qui
-    invece si toglie l'ingresso: sui profili che rientrano nei tetti la parte `struttura` è
-    vuota per costruzione, quindi ciò che resta sono conflitti e basta. L'incompletezza la
-    riporta `profili_non_controllati`, che è la funzione fatta apposta.
-    """
-    store = cfg_mercati.get("market_mappings")
-    if not isinstance(store, dict):
-        return cfg_mercati
-    try:
-        esclusi = set(mms.profili_non_controllati(cfg_mercati))
-    except Exception as exc:    # noqa: BLE001 — diagnostica: mai bloccare il pannello
-        _LOG.warning("Piano di controllo non leggibile [%s]", type(exc).__name__)
-        return cfg_mercati
-    return {"market_mappings": {k: v for k, v in store.items()
-                                if str(k or "").strip() not in esclusi}}
 
 
 def stato_dizionari(cfg: dict, usati: "dict | None" = None) -> dict:
@@ -162,31 +142,42 @@ def stato_dizionari(cfg: dict, usati: "dict | None" = None) -> dict:
     mercati_usati = set(usati.get("mercati") or ())
     illeggibili = list(usati.get("illeggibili") or ())
 
+    # Il piano di controllo si calcola sulla config **INTERA**, come allo START (rilievo Fable 5
+    # sulla PR #276). Il budget globale è globale: ricalcolarlo sulla sotto-config dei soli
+    # profili in uso ne libererebbe, e il pannello esaminerebbe un profilo che allo START è
+    # stato saltato — dicendo «controllato» dove il log eventi dice «NON controllato». Nessun
+    # falso verde, ma due diagnostiche che si contraddicono sullo stesso profilo, e chi le
+    # confronta non ha modo di sapere a quale credere.
+    non_controllati_ovunque = set(mms.profili_non_controllati(cfg))
+
     cfg_nomi_usati = _sotto_config(cfg, "name_mappings", nomi_usati)
-    cfg_mkt_usati = _sotto_config(cfg, "market_mappings", mercati_usati)
+    cfg_mkt_usati = _sotto_config(cfg, "market_mappings",
+                                  mercati_usati - non_controllati_ovunque)
 
     # Sui mercati si interrogano SOLO i profili che il controllo esaminerebbe davvero: così la
     # parte `struttura` degli avvisi è vuota e ciò che resta sono conflitti, non «non so».
     su_usati = (_conflitti(cfg_nomi_usati, "name_mappings",
                            (nms.ambiguous_alias_warnings, nms.malformed_entry_warnings))
-                + _conflitti(_solo_profili_esaminati(cfg_mkt_usati), "market_mappings",
+                + _conflitti(cfg_mkt_usati, "market_mappings",
                              (mms.ambiguous_phrase_warnings, mms.malformed_entry_warnings)))
-    totali = (_conflitti(cfg, "name_mappings",
+    # Short-circuit (rilievo Fugu Ultra sulla PR #276): `totali` serve SOLO a distinguere
+    # «conflitti su profili orfani» da «pulito», cioè quando `su_usati` è vuoto. Calcolarlo
+    # comunque significava una seconda passata completa su TUTTI i profili — costo quadratico
+    # nel controllo frasi — proprio nel caso in cui il rosso è già deciso. Sul thread Tk, e a
+    # ogni scadenza del TTL.
+    totali = [] if su_usati else (_conflitti(cfg, "name_mappings",
                          (nms.ambiguous_alias_warnings, nms.malformed_entry_warnings))
-              + _conflitti(_solo_profili_esaminati(
+              + _conflitti(
                   _sotto_config(cfg, "market_mappings",
                                 {str(k or "").strip()
-                                 for k in (cfg.get("market_mappings") or {})})),
+                                 for k in (cfg.get("market_mappings") or {})}
+                                - non_controllati_ovunque),
                   "market_mappings",
                   (mms.ambiguous_phrase_warnings, mms.malformed_entry_warnings)))
 
     # L'incompletezza che conta è quella **sui profili in uso**: un profilo orfano non
     # controllato non costa segnali, quindi non deve accendere l'avviso «non so».
-    try:
-        non_controllati = mms.profili_non_controllati(cfg_mkt_usati)
-    except Exception as exc:    # noqa: BLE001 — diagnostica: mai bloccare il pannello
-        _LOG.warning("Piano di controllo non leggibile [%s]", type(exc).__name__)
-        non_controllati = []
+    non_controllati = sorted(non_controllati_ovunque & mercati_usati)
 
     if su_usati:
         stato = health_check.RED

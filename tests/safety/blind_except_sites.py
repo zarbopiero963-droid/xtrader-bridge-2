@@ -255,11 +255,6 @@ SITI = {
         ('_default_registry', 'vedi allowlist blind-except (p3-14)'),
         ('_resolve_ids_into', 'risoluzione best-effort: niente blocco del flusso'),
     ),
-    'xtrader_bridge/dictionary_health.py': (
-        ('_conflitti', 'diagnostica: mai bloccare il pannello'),
-        ('_solo_profili_esaminati', 'diagnostica: mai bloccare il pannello'),
-        ('stato_dizionari', 'diagnostica: mai bloccare il pannello'),
-    ),
     'xtrader_bridge/dirty_csv_store.py': (
         ('clear_dirty', 'come sopra'),
         ('dirty_paths', 'registro fail-safe: corrotto/assente = vuoto'),

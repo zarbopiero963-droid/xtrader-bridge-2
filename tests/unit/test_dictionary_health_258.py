@@ -160,3 +160,39 @@ def test_258_cartella_parser_illeggibile_da_vista_vuota_senza_sollevare():
 
     esito = dh.profili_usati(elenca=_esplode, carica=_esplode)
     assert esito == {"nomi": set(), "mercati": set(), "illeggibili": []}
+
+
+def test_258_un_profilo_saltato_dal_budget_allo_START_resta_non_controllato_nel_pannello(
+        monkeypatch):
+    """Rilievo Fable 5 sulla PR #276, ed è una cucitura vera.
+
+    Il budget globale è **globale**: allo START si spende su TUTTI i profili. Se il pannello
+    ricalcolasse il piano sulla sola sotto-config dei profili in uso, un profilo saltato per
+    budget allo START rientrerebbe nel budget del sottoinsieme — il pannello lo esaminerebbe
+    davvero, e direbbe «controllato» dove il log eventi dice «NON controllato».
+
+    Nessun falso verde, ma due diagnostiche che si contraddicono sullo stesso profilo: e
+    «fonte unica» era esattamente la promessa scritta nel modulo. Chi confronta i due punti
+    non ha modo di sapere quale dei due credere.
+
+    Qui: `Z` è in uso, sta sotto il tetto individuale, ma allo START il budget è già stato
+    speso da `A`. Il pannello deve dirlo non controllato **come lo START**, non esaminarlo
+    perché da solo ci starebbe.
+    """
+    monkeypatch.setattr(mms, "_MAX_VOCI_CONTROLLO_AMBIGUITA", 50)
+    monkeypatch.setattr(mms, "_MAX_VOCI_TOTALI_CONTROLLO", 45)
+    cfg = {"market_mappings": {"A": [{"phrase": f"a{i}", "market_name": f"M{i}",
+                                      "selection_name": f"S{i}"} for i in range(40)],
+                               "Z": [{"phrase": f"z{i}", "market_name": f"M{i}",
+                                      "selection_name": f"S{i}"} for i in range(10)]}}
+
+    # Riferimento: cosa dice lo START, sulla config INTERA.
+    assert mms.profili_non_controllati(cfg) == ["Z"], "premessa del test"
+
+    esito = dh.stato_dizionari(cfg, _usati(mercati=["Z"]))
+
+    assert esito["stato"] == health_check.YELLOW, esito
+    assert "controllo NON eseguito" in esito["titolo"], (
+        "il pannello ha esaminato un profilo che lo START aveva saltato: le due diagnostiche "
+        "si contraddicono sullo stesso profilo")
+    assert "«Z»" in esito["titolo"], esito["titolo"]

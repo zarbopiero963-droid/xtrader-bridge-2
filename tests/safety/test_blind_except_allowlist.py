@@ -98,16 +98,6 @@ _GEN = _carica_generatore()
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "xtrader_bridge/dictionary_health.py": (3, "semaforo Dizionari (#258): diagnostica sola-lettura chiamata "
-                       "all'APERTURA della finestra e dal pulsante «Controlla adesso». I tre "
-                       "blind-except avvolgono le quattro funzioni di avviso e il piano di "
-                       "controllo, tutte documentate come totali — ma la #261 ha dimostrato "
-                       "che una di esse SOLLEVAVA (TypeError su chiavi di tipo misto) e "
-                       "avrebbe rotto lo START: qui romperebbe l'apertura della finestra. "
-                       "Restringerli alle eccezioni note rimetterebbe la fiducia in una "
-                       "promessa gia' smentita una volta. I due except con contratto scritto "
-                       "(`list_parser_files` → OSError, `load_parser` → ValueError|OSError) "
-                       "sono invece RISTRETTI, non allowlistati"),
     "xtrader_bridge/ui_cards.py": (5, "composizione visiva #182 (card/badge/hint) + tune_scrolling: helper best-effort "
                        "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
                        "su widget gia distrutti — la cornice non deve MAI far cadere un "
