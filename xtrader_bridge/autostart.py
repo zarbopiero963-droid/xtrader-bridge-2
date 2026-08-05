@@ -7,9 +7,7 @@ conferma esplicita dell'utente: il bridge non deve mettersi a scrivere scommesse
 solo senza consenso. Qui solo la decisione; il dialog e l'avvio vivono in `app`.
 """
 
-import math
-
-from . import parser_manager, safety_guard, source_manager
+from . import parser_manager, safety_guard, source_manager, validators
 
 
 # Valori stringa che abilitano esplicitamente l'auto-start (fail-closed).
@@ -28,7 +26,15 @@ def coerce_enabled(val) -> bool:
     if isinstance(val, (int, float)):
         # NaN/Infinity (da un config.json editato a mano) NON devono abilitare:
         # un numero non finito non è un "true" esplicito → fail-closed.
-        return math.isfinite(val) and val != 0
+        #
+        # La finitezza si chiede a `validators.numero_finito` e NON a `math.isfinite`
+        # direttamente (#278): su un int fuori range float — es. `10**400`, che un
+        # `config.json` VALIDO può contenere — `isfinite` non risponde «no», solleva
+        # OverflowError. E questa funzione sta sul percorso di `load_config`, quindi il
+        # crash impediva di aprire l'app senza che alcun recupero potesse scattare (il
+        # JSON non è corrotto, è solo enorme). Gli altri tre siti dello stesso predicato
+        # erano già stati corretti; questo era rimasto indietro.
+        return validators.numero_finito(val) and val != 0
     return str(val).strip().lower() in _TRUTHY
 
 

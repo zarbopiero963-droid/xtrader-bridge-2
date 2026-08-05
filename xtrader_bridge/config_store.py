@@ -17,7 +17,8 @@ import sys
 import time
 
 from . import (atomic_io, autostart, bridge_mode, confirmation_reader, csv_writer,
-               dizionario, language_select, recognition, safety_guard, token_store)
+               dizionario, language_select, recognition, safety_guard, token_store,
+               validators)
 
 APP_DIR_NAME = "XTraderBridge"
 CONFIG_VERSION = 1
@@ -254,16 +255,15 @@ def as_bool_optin(value) -> bool:
     `_migrate`, il settings controller e il runtime (finding Sourcery)."""
     if isinstance(value, bool):
         return value
-    if isinstance(value, int):
-        # Un int non può essere NaN/inf: basta `!= 0`. NON passare da `math.isfinite`,
-        # che su int fuori range float (es. 10**400, ammesso dal JSON) solleva
-        # OverflowError trasformando un config corrotto in un crash al load
-        # (Codex P2 su #299) invece del fail-closed documentato.
-        return value != 0
-    if isinstance(value, float):
-        # Stessa guardia di `autostart.is_enabled`: un float non finito non è un
-        # "true" esplicito (fail-closed).
-        return math.isfinite(value) and value != 0
+    if isinstance(value, (int, float)):
+        # Un int non può essere NaN/inf e NON va convertito: su un int fuori range float
+        # (es. 10**400, ammesso dal JSON) `math.isfinite` solleverebbe OverflowError,
+        # trasformando un config corrotto in un crash al load (Codex P2 su #299) invece
+        # del fail-closed documentato. Un float non finito, invece, non è un "true"
+        # esplicito. Le due regole stanno in `validators.numero_finito`, fonte unica dei
+        # quattro siti di questa coercizione (#278): finché erano quattro copie, tre
+        # erano corrette e `autostart` no.
+        return validators.numero_finito(value) and value != 0
     return str(value).strip().lower() in _OPTIN_TRUE
 
 
