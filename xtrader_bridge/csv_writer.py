@@ -158,19 +158,50 @@ def localize_row(row: dict, lang: str = None) -> dict:
     sui **decimali** la preview non può divergere dal CSV reale. NON usare nel percorso interno
     (validatori/dedup lavorano sui valori canonici col punto).
 
-    **Limite dichiarato: la parità è sui decimali, non sull'intera cella.** Il write-path è
-    `_sanitize_row(_localize_row(...))`: la sanificazione viene **dopo**, e questo wrapper non
-    la applica. Nell'anteprima non si vedono quindi né l'apostrofo anti-formula (una cella
-    `=1+1` è mostrata nuda e scritta come `'=1+1`) né la neutralizzazione degli a-capo (B11:
-    `"Inter\\r\\nMilan"` è mostrato con l'a-capo e scritto come `"Inter Milan"`).
+    **Parità dichiarata (#251, decisione D-C del proprietario): decimali + a-capo, NON
+    l'apostrofo anti-formula.**
 
-    È deliberato: l'anteprima serve all'operatore per capire **cosa ha estratto il parser**, e
-    mostrargli l'apostrofo di una mitigazione anti-injection lo confonderebbe su un dato che
-    non ha scritto lui. Sanificare anche qui sarebbe un cambiamento di ciò che la GUI mostra —
-    va deciso come modifica di design, non introdotto di straforo da un fix del CSV. Il
-    docstring precedente prometteva una parità totale che il codice non ha mai dato (l'apostrofo
-    divergeva già): meglio una promessa stretta e vera."""
-    return _localize_row(row, get_csv_language() if lang is None else lang)
+        valore estratto      anteprima mostra     file contiene
+        "Inter\\r\\nMilan"       "Inter Milan"        "Inter Milan"     <- uguali
+        "=1+1"               "=1+1"               "'=1+1"           <- diversi, di proposito
+
+    Le due metà hanno ragioni opposte, e per questo la scelta non è «sanificare tutto»:
+
+    - **gli a-capo si mostrano neutralizzati** perché `"Inter\\r\\nMilan"` e `"Inter Milan"`
+      sono due nomi squadra **diversi**, e quello che verrà davvero cercato è il secondo:
+      mostrare il primo manda l'operatore a cercare un problema che non esiste;
+    - **l'apostrofo NON si mostra** perché è una mitigazione anti-injection, non un dato. È un
+      carattere che l'utente non ha scritto e che non descrive né il messaggio né la scommessa:
+      nell'anteprima confonderebbe su ciò che il parser ha estratto.
+
+    La parità resta quindi **parziale e dichiarata, non promessa**. Il docstring originale
+    prometteva una parità totale che il codice non ha mai dato (l'apostrofo divergeva già prima
+    della B11); la #250 l'ha ristretta al vero, la #251 la allarga di un passo — e resta vera.
+
+    La neutralizzazione a-capo NON è rifatta qui: è `neutralize_linebreaks`, la stessa
+    funzione che usa il write-path. Rifarla avrebbe rimesso in piedi la divergenza che questa
+    modifica chiude, alla prima patch a uno dei due lati.
+
+    NON usare nel percorso interno: validatori e dedup lavorano sui valori canonici col punto
+    e sulle celle grezze."""
+    fuori = _localize_row(row, get_csv_language() if lang is None else lang)
+    # Stesso ORDINE del write-path (`_sanitize_row(_localize_row(...))`): prima si localizza,
+    # poi si neutralizza. All'inverso, un decimale localizzato dopo la pulizia potrebbe
+    # reintrodurre differenze fra le due viste.
+    #
+    # SOLO le stringhe (rilievo GPT-5.5 e Fable 5 sulla #259, indipendentemente). La prima
+    # stesura passava OGNI valore da `neutralize_linebreaks`, che coercizza a stringa: `None`
+    # diventava `""` e `42` diventava `"42"`. Non è un dettaglio di tipi — i due siti
+    # dell'anteprima compongono il riepilogo filtrando i vuoti (`if v != ""`), quindi una
+    # colonna a `None` SPARIVA dalla riga mostrata:
+    #
+    #     prima: A=None, B=42, C=1.85, E=Inter
+    #     dopo : B=42, C=1.85, E=Inter            <- la colonna A non si vedeva più
+    #
+    # Un valore non-stringa non può contenere un a-capo, quindi restringere non perde nulla e
+    # riporta la patch a fare esattamente ciò che dichiara: toccare gli a-capo, non i tipi.
+    return {k: (neutralize_linebreaks(v) if isinstance(v, str) else v)
+            for k, v in fuori.items()}
 
 # Nome del temporaneo della scrittura atomica del CSV: fonte unica di verità, usata sia
 # per scrivere (`_atomic_write_locked`) sia per spazzare gli orfani allo startup
@@ -384,6 +415,34 @@ _CSV_LINEBREAK_RE = re.compile(r"[\r\n]+")
 _NUMERIC_RE = re.compile(numbers_re.SIGNED_DECIMAL)
 
 
+def neutralize_linebreaks(value) -> str:
+    """Valore come stringa, senza **nessun** ``\\r``/``\\n``: bordi rimossi, interni sostituiti
+    da un singolo spazio.
+
+        "Inter\\r\\nMilan"  ->  "Inter Milan"   (interno: un solo spazio)
+        "1.85\\r\\n"        ->  "1.85"          (coda: RIMOSSO, niente spazio residuo)
+        "\\r\\n=1+1"        ->  "=1+1"          (testa: rimosso)
+
+    **Fonte unica** (#251, Regola 3): la usano sia il write-path (`_sanitize_cell`, che poi
+    aggiunge l'apostrofo anti-formula) sia l'ANTEPRIMA (`localize_row`, che non lo aggiunge).
+    Se le due la rifacessero ciascuna per conto proprio, la prima modifica a una delle due le
+    separerebbe in silenzio — ed è precisamente la classe di difetto per cui la #251 esiste:
+    una vista che dice qualcosa di diverso da ciò che il bridge fa.
+
+    Perché bordi e interni non si trattano allo stesso modo, e perché solo ``\\r``/``\\n``:
+    vedi il docstring di `_sanitize_cell`, dove le tre scelte sono documentate con le misure
+    che le hanno decise.
+    """
+    s = "" if value is None else str(value)
+    if not s:
+        return s
+    # Prima i BORDI (via del tutto), poi gli INTERNI (uno spazio): vedi le due regex.
+    s = _CSV_LINEBREAK_EDGE_RE.sub("", s)
+    # `\r\n` è UN a-capo, non due: `+` lo collassa in un solo spazio («Inter Milan», non
+    # «Inter  Milan») senza cambiare il numero di campi della riga.
+    return _CSV_LINEBREAK_RE.sub(" ", s)
+
+
 def _sanitize_cell(value):
     """Neutralizza l'iniezione formula/control-char nel CSV (audit B1): se una cella inizia
     con `= + - @` (e NON è un numero) o con un control-char (TAB/CR/LF), antepone un apice
@@ -442,14 +501,7 @@ def _sanitize_cell(value):
       nell'iterazione del file, e nessun consumatore legge il CSV così (verificato). Gli altri
       control-char sono la classe della B23, che ha una PR sua: allargare qui significherebbe
       correggerla a metà e in due posti."""
-    s = "" if value is None else str(value)
-    if not s:
-        return s
-    # Prima i BORDI (via del tutto), poi gli INTERNI (uno spazio): vedi le due regex.
-    s = _CSV_LINEBREAK_EDGE_RE.sub("", s)
-    # `\r\n` è UN a-capo, non due: `+` lo collassa in un solo spazio («Inter Milan», non
-    # «Inter  Milan») senza cambiare il numero di campi della riga.
-    s = _CSV_LINEBREAK_RE.sub(" ", s)
+    s = neutralize_linebreaks(value)
     if not s:
         return s        # la cella era SOLO a-capo: resta vuota, niente da apostrofare
     if s[0] in _CSV_CTRL_CHARS:

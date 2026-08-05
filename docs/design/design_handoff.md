@@ -1216,6 +1216,25 @@ Sezioni (colonna destra, dall'alto):
   motivo>` (rossa `#ef5350` se scartato) seguita dalle sue righe CSV (stesso formato del
   singolo). Verdetto sintetico in cima: *«✅/⚠ Messaggi validi: X/N»* (+ avviso se oltre il
   tetto di 50). Invariante: SOLO anteprima/lettura, mai scritture del CSV operativo.
+- **Cosa mostra l'anteprima, esattamente (#251).** I valori nel riepilogo «Colonna=valore» non
+  sono quelli grezzi estratti dal parser: sono i valori **come usciranno nel file**, con due
+  eccezioni dichiarate. Per chi disegna, la regola è:
+
+  | | anteprima mostra | file contiene |
+  |---|---|---|
+  | decimali | `1,85` (lingua CSV) | `1,85` |
+  | a-capo dentro una cella | `Inter Milan` | `Inter Milan` |
+  | cella che inizia con `=` | `=1+1` | `'=1+1` |
+
+  Gli **a-capo sono neutralizzati** perché `Inter⏎Milan` e `Inter Milan` sono due nomi diversi
+  e il secondo è quello che verrà cercato davvero. L'**apostrofo anti-formula non si mostra**
+  perché è una mitigazione, non un dato: è un carattere che l'utente non ha scritto.
+
+  **Conseguenza per la UI:** nessuna cella dell'anteprima può contenere un a-capo, quindi ogni
+  riga di riepilogo è garantita su **una riga sola** e il layout non può essere spezzato da un
+  messaggio ostile. Vale anche per la riga di log «📱 Segnale (…)» e per l'etichetta
+  **ULTIMO SEGNALE** del pannello Stato, che passano dalla stessa neutralizzazione.
+
 - **Area di test:** textbox "Messaggio di prova" + verdetto (`✅ Pronto` / `⛔ …`). L'anteprima
   usa lo stesso motore del runtime. **Con «Betfair Sync» rimossa l'arricchimento ID è staccato
   sia dal CSV live sia dall'anteprima** (`id_resolver=None`): l'anteprima resta quindi

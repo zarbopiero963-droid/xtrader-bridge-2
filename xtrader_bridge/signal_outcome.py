@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import confirmation_reader, live_guard, ui_theme
+from . import confirmation_reader, csv_writer, live_guard, ui_theme
 
 
 def _attivi_label(n_active) -> str:
@@ -93,10 +93,24 @@ def describe_write(row, source, n_active):
     """Presentazione di una scrittura CSV riuscita per `row` (riga parsata),
     `source` (sorgente del parser) e `n_active` (righe attive nel CSV dopo la
     scrittura). Pura: legge solo `EventName`/`SelectionName`/`Price` (mancanti →
-    stringa vuota), nessuna mutazione."""
-    ev = row.get("EventName", "")
-    sel = row.get("SelectionName", "")
-    price = row.get("Price", "")
+    stringa vuota), nessuna mutazione.
+
+    **Gli a-capo sono neutralizzati come nel file (#251).** La riga arriva qui **grezza**,
+    mentre nel CSV ci finisce sanificata: senza questo passaggio un `\\r\\n` dentro
+    `EventName` produceva un log che diceva una cosa diversa dal file —
+
+        log : '📱 Segnale (custom): Inter\\r\\nMilan  |  Over 2,5 goal  q.1.85'
+        CSV : 'Inter Milan'
+
+    — e, peggio, **spezzava il layout**: il pannello Log e l'etichetta «ULTIMO SEGNALE» sono
+    una riga per evento, e un a-capo grezzo ne apriva una seconda. Non è un rischio di
+    scommessa (il CSV era già corretto dalla B11), è il record su cui si indaga a mentire.
+
+    Si usa `csv_writer.neutralize_linebreaks`, la **stessa** funzione del write-path e
+    dell'anteprima: rifarla qui avrebbe creato la terza copia da tenere allineata."""
+    ev = csv_writer.neutralize_linebreaks(row.get("EventName", ""))
+    sel = csv_writer.neutralize_linebreaks(row.get("SelectionName", ""))
+    price = csv_writer.neutralize_linebreaks(row.get("Price", ""))
     return WriteOutcome(
         last_signal=f"🏆 {ev}  |  {sel}  |  q.{price}",
         signal_log=f"📱 Segnale ({source}): {ev}  |  {sel}  q.{price}",

@@ -1171,10 +1171,24 @@ mercato), e altrimenti farebbe apparire un falso «Non pronto».
 > **decimali** (`Price`, `MinPrice`, `MaxPrice`, `Points`, `Handicap`) **nel formato della
 > `csv_language` corrente** — virgola per `IT`/`ES` («Price=1,50»), punto per `EN` — cioè
 > **come usciranno davvero nel CSV**, tramite lo **stesso** localizzatore del write-path
-> (`csv_writer.localize_row`): anteprima e file non possono divergere. È solo la **vista**:
-> il dato interno resta canonico col punto (validatori/dedup invariati) e le colonne
-> testuali («Over 2.5 Goals») non sono mai toccate.
-
+> (`csv_writer.localize_row`). È solo la **vista**: il dato interno resta canonico col punto
+> (validatori/dedup invariati) e le colonne testuali («Over 2.5 Goals») non sono mai toccate.
+>
+> **A-capo nell'anteprima = a-capo nel file (#251, opzione C del proprietario).** Oltre ai
+> decimali, l'anteprima neutralizza anche gli **a-capo** come fa il write-path: un valore
+> estratto `"Inter⏎Milan"` è mostrato `Inter Milan`, perché è il nome che verrà davvero
+> cercato — mostrare quello con l'a-capo manderebbe a cercare un problema che non esiste.
+>
+> **Ciò che l'anteprima NON mostra è l'apostrofo anti-formula.** Una cella `=1+1` è mostrata
+> nuda e scritta nel file come `'=1+1`. È deliberato: l'apostrofo è una mitigazione
+> anti-injection, non un dato — un carattere che l'utente non ha scritto e che non descrive né
+> il messaggio né la scommessa.
+>
+> La parità anteprima↔file è quindi **dichiarata e parziale — decimali e a-capo sì, apostrofo
+> no — non totale**. La stessa regola vale per la riga di log «📱 Segnale (…)» e per
+> l'etichetta **ULTIMO SEGNALE**, che passano dalla stessa neutralizzazione
+> (`csv_writer.neutralize_linebreaks`, fonte unica condivisa col write-path).
+>
 > **Nota sull'arricchimento ID in anteprima (#192, Codex).** L'anteprima usa lo stesso motore del
 > runtime e, quando il dizionario locale è popolato, **risolve gli ID dal dizionario**: la
 > GUI inoltra a `test_message`, `diagnose` e `preview_rows` un `id_resolver` opzionale, ottenuto
