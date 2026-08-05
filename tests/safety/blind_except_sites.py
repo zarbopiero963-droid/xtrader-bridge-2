@@ -1,0 +1,288 @@
+"""Baseline PER-SITO del gate blind-except (#224) — dati, non logica.
+
+Ogni voce è `(funzione, motivo)` dove il motivo viene dal `# noqa: BLE001` **sulla
+riga dell'except**, normalizzato (minuscolo, spazi collassati) e preso PER INTERO: troncarlo farebbe collidere due motivi con lo stesso prefisso, e la sostituzione a saldo zero ripasserebbe.
+
+Prima della #224 il gate confrontava solo il NUMERO di blind-except per file, quindi
+rimuoverne uno motivato e aggiungerne uno nudo altrove nello stesso file lasciava il
+totale invariato e passava. Con le identità qui sotto quella sostituzione a saldo zero
+non passa più.
+
+**Come si aggiorna:** `python tools/gen_blind_except_sites.py` e si LEGGE il diff.
+Un baseline aggiornato a occhi chiusi è peggio di nessun baseline — vedi il commento
+in testa a `test_blind_except_allowlist.py`.
+"""
+
+# file → tuple ordinate di (funzione, motivo normalizzato)
+SITI = {
+    'app.py': (
+        ('App._apply_license_lock', 'best-effort'),
+        ('App._apply_license_lock', 'best-effort'),
+        ('App._betfair_competitions', 'best-effort: db assente/illeggibile → nessuna competizione'),
+        ('App._betfair_id_resolver', 'best-effort: il flusso non deve crashare'),
+        ('App._betfair_teams_for_competition', 'best-effort: db assente/illeggibile → nessuna squadra'),
+        ('App._build_ui', 'pannello assistente best-effort: mai rompere la gui'),
+        ('App._cancel_pending_autostart', 'id già scaduto/invalid: ininfluente'),
+        ('App._chiudi_finestre_operative_per_lock', 'già distrutta/tcl giù: il lock non deve rompersi'),
+        ('App._config_summary_snapshot', 'db occupato/assente: fail-soft'),
+        ('App._confirm_collaudo_mode', 'su errore dialog → non confermare'),
+        ('App._confirm_multi_signal', 'su errore dialog → non confermare'),
+        ('App._confirm_real_mode', 'su qualsiasi errore dialog → non confermare'),
+        ('App._copy_diagnostics', ''),
+        ('App._delete_betfair_team', 'best-effort: db assente/illeggibile → non eliminato'),
+        ('App._dictionary_viewer_controller', 'best-effort: degrada a none, niente crash gui'),
+        ('App._expire_tick', 'esito riportato a log, no crash'),
+        ('App._export_real_audit', 'esito a log, no crash'),
+        ('App._journal', 's110 — il journal è diagnostico: un suo errore non deve'),
+        ('App._kick_csv_probe_async._worker', 'sonda salute best-effort (come _refresh_health):'),
+        ('App._known_betfair_teams', 'best-effort: db assente/illeggibile → nessun nome'),
+        ('App._known_market_terms', 'best-effort: db assente/illeggibile → liste vuote'),
+        ('App._language_chosen', 'chiusura best-effort del selettore (widget già distrutto)'),
+        ('App._license_bloccata_da_revoca', 'la diagnosi del perché non deve rompere il lock'),
+        ('App._license_is_valid', 'errore imprevisto nel calcolo stato → fail-closed'),
+        ('App._license_tick', 'un errore del gate non deve fermare il tick'),
+        ('App._maybe_open_language_selector', 'gui best-effort: senza scelta resta it e si ripropone al prossimo avvio'),
+        ('App._mostra_license_banner', 'render tk best-effort: il banner non può rompere il lock'),
+        ('App._notify_already_running', "headless/display assente: l'uscita avviene comunque"),
+        ('App._on_close', 'id già scaduto/invalido: best-effort'),
+        ('App._on_close', 'id già scaduto/invalido: best-effort'),
+        ('App._on_close', 'teardown assistente best-effort'),
+        ('App._open_log_folder', 'esito a log, no crash'),
+        ('App._open_tools', 'widget tk distrutto: tratta come assente'),
+        ('App._open_wizard', "focus best-effort: la finestra c'è comunque"),
+        ('App._open_wizard', 'gui best-effort: mai crash della finestra'),
+        ('App._open_wizard', 'riferimento stantio (tk smontato): si riapre da zero'),
+        ('App._process_confirmation', 'esito a log, no crash'),
+        ('App._refresh_health', 'il pannello salute è diagnostica best-effort'),
+        ('App._refresh_tool_panels_after_profile', 'best-effort, ma non silenzioso'),
+        ('App._resync_token_field', 'widget tk distrutto: tratta come assente'),
+        ('App._revoca_nega', 'in dubbio non si accusa di revoca (fail-safe)'),
+        ('App._revocation_gate_ok', 'la diagnostica non può rompere il fail-open'),
+        ('App._revocation_gate_ok', 'un errore imprevisto non deve fermare un utente'),
+        ('App._revocation_loop', 'il supervisore non deve morire per un errore imprevisto'),
+        ('App._run_bot', 'chiusura best-effort'),
+        ('App._run_bot', 'gestito sotto'),
+        ('App._safe_shutdown_tg', ''),
+        ('App._safe_shutdown_tg._shutdown', 'chiusura best-effort'),
+        ('App._schedule_license_tick', 'finestra distrutta: niente ri-arma'),
+        ('App._schedule_stop_clear_retry', 'id già scaduto/invalido: best-effort'),
+        ('App._select_tool_tab', 'hub chiuso/distrutto: nessuna ui da spostare'),
+        ('App._set_license_banner', 'render tk best-effort'),
+        ('App._set_operational_lock', 'widget senza `state`/distrutto: best-effort'),
+    ),
+    'atomic_io.py': (
+        ('atomic_write', ''),
+    ),
+    'betfair/dictionary_viewer_gui.py': (
+        ('DictionaryViewerPanel._apply_tree_style', 'lo stile è cosmetico, mai bloccante'),
+        ('DictionaryViewerPanel._refresh', 'lettura best-effort, niente crash gui'),
+    ),
+    'config_agent.py': (
+        ('RealAnthropicClient._ensure', ''),
+        ('ToolRegistry._audit', 'il logging non deve mai far fallire il dispatch'),
+        ('ToolRegistry._safe_out', "la seconda rete non deve poter rompere l'assistente"),
+        ('ToolRegistry._safe_out', "vedi sotto: la garanzia dev'essere strutturale"),
+        ('ToolRegistry.dispatch', "nessun tool deve poter far crashare l'agente"),
+        ('_crude_chat_mask', '`__str__` difettoso: non possiamo nemmeno leggere il testo'),
+        ('_crude_chat_mask', "iterabile che solleva durante l'iterazione"),
+        ('_crude_chat_mask', 'un elemento difettoso non ferma gli altri'),
+        ('_dictionary_entries', 'dizionario non incluso/illeggibile: fail-safe (none), mai crash'),
+        ('build_health_report', "provider dell'app difettoso: mai crash, ripiega su config"),
+        ('build_journal_report', 'risoluzione path (config_dir) difettosa: fail-safe'),
+        ('build_message_preview', 'tester sola-lettura: un parser attivo malformato o'),
+    ),
+    'config_agent_controller.py': (
+        ('AgentController._emit', 'un handler della view non deve rompere il controller'),
+        ('AgentController._handle_message', 'persistenza best-effort: mai scartare il turno'),
+        ('AgentController.apply_pending', 'loader che solleva = config non leggibile ora: fail-safe'),
+        ('AgentController.apply_pending', 'save fallito/eccezione: fail-safe (esito negativo, non crash)'),
+        ('AgentController.enable', "loader difettoso non deve impedire l'avvio: default it"),
+        ('AgentController.redact_for_log', 'config illeggibile: log comunque coi soli secret redatti'),
+        ('AgentWorker._process_one', 'un turno fallito non deve uccidere il worker'),
+    ),
+    'config_agent_gui.py': (
+        ('AssistantPanel._append', 'logging best-effort'),
+        ('AssistantPanel._hide_pending', 'widget già distrutto (teardown): best-effort'),
+        ('AssistantPanel._on_event', 'root tk distrutta / assente (teardown): best-effort'),
+    ),
+    'config_store.py': (
+        ('_default_recognition_mode', 'qualunque errore nel gate → name_only (fail-closed, a10)'),
+        ('_save_config_locked', 'rollback best-effort'),
+        ('migrate_legacy_config', 'best-effort, ma ora loggato (non silenzioso)'),
+    ),
+    'config_summary_gui.py': (
+        ('ConfigSummaryPanel._render', 'provider best-effort'),
+    ),
+    'csv_writer.py': (
+        ('clear_stale_csv', 'diagnostica best-effort, mai bloccare il return'),
+    ),
+    'custom_parser_gui.py': (
+        ('CustomParserPanel._add_provider', ''),
+        ('CustomParserPanel._autoload_active_parser', 'parser attivo illeggibile: editor vuoto'),
+        ('CustomParserPanel._builder_snapshot', 'fail-safe: non fotografabile = modificato'),
+        ('CustomParserPanel._copy_diag', 'clipboard non disponibile'),
+        ('CustomParserPanel._fetch_market_terms', 'best-effort: nessun suggerimento'),
+        ('CustomParserPanel._highlight_saved', 'widget distrutto durante un refresh: irrilevante'),
+        ('CustomParserPanel._load_market_mapping_profiles', 'fallback sicuro'),
+        ('CustomParserPanel._load_name_mapping_profiles', 'fallback sicuro'),
+        ('CustomParserPanel._load_providers', 'fallback sicuro'),
+        ('CustomParserPanel._mostra_avviso_valore_fisso', 'widget distrutto durante un refresh'),
+        ('CustomParserPanel._open_provider_registry', 'navigazione best-effort: mai un crash'),
+        ('CustomParserPanel._parser_usage', 'config illeggibile: nessun marcatore, mai un crash'),
+        ('CustomParserPanel._preview_id_resolver', ''),
+        ('CustomParserPanel._resolve_mapping_profiles', 'fallback sicuro'),
+        ('CustomParserPanel._resolve_market_mapping_profiles', 'fallback sicuro'),
+        ('CustomParserPanel._resolve_source_language', 'fallback sicuro'),
+        ('CustomParserPanel._riga_ha_valore_fisso', 'widget assente/distrutto: nessun gate'),
+        ('CustomParserPanel._segui_valore_fisso', 'non legabile: si prova il prossimo'),
+        ('CustomParserPanel._segui_valore_fisso', 'variabile non tracciabile: nessun ri-aggancio'),
+        ('CustomParserPanel.refresh_options', 'config illeggibile: niente refresh'),
+        ('bind_accetta_add', 'firma non ispezionabile: si assume il tk vero'),
+    ),
+    'custom_pipeline.py': (
+        ('_default_registry', 'vedi allowlist blind-except'),
+        ('_default_registry', 'vedi allowlist blind-except (p3-14)'),
+        ('_resolve_ids_into', 'risoluzione best-effort: niente blocco del flusso'),
+    ),
+    'dirty_csv_store.py': (
+        ('clear_dirty', 'come sopra'),
+        ('dirty_paths', 'registro fail-safe: corrotto/assente = vuoto'),
+        ('mark_dirty', 'un i/o rotto non deve bloccare stop/chiusura'),
+    ),
+    'dizionario.py': (
+        ('is_validated', 'assente/header rotto/riga non-dict → non validato (fail-safe)'),
+    ),
+    'dpi_awareness.py': (
+        ('enable_dpi_awareness', "fail-open: l'app parte comunque (solo resa più sfocata)"),
+        ('enable_dpi_awareness', "fail-open: senza windll niente dpi, mai bloccare l'avvio"),
+        ('enable_dpi_awareness', 'shcore assente (win < 8.1): si prova il fallback'),
+    ),
+    'gui_utils.py': (
+        ('ask_confirm', 'dialog non disponibile: fail-closed, non confermare'),
+        ('fit_to_screen', ''),
+        ('running_edit_notice', 'una sonda difettosa non deve rompere il salvataggio'),
+    ),
+    'guided_mapping_gui.py': (
+        ('GuidedMappingPanel._load_cfg', 'fallback con messaggio'),
+        ('GuidedMappingPanel._load_teams', 'best-effort: db assente/illeggibile → nessuna squadra'),
+        ('GuidedMappingPanel._on_sport_change', 'best-effort: db assente/illeggibile → nessuna competizione'),
+    ),
+    'instance_lock.py': (
+        ('acquire', 'backstop fail-open per errori non gestiti nei rami'),
+        ('release', 'best-effort: alla terminazione rilascia comunque il so'),
+    ),
+    'journal_view_gui.py': (
+        ('JournalPanel._open_folder', 'best-effort, no crash gui'),
+        ('JournalPanel._refresh', 'lettura best-effort, niente crash gui'),
+    ),
+    'known_teams_gui.py': (
+        ('KnownTeamsPanel._on_delete', 'best-effort, niente crash gui'),
+        ('KnownTeamsPanel._refresh', 'best-effort, niente crash gui'),
+    ),
+    'license_gui.py': (
+        ('LicensePanel._copy_hardware_id', 'clipboard best-effort: non deve rompere la finestra'),
+        ('LicensePanel._evaluate_activation', 'persistenza fallita (disco/permessi): attivazione'),
+        ('LicensePanel._read_entry', 'entry non disponibile (headless/teardown)'),
+        ('LicensePanel._revoca_nega', 'in dubbio non si accusa di revoca'),
+        ('LicensePanel.current_status', 'heartbeat: tollera i transitori, fail-closed'),
+        ('LicensePanel.current_status', 'provider difettoso: non determinabile → neutro'),
+        ('LicensePanel.refresh_options', 'render tk best-effort'),
+    ),
+    'license_store.py': (
+        ('clear_license', 'rimozione best-effort'),
+        ('load_license', 'json/schema corrotto: backup poi fail-safe «nessuna licenza»'),
+    ),
+    'licensing/ed25519.py': (
+        ('verify', 'verifica fail-closed: qualunque errore = firma non valida'),
+    ),
+    'licensing/hwid.py': (
+        ('_mac_component', 'sorgente best-effort: assente = omessa'),
+        ('_windows_machine_guid', 'assente/non leggibile = omesso'),
+        ('_windows_volume_serial', 'assente = omesso'),
+    ),
+    'licensing/license.py': (
+        ('_b64u_canonico', 'non decodificabile = non canonico (fail-closed)'),
+        ('verify_license', 'chiave pubblica malformata: rifiuta tutto (fail-closed)'),
+        ('verify_license', 'token corrotto/incompleto: fail-closed'),
+    ),
+    'licensing/revocation.py': (
+        ('verify_revocation_list', 'chiave pubblica malformata: rifiuta (fail-closed)'),
+        ('verify_revocation_list', 'lista corrotta/incompleta: fail-closed'),
+        ('verify_revocation_list', 'payload non conforme: fail-closed'),
+    ),
+    'licensing/revocation_client.py': (
+        ('fetch_signed', 'qualunque problema di fetch: fail-closed → none'),
+    ),
+    'name_mapping_gui.py': (
+        ('MarketMappingPanel._build_ui', 'variabile non tracciabile: nessuna evidenziazione viva'),
+        ('MarketMappingPanel._delete_profile', "l'avviso è best-effort"),
+        ('MarketMappingPanel._load_cfg', 'fallback con messaggio'),
+        ('MarketMappingPanel._profile_usage', 'parser illeggibili: nessun badge, mai un crash'),
+        ('MarketMappingPanel._rename_profile', 'il rename config resta valido'),
+        ('NameMappingPanel._build_ui', 'variabile non tracciabile: nessuna evidenziazione viva'),
+        ('NameMappingPanel._delete_profile', "l'avviso è best-effort"),
+        ('NameMappingPanel._load_cfg', 'fallback con messaggio'),
+        ('NameMappingPanel._prefill_betfair_names', 'best-effort, niente crash gui'),
+        ('NameMappingPanel._profile_usage', 'parser illeggibili: nessun badge, mai un crash'),
+        ('NameMappingPanel._rename_profile', 'il rename config resta valido'),
+    ),
+    'parser_builder.py': (
+        ('ParserBuilder.batch_report', 'isolamento per-messaggio (coderabbit'),
+    ),
+    'provider_gui.py': (
+        ('ProviderPanel._add', ''),
+        ('ProviderPanel._load_names', 'fallback sicuro'),
+        ('ProviderPanel._provider_usage', 'parser illeggibili: stato ignoto, mai un falso «non usato»'),
+        ('ProviderPanel._remove', ''),
+        ('ProviderPanel._remove', 'anagrafica gestibile anche senza parser leggibili'),
+    ),
+    'reconnect_policy.py': (
+        ('_real_transient_types', 'telegram assente/incompleto → fallback per nome'),
+    ),
+    'source_chats_gui.py': (
+        ('SourceChatsPanel.refresh_options', 'config illeggibile: niente refresh'),
+        ('_ParserListDialog.__init__', 'best-effort (test headless / stub tk)'),
+    ),
+    'token_store.py': (
+        ('_keyring', ''),
+        ('available', ''),
+        ('delete_api_key', ''),
+        ('delete_token', ''),
+        ('load_api_key_status', ''),
+        ('load_token_status', ''),
+        ('save_api_key', ''),
+        ('save_token', ''),
+    ),
+    'tools_gui.py': (
+        ('ToolsWindow.__init__', 'isolamento per-scheda'),
+        ('ToolsWindow._on_tab_change', 'refresh best-effort'),
+        ('ToolsWindow.select_tab', 'widget distrutto/titolo invalido: resta la scheda corrente'),
+    ),
+    'ui_cards.py': (
+        ('_best_effort', 'widget finto/distrutto: presentazione, mai crash'),
+        ('badge', ''),
+        ('card', 'doppio di test senza ctkfont funzionante'),
+        ('hint', ''),
+        ('tune_scrolling', 'accordatura best-effort: mai rompere la costruzione'),
+    ),
+    'ui_widgets.py': (
+        ('evidenzia_profilo', 'widget distrutto durante un refresh'),
+        ('rendi_attivabile', 'widget-spia o distrutto: resta cliccabile col mouse'),
+    ),
+    'wizard.py': (
+        ('check_chat', 'sonda: qualsiasi errore → esito sanificato'),
+        ('check_csv', 'i/o reale: esito onesto, mai crash del wizard'),
+        ('check_token', 'sonda: qualsiasi errore → esito sanificato'),
+    ),
+    'wizard_gui.py': (
+        ('WizardWindow._probe_done', 'interprete tk già smontato: come finestra chiusa'),
+        ('WizardWindow._run_async.worker', "fail-closed: solo la classe dell'errore (mai token/url grezzi)"),
+        ('WizardWindow._run_async.worker', 'finestra/tk distrutti durante la sonda: niente da aggiornare'),
+        ('WizardWindow._run_parser_check', 'fail-closed su tutta la valutazione, mai crash'),
+    ),
+    'write_path.py': (
+        ('commit_signal', 'riportato al chiamante, no crash'),
+        ('commit_signals', 'riportato al chiamante, no crash'),
+        ('commit_signals._realign_dirty_disk', 'riportato al chiamante, no crash'),
+    ),
+}

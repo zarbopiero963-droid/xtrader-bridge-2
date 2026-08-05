@@ -183,8 +183,10 @@ or capability must — **in the same PR** — update ALL of:
    fail-safe on missing resources; capped output; **consistent output schema** (keys always present);
    public APIs only;
 2. **hard tests** — valid case / empty-or-missing-resource / read-only-does-not-write /
-   no-secret-in-output / contract; if you add a fail-safe `except`, update the blind-except allowlist
-   with a reason;
+   no-secret-in-output / contract; if you add a fail-safe `except`, give it a
+   `# noqa: BLE001 <why>` on its own line and regenerate the blind-except baseline
+   (`python tools/gen_blind_except_sites.py`), then READ the diff — since #224 the gate
+   identifies each site by (function, reason), not by a per-file count;
 3. **system prompt** — the line telling the model **when** to use the tool;
 4. **docs** — `docs/internal/config_agent.md` + `docs/user/assistente.md` + `README.md` +
    `docs/design/design_handoff.md` (or `N/A` with a written reason).
