@@ -14,9 +14,6 @@ _RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.join(_RADICE, "xtrader_bridge")
 OUT = os.path.join(_RADICE, "tests", "safety", "blind_except_sites.py")
 
-MAX_MOTIVO = 60
-
-
 def is_broad(node):
     return isinstance(node, ast.Name) and node.id in ("Exception", "BaseException")
 
@@ -29,14 +26,25 @@ def is_blind(h):
 
 
 def normalizza_motivo(riga):
-    """Motivo normalizzato dall'`# noqa: BLE001 ...` sulla riga, o '' se assente."""
+    """Motivo normalizzato dall'`# noqa: BLE001 ...` sulla riga, o stringa vuota se assente.
+
+    **Per intero, NON troncato** (rilievo Fugu Ultra sulla #260). Una prima stesura tagliava a
+    60 caratteri per non far scattare il gate su una riformulazione di dettaglio, ma due motivi
+    diversi con lo stesso prefisso sarebbero collassati nella stessa identità — e la
+    sostituzione a saldo zero, cioè il difetto che questo gate esiste per chiudere, sarebbe
+    ripassata proprio da lì.
+
+    Misurato al momento della correzione: collisioni reali **0**, ma **5 motivi su 194**
+    superano i 60 caratteri (il più lungo, 71). Il buco era latente, non ancora sfruttato:
+    chiuderlo costa cinque righe di baseline più lunghe, che per un gate di sicurezza è il
+    prezzo giusto.
+    """
     m = re.search(r"#\s*noqa:\s*BLE001\s*(.*)$", riga)
     if not m:
         return ""
     testo = m.group(1).strip()
     testo = re.sub(r"^[\s\-—:·,]+", "", testo)          # separatori iniziali
-    testo = re.sub(r"\s+", " ", testo).strip().lower()
-    return testo[:MAX_MOTIVO]
+    return re.sub(r"\s+", " ", testo).strip().lower()
 
 
 def qualname_map(tree):
@@ -49,10 +57,16 @@ def qualname_map(tree):
                 visita(figlio, f"{prefisso}{figlio.name}.")
             elif isinstance(figlio, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 nome = f"{prefisso}{figlio.name}"
+                # PRIMA le annidate, poi questa: con `setdefault` vince chi arriva per primo,
+                # quindi la funzione PIÙ INTERNA si prende i suoi handler. All'inverso, un
+                # `except` dentro una closure risultava attribuito alla funzione esterna — il
+                # nome nel baseline avrebbe mentito, e uno spostamento fra interna ed esterna
+                # non si sarebbe visto (rilievo Fable 5 sulla #260: 5 casi reali, fra cui
+                # `_safe_shutdown_tg._shutdown` e `commit_signals._realign_dirty_disk`).
+                visita(figlio, f"{nome}.")
                 for x in ast.walk(figlio):
                     if isinstance(x, ast.ExceptHandler):
                         fuori.setdefault(x.lineno, nome)
-                visita(figlio, f"{nome}.")
             else:
                 visita(figlio, prefisso)
 
@@ -91,8 +105,9 @@ def main():
     righe = ['"""Baseline PER-SITO del gate blind-except (#224) — dati, non logica.',
              "",
              "Ogni voce è `(funzione, motivo)` dove il motivo viene dal `# noqa: BLE001` **sulla",
-             "riga dell'except**, normalizzato (minuscolo, spazi collassati, troncato a "
-             f"{MAX_MOTIVO} caratteri).",
+             "riga dell'except**, normalizzato (minuscolo, spazi collassati) e preso PER "
+             "INTERO: troncarlo farebbe collidere due motivi con lo stesso prefisso, e la "
+             "sostituzione a saldo zero ripasserebbe.",
              "",
              "Prima della #224 il gate confrontava solo il NUMERO di blind-except per file, quindi",
              "rimuoverne uno motivato e aggiungerne uno nudo altrove nello stesso file lasciava il",

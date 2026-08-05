@@ -5322,8 +5322,11 @@ Su `app.py` — 53 handler, ed è il modulo di START/STOP, listener, scrittura C
 XTrader — è esattamente la classe di bug che il gate esiste per fermare.
 
 **Identità per sito, non conteggio.** Ogni sito è ora `(funzione, motivo)`, col motivo preso dal
-`# noqa: BLE001` sulla riga dell'except, normalizzato e **troncato a 60 caratteri**: riformulare
-un dettaglio non rompe il gate, cambiare il senso sì. Baseline in
+`# noqa: BLE001` sulla riga dell'except, normalizzato e preso **per intero**. Una prima stesura
+lo troncava a 60 caratteri per assorbire le riformulazioni, ma due motivi diversi con lo stesso
+prefisso avrebbero avuto la stessa identità e la sostituzione a saldo zero sarebbe ripassata da
+lì (rilievo Fugu Ultra: 0 collisioni reali, ma **5 motivi su 194 oltre i 60 caratteri** — buco
+latente, chiuso al costo di cinque righe di baseline più lunghe). Baseline in
 `tests/safety/blind_except_sites.py`, rigenerabile con `python tools/gen_blind_except_sites.py`.
 
 **Granularità scelta misurando, non assumendo.** La issue dava per scontato che il per-funzione

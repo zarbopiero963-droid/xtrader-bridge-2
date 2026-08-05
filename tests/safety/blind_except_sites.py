@@ -1,7 +1,7 @@
 """Baseline PER-SITO del gate blind-except (#224) — dati, non logica.
 
 Ogni voce è `(funzione, motivo)` dove il motivo viene dal `# noqa: BLE001` **sulla
-riga dell'except**, normalizzato (minuscolo, spazi collassati, troncato a 60 caratteri).
+riga dell'except**, normalizzato (minuscolo, spazi collassati) e preso PER INTERO: troncarlo farebbe collidere due motivi con lo stesso prefisso, e la sostituzione a saldo zero ripasserebbe.
 
 Prima della #224 il gate confrontava solo il NUMERO di blind-except per file, quindi
 rimuoverne uno motivato e aggiungerne uno nudo altrove nello stesso file lasciava il
@@ -34,14 +34,14 @@ SITI = {
         ('App._expire_tick', 'esito riportato a log, no crash'),
         ('App._export_real_audit', 'esito a log, no crash'),
         ('App._journal', 's110 — il journal è diagnostico: un suo errore non deve'),
-        ('App._kick_csv_probe_async', 'sonda salute best-effort (come _refresh_health):'),
+        ('App._kick_csv_probe_async._worker', 'sonda salute best-effort (come _refresh_health):'),
         ('App._known_betfair_teams', 'best-effort: db assente/illeggibile → nessun nome'),
         ('App._known_market_terms', 'best-effort: db assente/illeggibile → liste vuote'),
         ('App._language_chosen', 'chiusura best-effort del selettore (widget già distrutto)'),
         ('App._license_bloccata_da_revoca', 'la diagnosi del perché non deve rompere il lock'),
         ('App._license_is_valid', 'errore imprevisto nel calcolo stato → fail-closed'),
         ('App._license_tick', 'un errore del gate non deve fermare il tick'),
-        ('App._maybe_open_language_selector', 'gui best-effort: senza scelta resta it e si ripropone al pro'),
+        ('App._maybe_open_language_selector', 'gui best-effort: senza scelta resta it e si ripropone al prossimo avvio'),
         ('App._mostra_license_banner', 'render tk best-effort: il banner non può rompere il lock'),
         ('App._notify_already_running', "headless/display assente: l'uscita avviene comunque"),
         ('App._on_close', 'id già scaduto/invalido: best-effort'),
@@ -63,7 +63,7 @@ SITI = {
         ('App._run_bot', 'chiusura best-effort'),
         ('App._run_bot', 'gestito sotto'),
         ('App._safe_shutdown_tg', ''),
-        ('App._safe_shutdown_tg', 'chiusura best-effort'),
+        ('App._safe_shutdown_tg._shutdown', 'chiusura best-effort'),
         ('App._schedule_license_tick', 'finestra distrutta: niente ri-arma'),
         ('App._schedule_stop_clear_retry', 'id già scaduto/invalido: best-effort'),
         ('App._select_tool_tab', 'hub chiuso/distrutto: nessuna ui da spostare'),
@@ -86,7 +86,7 @@ SITI = {
         ('_crude_chat_mask', '`__str__` difettoso: non possiamo nemmeno leggere il testo'),
         ('_crude_chat_mask', "iterabile che solleva durante l'iterazione"),
         ('_crude_chat_mask', 'un elemento difettoso non ferma gli altri'),
-        ('_dictionary_entries', 'dizionario non incluso/illeggibile: fail-safe (none), mai cr'),
+        ('_dictionary_entries', 'dizionario non incluso/illeggibile: fail-safe (none), mai crash'),
         ('build_health_report', "provider dell'app difettoso: mai crash, ripiega su config"),
         ('build_journal_report', 'risoluzione path (config_dir) difettosa: fail-safe'),
         ('build_message_preview', 'tester sola-lettura: un parser attivo malformato o'),
@@ -95,7 +95,7 @@ SITI = {
         ('AgentController._emit', 'un handler della view non deve rompere il controller'),
         ('AgentController._handle_message', 'persistenza best-effort: mai scartare il turno'),
         ('AgentController.apply_pending', 'loader che solleva = config non leggibile ora: fail-safe'),
-        ('AgentController.apply_pending', 'save fallito/eccezione: fail-safe (esito negativo, non crash'),
+        ('AgentController.apply_pending', 'save fallito/eccezione: fail-safe (esito negativo, non crash)'),
         ('AgentController.enable', "loader difettoso non deve impedire l'avvio: default it"),
         ('AgentController.redact_for_log', 'config illeggibile: log comunque coi soli secret redatti'),
         ('AgentWorker._process_one', 'un turno fallito non deve uccidere il worker'),
@@ -150,7 +150,7 @@ SITI = {
         ('mark_dirty', 'un i/o rotto non deve bloccare stop/chiusura'),
     ),
     'dizionario.py': (
-        ('is_validated', 'assente/header rotto/riga non-dict → non validato (fail-safe'),
+        ('is_validated', 'assente/header rotto/riga non-dict → non validato (fail-safe)'),
     ),
     'dpi_awareness.py': (
         ('enable_dpi_awareness', "fail-open: l'app parte comunque (solo resa più sfocata)"),
@@ -276,13 +276,13 @@ SITI = {
     ),
     'wizard_gui.py': (
         ('WizardWindow._probe_done', 'interprete tk già smontato: come finestra chiusa'),
-        ('WizardWindow._run_async', "fail-closed: solo la classe dell'errore (mai token/url grezz"),
-        ('WizardWindow._run_async', 'finestra/tk distrutti durante la sonda: niente da aggiornare'),
+        ('WizardWindow._run_async.worker', "fail-closed: solo la classe dell'errore (mai token/url grezzi)"),
+        ('WizardWindow._run_async.worker', 'finestra/tk distrutti durante la sonda: niente da aggiornare'),
         ('WizardWindow._run_parser_check', 'fail-closed su tutta la valutazione, mai crash'),
     ),
     'write_path.py': (
         ('commit_signal', 'riportato al chiamante, no crash'),
         ('commit_signals', 'riportato al chiamante, no crash'),
-        ('commit_signals', 'riportato al chiamante, no crash'),
+        ('commit_signals._realign_dirty_disk', 'riportato al chiamante, no crash'),
     ),
 }

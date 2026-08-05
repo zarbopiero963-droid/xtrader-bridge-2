@@ -30,9 +30,16 @@ Su `app.py` — 53 handler, ed è il modulo di START/STOP, listener, scrittura C
 XTrader — è esattamente la classe di bug che questo gate esiste per fermare.
 
 Ora l'identità di un sito è **(funzione, motivo)**, dove il motivo viene dal `# noqa: BLE001`
-sulla riga dell'except. Il motivo è **troncato e normalizzato**: riformulare un dettaglio non
-rompe il gate, cambiare il senso sì. Il baseline sta in `blind_except_sites.py` e si rigenera
-con `python tools/gen_blind_except_sites.py`.
+sulla riga dell'except, **per intero** (minuscolo, spazi collassati). Il baseline sta in
+`blind_except_sites.py` e si rigenera con `python tools/gen_blind_except_sites.py`.
+
+Il motivo **non è troncato**. Una prima stesura lo tagliava a 60 caratteri per assorbire le
+riformulazioni di dettaglio, ma due motivi diversi con lo stesso prefisso avrebbero avuto la
+stessa identità — e la sostituzione a saldo zero sarebbe ripassata proprio dalla porta che
+questo gate chiude (rilievo Fugu Ultra sulla #260; misurato: 0 collisioni reali, ma 5 motivi
+su 194 oltre i 60 caratteri, cioè un buco latente). Il prezzo è che riformulare un motivo
+obbliga a rigenerare il baseline: accettabile, ed è ciò che serve perché il baseline dica il
+vero invece di dirne una versione accorciata.
 
 ⚠️ **Un baseline aggiornato a occhi chiusi è peggio di nessun baseline**, perché dà falsa
 sicurezza: quando questo test fallisce, il messaggio dice **quali** siti sono comparsi o
@@ -435,6 +442,38 @@ def test_rileva_handler_a_tupla_che_include_exception():
     # tuple SOLO di eccezioni specifiche NON è cieco → non contato
     assert _count_in_snippet("try:\n pass\nexcept (ValueError, KeyError):\n pass\n") == 0
     assert _count_in_snippet("try:\n pass\nexcept ValueError:\n pass\n") == 0
+
+
+def test_un_except_in_una_CLOSURE_e_attribuito_alla_funzione_INTERNA(tmp_path):
+    """Un `except` dentro una funzione annidata appartiene alla funzione **interna**.
+
+    Prima della correzione (rilievo Fable 5 sulla #260) la mappa qualname visitava la funzione
+    esterna per prima e `setdefault` gliela assegnava, quindi il baseline diceva
+    `App._safe_shutdown_tg` per un handler che vive in `_shutdown`. Due danni:
+
+    - il nome nel baseline **mentiva**, e il nome è tutto ciò che questo gate offre a chi legge
+      un fallimento;
+    - uno spostamento di un except **fra la closure e la funzione che la contiene** non
+      cambiava l'identità → non veniva visto, che è esattamente il buco che la #224 chiude.
+
+    Erano 5 casi reali, fra cui `_safe_shutdown_tg._shutdown`, `_kick_csv_probe_async._worker`
+    e `commit_signals._realign_dirty_disk`.
+    """
+    modulo = tmp_path / "m.py"
+    modulo.write_text(
+        "class C:\n"
+        "    def esterna(self):\n"
+        "        def interna():\n"
+        "            try: pass\n"
+        "            except Exception:  # noqa: BLE001 - dentro la closure\n"
+        "                pass\n"
+        "        try: pass\n"
+        "        except Exception:  # noqa: BLE001 - fuori, nella esterna\n"
+        "            pass\n", encoding="utf-8")
+
+    siti = _GEN.scansiona(str(tmp_path))["m.py"]
+    nomi = {fn for fn, _motivo in siti}
+    assert nomi == {"C.esterna", "C.esterna.interna"}, nomi
 
 
 def test_ogni_voce_allowlist_ha_un_motivo():
