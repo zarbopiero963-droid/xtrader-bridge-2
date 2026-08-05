@@ -22,7 +22,7 @@ _TELEGRAM_TOKEN = re.compile(r'[0-9]{8,10}:[A-Za-z0-9_-]{35}')
 def _git(args):
     try:
         out = subprocess.run(["git", *args], cwd=_REPO_ROOT,
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8")
     except (OSError, FileNotFoundError):  # pragma: no cover - ambiente senza git
         pytest.skip("git non disponibile")
     if out.returncode != 0:  # pragma: no cover - non è un repo git

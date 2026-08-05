@@ -39,7 +39,7 @@ def _run(*args, cwd=None):
     """Esegue lo scanner Python (sys.executable) sugli argomenti dati."""
     return subprocess.run(
         [sys.executable, str(SCANNER), *map(str, args)],
-        capture_output=True, text=True, cwd=cwd,
+        capture_output=True, text=True, encoding="utf-8", cwd=cwd,
     )
 
 
@@ -128,14 +128,14 @@ def test_staged_scan_intercetta_il_blob_in_staging(tmp_path):
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=str(repo),
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8")
 
     git("init", "-q")
 
     def run_staged():
         return subprocess.run(
             [sys.executable, str(repo / "tools" / "secret_scan.py"), "--staged"],
-            cwd=str(repo), capture_output=True, text=True,
+            cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
         )
 
     # Caso 1: segreto nel blob in staging, working tree ripulito DOPO l'add → deve bloccare.
@@ -172,7 +172,7 @@ def test_staged_scan_intercetta_un_rename_con_segreto(tmp_path):
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=str(repo),
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8")
 
     git("init", "-q")
     git("config", "user.email", "t@t")
@@ -194,7 +194,7 @@ def test_staged_scan_intercetta_un_rename_con_segreto(tmp_path):
 
     r = subprocess.run(
         [sys.executable, str(repo / "tools" / "secret_scan.py"), "--staged"],
-        cwd=str(repo), capture_output=True, text=True,
+        cwd=str(repo), capture_output=True, text=True, encoding="utf-8",
     )
     assert r.returncode == 1, "il segreto nel file RINOMINATO in staging deve essere intercettato"
     assert "moved.txt" in (r.stdout + r.stderr)

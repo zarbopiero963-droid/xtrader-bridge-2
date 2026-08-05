@@ -157,7 +157,7 @@ def test_pr_open_check_conta_solo_le_liste():
         # sys.executable, non "python3" (review GPT #86): la suite gira anche su
         # windows-latest, dove "python3" può non risolversi; lo snippet è lo stesso.
         return subprocess.run([sys.executable, "-c", snippet], input=payload,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8")
 
     assert run("[]").stdout.strip() == "0"                         # nessuna PR
     assert run('[{"number": 1}]').stdout.strip() == "1"            # PR aperta
