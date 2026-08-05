@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guida — Crea il bot Telegram e trova il Chat ID | BetRelay</title>
+<meta name="description" content="Guida passo-passo con screenshot reali: creare il bot Telegram con BotFather, agganciarlo al canale dei segnali e trovare il Chat ID da inserire in BetRelay.">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .steps{counter-reset:step;margin-top:26px}
+  .step{
+    display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:start;
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:22px 24px;margin-bottom:18px;
+  }
+  @media (max-width:820px){.step{grid-template-columns:1fr}}
+  .step .num{
+    counter-increment:step;display:inline-flex;align-items:center;justify-content:center;
+    width:30px;height:30px;border-radius:50%;background:var(--cyan);color:#06121a;
+    font-weight:800;font-size:.92rem;margin-right:10px;flex:none;
+  }
+  .step .num::before{content:counter(step)}
+  .step h2{font-size:1.1rem;display:flex;align-items:center;margin-bottom:10px;text-wrap:balance}
+  .step p{color:var(--muted);font-size:.94rem;margin-bottom:10px}
+  .step p b{color:var(--text)}
+  .step code{font-family:var(--mono);font-size:.85em;background:#0c0f14;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+  .shot{background:#0c0f14;border:1px solid var(--border);border-radius:12px;padding:8px;overflow:hidden}
+  .shot img{display:block;width:100%;height:auto;border-radius:8px}
+  .shot figcaption{color:var(--muted);font-size:.76rem;padding:8px 4px 2px;text-align:center}
+  .warn{border-left:3px solid var(--red-txt);background:#1b1216;border-radius:8px;padding:12px 16px;margin:10px 0}
+  .warn b{color:var(--red-txt)}
+  .warn p{color:#d6b9bd;font-size:.9rem;margin:0}
+  .tip{border-left:3px solid var(--green-txt);background:#101a12;border-radius:8px;padding:12px 16px;margin:10px 0}
+  .tip b{color:var(--green-txt)}
+  .tip p{color:#b8ccbc;font-size:.9rem;margin:0}
+  .todo{border-left:3px solid var(--amber);background:#1a1508;border-radius:8px;padding:12px 16px}
+  .todo b{color:var(--amber)}
+  .todo p{color:#cfc3a6;font-size:.9rem;margin:0}
+  .placeholder{
+    background:#0c0f14;border:1px dashed var(--border);border-radius:12px;
+    min-height:180px;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:.85rem;text-align:center;padding:20px;
+  }
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/demo">Demo interattiva</a>
+    <a href="/faq">FAQ</a>
+    <a href="/contatti">Contatti</a>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1 style="font-size:1.7rem;text-wrap:balance">Crea il bot Telegram e trova il Chat ID</h1>
+  <p class="secsub" style="margin-top:8px">Sono i due dati che BetRelay ti chiede per partire:
+  il <b>Bot Token</b> e il <b>Chat ID</b> del canale dei segnali. Servono cinque minuti, si fa
+  tutto dal telefono. Gli screenshot qui sotto sono quelli veri dell'app Telegram; nome, username
+  e token mostrati sono <b>di esempio</b>.</p>
+
+  <div class="warn" style="margin-top:18px">
+    <b>Il token è una password.</b>
+    <p>Chi lo possiede controlla il tuo bot. Non pubblicarlo, non mandarlo in chat e non
+    inserirlo in screenshot. Se ti sfugge, apri @BotFather e usa <code>/revoke</code>: il vecchio
+    token smette di funzionare all'istante.</p>
+  </div>
+
+  <div class="steps">
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Apri @BotFather su Telegram</h2>
+        <p>Nella ricerca di Telegram scrivi <b>BotFather</b> e apri quello con la
+        <b>spunta blu</b> di verifica: è il bot ufficiale che crea tutti gli altri bot.</p>
+        <p>Attenzione ai cloni: se non c'è la spunta blu, non è quello giusto.</p>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/01-cerca.jpg" alt="Risultato di ricerca Telegram con BotFather e la spunta blu di verifica">
+        <figcaption>Cerca «BotFather» — deve avere la spunta blu</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Premi «Create a New Bot»</h2>
+        <p>Nella schermata di BotFather, sotto <b>My bots</b>, tocca
+        <b>➕ Create a New Bot</b>. (In alternativa puoi scrivere i comandi
+        <code>/start</code> e poi <code>/newbot</code> in chat: è la stessa cosa.)</p>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/02-profilo.jpg" alt="Schermata BotFather con il pulsante Create a New Bot evidenziato">
+        <figcaption>«Create a New Bot», sotto «My bots»</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Dai un nome e uno username al bot</h2>
+        <p><b>Bot Name</b> — il nome visibile, libero: puoi scrivere quello che vuoi
+        (nell'esempio <code>BetRelay Segnali</code>).</p>
+        <p><b>About</b> — facoltativo, una riga di descrizione.</p>
+        <p><b>Username</b> — l'indirizzo <code>t.me/…</code> del bot: deve essere <b>unico</b> su
+        tutto Telegram e <b>finire con «bot»</b> (nell'esempio
+        <code>betrelay_segnali_bot</code>). Se è già preso, Telegram te lo dice e ne scegli un
+        altro. Poi premi <b>Create Bot</b>.</p>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/03-form.jpg" alt="Form New bot di Telegram con Bot Name, About e username compilati con valori di esempio">
+        <figcaption>I campi compilati con valori d'esempio</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Copia il Bot Token</h2>
+        <p>BotFather risponde con <b>«Done! Congratulations on your new bot»</b> e, dopo
+        <i>«Use this token to access the HTTP API»</i>, la riga evidenziata in azzurro: quello è
+        il <b>Bot Token</b>. Toccalo per copiarlo.</p>
+        <p>Ha sempre questa forma: alcune cifre, i due punti, poi una lunga sequenza di lettere e
+        numeri — come <code>123456789:AAExempio…</code> nell'esempio.</p>
+        <div class="tip">
+          <b>Dove va incollato.</b>
+          <p>In BetRelay: tab <b>⚙️ Generale</b> → campo <b>🔑 Bot Token</b>. Viene salvato nel
+          keyring di Windows e non compare mai nei log dell'app.</p>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/04-chat.jpg" alt="Conversazione con BotFather: risposta Done con il token di esempio evidenziato">
+        <figcaption>Il token è la riga azzurra (qui è un token finto)</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Il token si ritrova sempre qui</h2>
+        <p>Se chiudi la chat e ti serve di nuovo, apri @BotFather → <b>My bots</b> → il tuo bot:
+        c'è il token con il pulsante <b>Copy</b>. Telegram lo mostra offuscato: tocca per
+        rivelarlo.</p>
+        <div class="warn">
+          <b>Se il token ti è sfuggito di mano…</b>
+          <p>…premi <b>Revoke</b>: ne genera uno nuovo e il vecchio smette di funzionare
+          all'istante. Ricordati poi di incollare quello nuovo in BetRelay, altrimenti il bridge
+          non si connette più.</p>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/05-token-page.jpg" alt="Pagina del bot in BotFather con il token offuscato e i pulsanti Copy e Revoke">
+        <figcaption>@BotFather → My bots → il tuo bot</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Apri il canale dei segnali → Amministratori</h2>
+        <p>Il bot appena creato non vede ancora nulla: va <b>agganciato alla chat o al canale</b>
+        da cui arrivano i segnali.</p>
+        <p>Apri il canale, tocca il suo nome in alto per aprire il profilo e vai su
+        <b>Amministratori</b>.</p>
+        <div class="tip">
+          <b>Perché amministratore?</b>
+          <p>Nei canali Telegram un bot riceve i messaggi <b>solo</b> se è amministratore: da
+          semplice iscritto non vedrebbe nulla. In un <b>gruppo</b>, invece, basta aggiungerlo
+          come membro — ma se il gruppo ha la <i>privacy mode</i> attiva, rendilo amministratore
+          anche lì.</p>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/06-canale.jpg" alt="Profilo del canale Telegram con la voce Amministratori evidenziata">
+        <figcaption>Profilo del canale → «Amministratori»</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> «Aggiungi amministratore» e cerca il tuo bot</h2>
+        <p>Tocca <b>Aggiungi amministratore</b> e cerca il bot <b>per username</b>, quello che
+        finisce in <code>bot</code> (nell'esempio <code>betrelay_segnali_bot</code>). Selezionalo
+        dal risultato della ricerca.</p>
+        <p>Se non compare, controlla di aver scritto l'username esatto: è quello che ti ha
+        confermato BotFather, non il nome visibile.</p>
+      </div>
+      <div>
+        <figure class="shot" style="margin-bottom:12px">
+          <img src="/static/img/guida/07-admin-list.jpg" alt="Lista amministratori del canale con il pulsante Aggiungi amministratore evidenziato">
+          <figcaption>«Aggiungi amministratore»</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="/static/img/guida/08-cerca-bot.jpg" alt="Ricerca del bot per username nella schermata di aggiunta amministratore">
+          <figcaption>Cerca il bot per username</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Conferma i permessi (bastano quelli minimi)</h2>
+        <p>Telegram chiede quali <b>diritti di amministrazione</b> dare al bot. A BetRelay serve
+        soltanto <b>ricevere i messaggi</b> del canale: non pubblica, non modifica, non gestisce
+        nulla.</p>
+        <p>Puoi tranquillamente lasciare disattivato <b>«Aggiungere amministratori»</b> — anzi, è
+        meglio: meno poteri ha il bot, meno danni può fare se il token finisse in mani sbagliate.
+        Conferma con ✓ in alto a destra.</p>
+        <div class="tip">
+          <b>Come capire se ha funzionato.</b>
+          <p>Il bot compare nella lista amministratori del canale. Da qui in poi riceve tutti i
+          messaggi pubblicati: manda un messaggio di prova e passa al passo successivo.</p>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/09-diritti.jpg" alt="Schermata Diritti di amministrazione con gli interruttori dei permessi del bot">
+        <figcaption>«Aggiungere amministratori» può restare spento</figcaption>
+      </figure>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Trova il Chat ID</h2>
+        <p>Il Chat ID dice a BetRelay <b>quale</b> chat ascoltare. È un numero: per i canali
+        comincia sempre con <code>-100</code> (es. <code>-1001234567890</code>).</p>
+        <p><b>Con @userinfobot:</b> nel canale tieni premuto un messaggio qualsiasi →
+        <b>Inoltra</b> → cerca <b>@userinfobot</b> → invia. Risponde subito con i dati della chat
+        di origine: il numero dopo <b>Id:</b> è quello che ti serve.</p>
+        <p><b>Oppure senza bot esterni, dentro BetRelay:</b> apri il
+        <b>🧙 Wizard prima configurazione</b>, vai allo <b>step 2</b>, manda un messaggio di prova
+        nel canale e premi <b>«📡 Controlla ora»</b>: il bridge conferma da quale chat è arrivato.</p>
+        <div class="tip">
+          <b>Dove va incollato.</b>
+          <p>In BetRelay: tab <b>⚙️ Generale</b> → campo <b>💬 Chat ID</b>. Se hai più canali,
+          aggiungili da <b>🧰 Strumenti → 📡 Chat sorgenti</b>. Il bridge ascolta
+          <b>solo</b> le chat che configuri: tutto il resto viene ignorato.</p>
+        </div>
+      </div>
+      <div>
+        <figure class="shot" style="margin-bottom:12px">
+          <img src="/static/img/guida/10-chatid.jpg" alt="Chat con userinfobot: messaggio inoltrato dal canale e risposta con Id, Title e Type">
+          <figcaption>La risposta di @userinfobot — il numero dopo «Id:»</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="/static/img/guida/12-wizard-step2.jpg" alt="Step 2 del Wizard di BetRelay con il Chat ID inserito e l'esito verde di conferma">
+          <figcaption>…oppure lo step 2 del Wizard, dentro BetRelay</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2><span class="num"></span> Incolla i due dati in BetRelay</h2>
+        <p>Apri BetRelay, tab <b>⚙️ Generale</b>: incolla il <b>🔑 Bot Token</b> (il campo lo
+        mostra a pallini, non in chiaro) e il <b>💬 Chat ID</b>. Controlla che il
+        <b>📄 CSV Path</b> punti al file che il tuo software legge, poi premi
+        <b>💾 Salva Config</b>.</p>
+        <p>Sotto, la scheda <b>📡 Chat ascoltate</b> ti conferma quali chat verranno ascoltate:
+        se leggi l'elenco con il tuo Chat ID, i due dati sono a posto.</p>
+        <div class="tip">
+          <b>Il token non resta scritto nel file di configurazione.</b>
+          <p>Viene salvato nel <b>keyring di Windows</b> (Credential Manager) e nei log compare
+          sempre come <code>[REDACTED_TOKEN]</code>.</p>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="/static/img/guida/11-app-generale.jpg" alt="Finestra di BetRelay, tab Generale, con Bot Token mascherato, Chat ID e percorso CSV compilati">
+        <figcaption>Tab ⚙️ Generale con i dati inseriti</figcaption>
+      </figure>
+    </section>
+
+  </div>
+
+  <h2 class="sec">Fatto: e adesso?</h2>
+  <p class="secsub">Con Token e Chat ID inseriti, premi <b>▶ AVVIA</b>: BetRelay parte in
+  <b>🧪 Simulazione</b>, quindi riconosce i segnali senza scrivere il CSV operativo — il modo
+  sicuro per verificare tutto. Quando i semafori della tab <b>🚦 Salute</b> sono verdi, puoi
+  passare a Collaudo o Reale dai gate della tab <b>🛡️ Sicurezza</b>.</p>
+  <div class="cta-row">
+    <a class="btn primary" href="/demo">▶ Guarda la demo interattiva</a>
+    <a class="btn ghost" href="/faq">Domande frequenti</a>
+  </div>
+
+  <div class="todo" style="margin-top:26px">
+    <b>Nota di lavorazione (non va in pubblicazione).</b>
+    <p><b>Telegram (1–8):</b> screenshot reali del proprietario, con nome bot, username, token,
+    nome canale, link d'invito e foto profilo sostituiti da valori fittizi. <b>@userinfobot (9):</b>
+    ricostruito — chrome reale (barra di stato, sfondo, barra input) + scambio disegnato.
+    <b>BetRelay (9-bis e 10):</b> screenshot <b>reali dell'app</b>, generati automaticamente sotto
+    Xvfb con una config d'esempio; lo step 2 del Wizard è catturato istanziando la vista reale da
+    script (nessuna modifica all'app). Traduzioni EN/ES dopo l'approvazione dei testi italiani.</p>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span><a href="/contatti">Contatti e supporto</a></span>
+</div></footer>
+
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

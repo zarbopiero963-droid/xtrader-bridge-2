@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BetRelay — Telegram Signal Bridge per XTrader e Betting Toolkit</title>
+<meta name="description" content="BetRelay (già XTrader Signal Bridge) legge i segnali dal tuo canale Telegram e scrive il CSV per XTrader e la famiglia Betting Toolkit (World, España, LatAm). Simulazione di default, gate espliciti, mai segnali vecchi.">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/" aria-current="page" data-i18n="nav.home">Home</a>
+    <a href="/demo" data-i18n="nav.demo">Demo interattiva</a>
+    <a href="/faq" data-i18n="nav.faq">FAQ</a>
+    <a href="/contatti" data-i18n="nav.contact">Contatti</a>
+  </div>
+  <div class="lang-sw" role="group" aria-label="Lingua / Language / Idioma">
+    <button data-lang="it" aria-pressed="false">IT</button>
+    <button data-lang="en" aria-pressed="false">EN</button>
+    <button data-lang="es" aria-pressed="false">ES</button>
+  </div>
+</div></nav>
+
+<main>
+  <section class="hero"><div class="hero-in">
+    <div>
+      <h1 data-i18n="home.h1">I segnali del tuo canale Telegram, <em>dentro il tuo software di betting</em>. Automaticamente.</h1>
+      <p class="lead" data-i18n="home.lead">Il bridge legge i messaggi della chat che scegli, li traduce con un parser
+      su misura nel CSV che il tuo software monitora, e svuota il file dopo il timeout.
+      Tu configuri una volta; poi la catena lavora da sola.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="/demo" data-i18n="home.cta.demo">▶ Prova la demo interattiva</a>
+        <a class="btn ghost" href="/faq" data-i18n="home.cta.faq">Leggi le FAQ</a>
+      </div>
+    </div>
+    <div class="chain" aria-label="Catena di funzionamento">
+📱 Telegram<br>
+<span class="arr">   │  solo chat configurate · only configured chats</span><br>
+<span class="arr">   ▼</span><br>
+🧩 <b>Custom Parser</b><br>
+<span class="arr">   │  estrae campi, non inventa dati</span><br>
+<span class="arr">   ▼</span><br>
+📄 <b>segnali.csv</b> <span class="arr">(14 colonne · columns)</span><br>
+<span class="arr">   │  scrittura atomica · atomic write</span><br>
+<span class="arr">   ▼</span><br>
+🎯 XTrader / Betting Toolkit<br>
+<span class="arr">   │  timeout / conferma · confirmation</span><br>
+<span class="arr">   ▼</span><br>
+<span class="ok">🧹 CSV pulito — mai segnali vecchi</span>
+    </div>
+  </div></section>
+
+  <div class="wrap">
+    <h2 class="sec" data-i18n="home.net.h">Compatibile con tutta la famiglia Betting Toolkit</h2>
+    <p class="secsub" data-i18n="home.net.p">Il bridge è nato per <b>XTrader</b> (Italia) e parla lo stesso CSV degli
+    altri prodotti della stessa casa madre. Scegli nel bridge la lingua sorgente del tuo software e il separatore
+    decimale del CSV si allinea da solo.</p>
+    <div class="netgrid">
+      <div class="netcard"><span class="flag">🇮🇹</span><b>XTrader</b><span class="netsub">TradingSportivo · <span data-i18n="home.net.it">Italia</span></span></div>
+      <div class="netcard"><span class="flag">🌍</span><b>BETTINGTOOLKIT.COM</b><span class="netsub" data-i18n="home.net.world">World</span></div>
+      <div class="netcard"><span class="flag">🇪🇸</span><b>BETTINGTOOLKIT.ES</b><span class="netsub" data-i18n="home.net.es">Spagna</span></div>
+      <div class="netcard"><span class="flag">🌎</span><b>BETTINGTOOLKIT.LAT</b><span class="netsub" data-i18n="home.net.lat">America Latina</span></div>
+    </div>
+
+    <h2 class="sec" data-i18n="home.sec1">Perché è diverso da un bot di scommesse</h2>
+    <p class="secsub" data-i18n="home.sec1p">Il bridge <b>non piazza scommesse</b> e non parla con Betfair: scrive solo il
+    file CSV che il tuo software monitora. È XTrader / Betting Toolkit a operare — il bridge resta un ponte prevedibile e
+    verificabile.</p>
+
+    <div class="grid3">
+      <div class="card"><span class="tag" data-i18n="home.card1.tag">Parser su misura</span>
+        <h3 data-i18n="home.card1.h">🧩 Legge il TUO canale</h3>
+        <p data-i18n="home.card1.p">Ogni canale scrive i segnali a modo suo. Col Parser Personalizzato definisci come
+        estrarre evento, mercato, selezione e quota — con anteprima e diagnostica su un
+        messaggio reale prima di andare live.</p></div>
+      <div class="card"><span class="tag" data-i18n="home.card2.tag">Sicurezza per progettazione</span>
+        <h3 data-i18n="home.card2.h">🛡️ Simulazione di default</h3>
+        <p data-i18n="home.card2.p">Si parte in Simulazione: segnali riconosciuti, CSV operativo mai toccato. Il Collaudo
+        chiede conferma; la modalità Reale richiede di digitare la parola REALE e mostra un
+        banner rosso persistente.</p></div>
+      <div class="card"><span class="tag" data-i18n="home.card3.tag">Mai segnali vecchi</span>
+        <h3 data-i18n="home.card3.h">🧹 CSV sempre pulito</h3>
+        <p data-i18n="home.card3.p">Un solo segnale attivo, timeout configurabile, svuotamento automatico, anti-duplicato
+        persistente e recovery dopo crash: il software vede il segnale più recente o nessuno.</p></div>
+      <div class="card"><span class="tag" data-i18n="home.card4.tag">Multi-canale</span>
+        <h3 data-i18n="home.card4.h">📡 Più chat sorgenti</h3>
+        <p data-i18n="home.card4.p">Configura più canali, ognuno col suo parser e provider. Il filtro chat_id è
+        un'invariante: i messaggi da chat non configurate vengono sempre ignorati.</p></div>
+      <div class="card"><span class="tag" data-i18n="home.card5.tag">Il cerchio si chiude</span>
+        <h3 data-i18n="home.card5.h">✅ Conferme dal software</h3>
+        <p data-i18n="home.card5.p">Collegando la chat notifiche, una scommessa confermata o rifiutata viene
+        rimossa subito dal CSV, senza aspettare il timeout.</p></div>
+      <div class="card"><span class="tag" data-i18n="home.card6.tag">Tutto sotto controllo</span>
+        <h3 data-i18n="home.card6.h">🚦 Salute a semafori</h3>
+        <p data-i18n="home.card6.p">Sette semafori (Telegram, parser, CSV, modalità…), dashboard con contatori e log
+        dettagliato con livelli colorati: sai sempre cosa sta succedendo.</p></div>
+    </div>
+
+    <div class="safety">
+      <b data-i18n="home.safety.h">Nota di trasparenza.</b>
+      <p data-i18n="home.safety.p">Il bridge richiede Windows 10/11 a 64 bit e il tuo software di betting installato
+      sulla stessa macchina. Le impostazioni restano sul tuo PC (<code>%APPDATA%\XTraderBridge</code>);
+      il token Telegram è salvato nel keyring di Windows e non compare mai nei log.</p>
+    </div>
+
+    <h2 class="sec" data-i18n="home.sec2">Vuoi vederlo in azione?</h2>
+    <p class="secsub" data-i18n="home.sec2p">La demo interattiva replica l'app vera: avvia il bridge simulato, invia un
+    segnale di prova e guarda il CSV scriversi e svuotarsi. Con tour guidato passo-passo.</p>
+    <div class="cta-row"><a class="btn primary" href="/demo" data-i18n="home.cta.open">▶ Apri la demo</a></div>
+  </div>
+</main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span data-i18n="footer.tag">Il bridge non piazza scommesse: scrive solo il CSV che il tuo software legge.</span>
+</div></footer>
+
+<script src="/static/i18n.js" defer></script>
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

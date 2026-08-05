@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ — BetRelay</title>
+<meta name="description" content="Domande frequenti su BetRelay: requisiti, configurazione, parser, modalità di sicurezza, CSV e risoluzione problemi.">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/" data-i18n="nav.home">Home</a>
+    <a href="/demo" data-i18n="nav.demo">Demo interattiva</a>
+    <a href="/faq" aria-current="page" data-i18n="nav.faq">FAQ</a>
+    <a href="/contatti" data-i18n="nav.contact">Contatti</a>
+  </div>
+  <div class="lang-sw" role="group" aria-label="Lingua / Language / Idioma">
+    <button data-lang="it" aria-pressed="false">IT</button>
+    <button data-lang="en" aria-pressed="false">EN</button>
+    <button data-lang="es" aria-pressed="false">ES</button>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1 style="font-size:1.6rem" data-i18n="faq.h1">Domande frequenti</h1>
+  <p class="secsub" style="margin-top:6px" data-i18n="faq.sub">Non trovi la risposta? Chiedi al
+  <b>chatbot di supporto</b> (in basso a destra) o scrivici dalla <a href="/contatti">pagina Contatti</a>.</p>
+
+  <h2 class="sec" data-i18n="faq.s1">Installazione e requisiti</h2>
+  <details class="faq"><summary data-i18n="faq.q1">Che computer serve?</summary><div class="a" data-i18n="faq.a1">
+    Windows 10/11 a 64 bit col tuo software di betting (XTrader / Betting Toolkit) installato sulla <b>stessa
+    macchina</b>: comunicano tramite un file CSV locale. L'EXE include già tutto (non serve installare Python).
+    Qualsiasi PC recente va bene.</div></details>
+  <details class="faq"><summary data-i18n="faq.q2">Posso usare un VPS?</summary><div class="a" data-i18n="faq.a2">
+    Sì, è la scelta tipica per il 24/7: un VPS Windows con 2 vCPU, 4 GB di RAM e 50 GB SSD basta.
+    Configura autologon e avvio automatico, e ricorda: chiudendo la sessione RDP chiudi solo la finestra,
+    senza fare logout. Se il tuo conto ha vincoli territoriali (es. Betfair.it), preferisci un VPS con IP
+    di quel paese.</div></details>
+  <details class="faq"><summary data-i18n="faq.q3">Cosa mi serve prima di iniziare?</summary><div class="a" data-i18n="faq.a3">
+    Un bot Telegram creato con <b>@BotFather</b> (ti dà il token), il bot aggiunto alla chat/canale
+    dei segnali, il <b>Chat ID</b> di quella chat, il software configurato per monitorare il CSV, e un
+    conto Betfair attivo.</div></details>
+
+  <h2 class="sec" data-i18n="faq.s2">Configurazione</h2>
+  <details class="faq"><summary data-i18n="faq.q4">Come faccio la prima configurazione?</summary><div class="a" data-i18n="faq.a4">
+    Usa il <b>🧙 Wizard prima configurazione</b>: 5 passi con verifiche dal vivo — token (prova
+    connessione), Chat ID (messaggio di prova), parser su un segnale reale con anteprima della
+    riga CSV, verifica del percorso CSV e checklist finale. Il wizard non attiva mai la modalità
+    Reale.</div></details>
+  <details class="faq"><summary data-i18n="faq.q5">Il mio canale scrive i segnali in un formato particolare: funziona?</summary><div class="a" data-i18n="faq.a5">
+    Sì, è il lavoro del <b>🧩 Parser Personalizzato</b>: per ogni campo definisci come estrarlo dal
+    messaggio («Inizia dopo» / «Finisce prima», valori fissi, traduzioni). Con «🧪 Prova messaggio»
+    vedi subito la riga CSV che verrebbe generata. Il parser non inventa dati: se manca un campo
+    obbligatorio, nessuna riga viene scritta.</div></details>
+  <details class="faq"><summary data-i18n="faq.q6">Posso usare più canali insieme?</summary><div class="a" data-i18n="faq.a6">
+    Sì: da <b>🧰 Strumenti → 📡 Chat sorgenti</b> aggiungi più chat, ognuna con il suo parser e
+    provider. Il bridge ascolta <b>solo</b> le chat configurate.</div></details>
+  <details class="faq"><summary data-i18n="faq.q7">Dove vengono salvate le impostazioni?</summary><div class="a" data-i18n="faq.a7">
+    In <code>%APPDATA%\XTraderBridge\config.json</code>. Il token Telegram è salvato nel keyring
+    di Windows (Credential Manager), non in chiaro. Le impostazioni sopravvivono alla
+    reinstallazione del programma.</div></details>
+
+  <h2 class="sec" data-i18n="faq.s3">Sicurezza e modalità</h2>
+  <details class="faq"><summary data-i18n="faq.q8">Il bridge piazza scommesse da solo?</summary><div class="a" data-i18n="faq.a8">
+    No. Il bridge scrive solo il CSV che il software monitora: è il software a piazzare. E di default il
+    bridge parte in <b>🧪 Simulazione</b>, dove il CSV operativo non viene nemmeno scritto.</div></details>
+  <details class="faq"><summary data-i18n="faq.q9">Come si passa alla modalità reale?</summary><div class="a" data-i18n="faq.a9">
+    Dalla tab <b>🛡️ Sicurezza</b>, con attrito intenzionale: il passaggio a <b>🔬 Collaudo</b>
+    chiede una conferma Sì/No; la modalità <b>⚠️ Reale</b> richiede di digitare la parola
+    <code>REALE</code>, mostra un banner rosso persistente e chiede conferma a ogni avvio del
+    listener.</div></details>
+  <details class="faq"><summary data-i18n="faq.q10">Rischio di ripetere scommesse vecchie?</summary><div class="a" data-i18n="faq.a10">
+    No: un solo segnale attivo (nel design predefinito), timeout configurabile, svuotamento
+    automatico del CSV e anti-duplicato persistente. Dopo un crash o blackout, un CSV stantio
+    viene ripulito al successivo avvio, prima che qualsiasi cosa possa scrivere di nuovo.</div></details>
+  <details class="faq"><summary data-i18n="faq.q11">Cosa succede se cade la connessione?</summary><div class="a" data-i18n="faq.a11">
+    Il bridge si riconnette da solo con attese crescenti (2s → 60s) mostrando
+    <b>RICONNESSIONE…</b>. I messaggi più vecchi di <code>max_signal_age</code> (default 120s)
+    vengono ignorati: gli arretrati non diventano scommesse vecchie. Un errore non recuperabile
+    (es. token non valido) ferma il bridge e mostra l'errore.</div></details>
+
+  <h2 class="sec" data-i18n="faq.s4">Problemi comuni</h2>
+  <details class="faq"><summary data-i18n="faq.q12">Il bridge non parte: perché?</summary><div class="a" data-i18n="faq.a12">
+    Il motivo esatto è sempre nel <b>📋 Log</b>. Cause tipiche: Bot Token mancante, CSV Path
+    mancante, Timeout non valido, nessuna chat configurata, oppure nessun Parser Personalizzato
+    attivo. La tab <b>🚦 Salute</b> mostra 7 semafori con lo stato di ogni requisito.</div></details>
+  <details class="faq"><summary data-i18n="faq.q13">Non scrive niente nel CSV</summary><div class="a" data-i18n="faq.a13">
+    Se sei in Simulazione è normale: è il comportamento di sicurezza predefinito. Per scrivere
+    davvero passa a Collaudo o Reale (con i gate di conferma).</div></details>
+  <details class="faq"><summary data-i18n="faq.q14">Posso aprire due istanze del bridge?</summary><div class="a" data-i18n="faq.a14">
+    No: la seconda istanza viene rifiutata all'avvio con un avviso. Due istanze potrebbero
+    scrivere lo stesso CSV e piazzare scommesse doppie.</div></details>
+  <details class="faq"><summary data-i18n="faq.q15">Devo tenere il programma aperto?</summary><div class="a" data-i18n="faq.a15">
+    Sì, deve girare (anche minimizzato) mentre vuoi ricevere segnali. Con
+    <code>auto_start_listener</code> può partire da solo all'apertura — in modalità Reale chiede
+    prima conferma.</div></details>
+</div></main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span><a href="/contatti" data-i18n="footer.contact">Contatti e supporto</a></span>
+</div></footer>
+
+<script src="/static/i18n.js" defer></script>
+<script src="/static/chat.js" defer></script>
+</body>
+</html>
