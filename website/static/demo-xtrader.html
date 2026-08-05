@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo — la finestra Segnali di XTrader | BetRelay</title>
+<meta name="description" content="Replica interattiva della finestra Segnali di XTrader: crea la fonte, guarda il CSV di BetRelay riempirsi e il segnale diventare verde (valido) o rosso (non valido).">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  /* ====== Replica XTrader: tema chiaro Windows, distinto dal sito scuro ====== */
+  .xt{
+    --win:#f0f0f0; --win-line:#dcdcdc; --win-line2:#c8c8c8; --paper:#fff;
+    --ink:#1a1a1a; --ink-soft:#555; --hdr-ink:#0b3d91;
+    --sel:#cce8ff; --ok:#1e8e3e; --ko:#c62828; --amber:#b06000;
+    background:var(--win); color:var(--ink); border:1px solid var(--win-line2);
+    border-radius:6px; overflow:hidden; font-family:"Segoe UI",Tahoma,Arial,sans-serif;
+    font-size:12.5px; line-height:1.35; box-shadow:0 18px 46px rgba(0,0,0,.45);
+  }
+  .xt *{box-sizing:border-box}
+  .xt-title{
+    display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff;
+    border-bottom:1px solid var(--win-line);font-size:12.5px;
+  }
+  .xt-title .dots{margin-left:auto;display:flex;gap:14px;color:#666;font-size:13px}
+  .xt-bar{
+    display:flex;align-items:center;gap:10px;padding:5px 8px;background:var(--win);
+    border-bottom:1px solid var(--win-line);flex-wrap:wrap;
+  }
+  .xt-bar .lbl{color:var(--ink-soft)}
+  .xt-btn{
+    border:1px solid transparent;background:none;padding:3px 7px;border-radius:3px;
+    font:inherit;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:5px;
+  }
+  .xt-btn:hover:not(:disabled){border-color:#9ec5e8;background:#e6f2fb}
+  .xt-btn:disabled{color:#a0a0a0;cursor:not-allowed}
+  .xt-btn.on{background:#d6e9f8;border-color:#9ec5e8}
+  .xt-filter{
+    border:1px solid var(--win-line2);background:#fff;padding:2px 6px;min-width:130px;
+    color:#777;font-size:12px;
+  }
+  /* tabelle stile ListView */
+  .xt-tw{overflow-x:auto;background:var(--paper)}
+  table.xt-t{border-collapse:collapse;width:100%;min-width:1180px;background:var(--paper)}
+  table.xt-t th{
+    text-align:left;font-weight:400;color:var(--hdr-ink);background:var(--win);
+    border-right:1px solid var(--win-line);border-bottom:1px solid var(--win-line2);
+    padding:4px 8px;white-space:nowrap;position:sticky;top:0;
+  }
+  table.xt-t td{border-right:1px solid #eee;border-bottom:1px solid #f2f2f2;padding:4px 8px;white-space:nowrap}
+  table.xt-t tbody tr.new{animation:xtin .5s ease}
+  @keyframes xtin{from{background:#fff8d6}to{background:transparent}}
+  table.xt-t tbody tr.used{background:#e8f7e9}
+  .xt-empty{color:#777;padding:18px 10px;background:var(--paper);font-style:italic}
+  .xt-status{padding:4px 10px;background:var(--win);border-top:1px solid var(--win-line);color:#0b3d91}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:middle;margin-right:6px}
+  .dot.ok{background:var(--ok)} .dot.ko{background:var(--ko)}
+  .xt-sec{padding:4px 10px;background:#e9eef3;border-bottom:1px solid var(--win-line);color:#333;font-size:11.5px}
+
+  /* ====== dialog Fonte Segnali ====== */
+  .ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;place-items:center;z-index:60;padding:16px}
+  .ovl.show{display:grid}
+  .dlg{
+    background:#f6f6f6;border:1px solid #b9b9b9;border-radius:5px;width:min(430px,100%);
+    font-family:"Segoe UI",Tahoma,Arial,sans-serif;font-size:12.5px;color:#1a1a1a;
+    box-shadow:0 24px 60px rgba(0,0,0,.6);
+  }
+  .dlg h3{background:#fff;border-bottom:1px solid #e2e2e2;padding:7px 12px;font-size:12.5px;font-weight:400}
+  .dlg .body{padding:14px 16px;background:#f6f6f6}
+  .dlg label.f{display:block;color:#0b3d91;margin:12px 0 4px}
+  .dlg input[type=text]{width:100%;border:1px solid #b9b9b9;padding:4px 6px;font:inherit;background:#fff}
+  .dlg input[disabled]{background:#ececec;color:#999}
+  .dlg .radio{display:flex;align-items:center;gap:7px;margin:10px 0 3px;color:#0b3d91}
+  .dlg .chk{display:flex;align-items:center;gap:7px;margin:9px 0}
+  .dlg select{border:1px solid #b9b9b9;padding:3px 5px;font:inherit;background:#fff}
+  .dlg .row-int{display:flex;align-items:center;gap:8px}
+  .dlg .foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;background:#f6f6f6}
+  .dlg .wbtn{border:1px solid #b9b9b9;background:#e9e9e9;padding:5px 18px;font:inherit;cursor:pointer;border-radius:3px}
+  .dlg .wbtn.ok{border-color:#7aa87a}
+  .dlg .wbtn:hover{background:#dcdcdc}
+
+  /* ====== pannello CSV + controlli demo ====== */
+  .stage{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start;margin-top:22px}
+  .stage>*{min-width:0}   /* senza questo la tabella larga sfonda la colonna e spinge fuori il pannello */
+  @media (max-width:1000px){.stage{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .panel h3{font-size:.95rem;margin-bottom:4px}
+  .panel p.h{color:var(--muted);font-size:.82rem;margin-bottom:12px}
+  .csvbox{
+    background:#0c0f14;border:1px solid var(--border);border-radius:8px;padding:10px;
+    font-family:var(--mono);font-size:.72rem;line-height:1.6;overflow-x:auto;white-space:pre;color:#cfd6e4;
+  }
+  .csvbox .hdr{color:var(--cyan)}
+  .csvbox .row{color:var(--green-txt)}
+  .csvbox .none{color:var(--muted);font-style:italic;white-space:normal}
+  .act{
+    display:block;width:100%;text-align:left;margin-bottom:8px;border-radius:8px;
+    border:1px solid var(--border);background:var(--panel2);color:var(--text);
+    padding:10px 12px;font:inherit;font-size:.88rem;cursor:pointer;
+  }
+  .act:hover:not(:disabled){border-color:var(--cyan)}
+  .act:disabled{opacity:.4;cursor:not-allowed}
+  .act b{display:block;font-size:.9rem;margin-bottom:2px}
+  .act span{color:var(--muted);font-size:.78rem}
+  .act.ko b{color:var(--red-txt)}
+  .act.ok b{color:var(--green-txt)}
+  .log{
+    background:#0c0f14;border:1px solid var(--border);border-radius:8px;padding:10px;
+    font-family:var(--mono);font-size:.72rem;line-height:1.75;max-height:210px;overflow-y:auto;margin-top:12px;
+  }
+  .log div{color:var(--muted)}
+  .log .i{color:var(--cyan)} .log .g{color:var(--green-txt)} .log .r{color:var(--red-txt)} .log .a{color:var(--amber)}
+  .why{
+    border-left:3px solid var(--red-txt);background:#1b1216;border-radius:8px;
+    padding:12px 14px;margin-top:12px;font-size:.85rem;color:var(--muted);
+  }
+  .why b{color:var(--red-txt)}
+  .why.good{border-left-color:var(--green);background:#101a12}
+  .why.good b{color:var(--green-txt)}
+  .note{border-left:3px solid var(--amber);background:var(--panel);border-radius:8px;padding:13px 16px;margin-top:20px}
+  .note b{color:var(--amber)}
+  .note p{color:var(--muted);font-size:.87rem}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/demo">Demo interattiva</a>
+    <a href="/documentazione" aria-current="page">Documentazione</a>
+    <a href="/faq">FAQ</a>
+    <a href="/contatti">Contatti</a>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1 style="font-size:1.6rem">La finestra Segnali di XTrader, dall'altra parte del ponte</h1>
+  <p class="secsub" style="margin-top:6px">La <a href="/demo">demo del bridge</a> mostra BetRelay che
+  <b>scrive</b> il CSV. Questa mostra XTrader che lo <b>legge</b>: crei la fonte, il file si riempie,
+  e il segnale diventa <b style="color:var(--green-txt)">verde</b> se XTrader riesce a riconoscerlo
+  o <b style="color:var(--red-txt)">rosso</b> se non ci riesce. Riprodotta dagli screenshot reali del
+  programma — etichette e colonne sono quelle vere.</p>
+
+  <div class="stage">
+    <div>
+      <!-- ============ REPLICA FINESTRA SEGNALI ============ -->
+      <div class="xt" id="xtwin">
+        <div class="xt-title"><span>🛰️</span><b style="font-weight:600">Segnali</b>
+          <span class="dots"><span>—</span><span>▢</span><span>✕</span></span></div>
+
+        <div class="xt-sec">Fonti — da dove arrivano i segnali</div>
+        <div class="xt-bar">
+          <span class="lbl">Fonti</span>
+          <button class="xt-btn" id="btnNuovaFonte" title="Nuova fonte">🗋 Nuova</button>
+          <button class="xt-btn" disabled>✎ Modifica</button>
+          <button class="xt-btn" disabled>🗑 Elimina</button>
+          <button class="xt-btn" id="btnAggiorna" disabled title="Aggiorna i segnali della fonte">⟳ Aggiorna</button>
+        </div>
+        <div class="xt-tw">
+          <table class="xt-t" style="min-width:900px">
+            <thead><tr>
+              <th style="width:190px">Nome Servizio</th><th style="width:210px">Nome File</th><th>Url</th>
+              <th>Ricarica Automaticamente</th><th>Intervallo</th><th>Escludi N.V.</th>
+              <th>Riconoscimento Sel</th><th>Ultimo Agg.</th>
+            </tr></thead>
+            <tbody id="tbFonti">
+              <tr><td>☑ Segnali Importati</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td>☑ Segnali Creati</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="xt-sec">Segnali — le righe lette dal file</div>
+        <div class="xt-bar">
+          <button class="xt-btn" id="btnEliminaTutti" disabled>🗑 Elimina tutti</button>
+          <button class="xt-btn" id="btnEliminaNV" disabled>✖ Elimina non validi</button>
+          <button class="xt-btn" id="btnSoloValidi">☐ Solo Validi</button>
+          <span class="xt-filter">Filtro Provider</span><span class="lbl">✕</span>
+          <span class="xt-filter">Filtro Nome Mercato</span><span class="lbl">✕</span>
+          <span class="xt-filter">Filtro Marketid</span><span class="lbl">✕</span>
+          <span class="lbl" id="xtCount" style="margin-left:auto">Nessun segnale disponibile.</span>
+        </div>
+        <div class="xt-tw">
+          <table class="xt-t">
+            <thead><tr>
+              <th>Fonte</th><th>[Provider]</th><th>Data</th><th>Sport</th><th>[Handicap]</th>
+              <th>[EventId]</th><th>[MarketId]</th><th>[SelectionId]</th><th>[EventName]</th>
+              <th>[MarketName]</th><th>[SelectionName]</th><th>[MarketType]</th><th>Inizio</th><th>[BetType]</th>
+            </tr></thead>
+            <tbody id="tbSegnali"></tbody>
+          </table>
+        </div>
+        <div id="xtEmpty" class="xt-empty">Nessun segnale disponibile.</div>
+        <div class="xt-status" id="xtStatus">Nessuna fonte configurata: XTrader non sta leggendo nessun file.</div>
+      </div>
+
+      <div class="why good" id="why" hidden><b>—</b><span id="whyTxt"></span></div>
+
+      <div class="note">
+        <b>Cosa è simulato e cosa no.</b>
+        <p>Le colonne, le etichette e i due esiti verde/rosso sono quelli reali, ricavati dagli
+        screenshot del programma. Il riconoscimento qui è <b>finto</b>: XTrader vero confronta i dati
+        con il palinsesto Betfair del tuo conto, e su quello nessuna pagina web può metterci becco.
+        Serve a far capire il meccanismo, non a sostituire una prova sul programma.</p>
+      </div>
+    </div>
+
+    <!-- ============ CONTROLLI ============ -->
+    <div>
+      <div class="panel">
+        <h3>📄 Il file CSV</h3>
+        <p class="h">Quello che BetRelay scrive e XTrader legge. È l'unico punto di contatto.</p>
+        <div class="csvbox" id="csvBox"><span class="none">C:\XTrader\segnali.csv — non ancora creato</span></div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h3>▶ Prova</h3>
+        <p class="h">Segui i passi in ordine: il primo sblocca i successivi.</p>
+
+        <button class="act" id="a1"><b>1 · Crea la fonte in XTrader</b>
+          <span>Apre la dialog «Fonte Segnali» e la punta al file del bridge</span></button>
+
+        <button class="act ok" id="a2" disabled><b>2 · BetRelay riceve un segnale valido</b>
+          <span>Scrive una riga con i dati completi e coerenti</span></button>
+
+        <button class="act ko" id="a3" disabled><b>3 · …oppure un segnale che XTrader non riconosce</b>
+          <span>Nome selezione nella lingua sbagliata rispetto alla fonte</span></button>
+
+        <button class="act" id="a4" disabled><b>4 · Scade il timeout del bridge</b>
+          <span>Il CSV torna a sola intestazione</span></button>
+
+        <button class="act" id="a0"><b>↺ Ricomincia</b><span>Riporta tutto allo stato iniziale</span></button>
+
+        <div class="log" id="log"><div class="i">[--:--:--] Pronto. Comincia dal passo 1.</div></div>
+      </div>
+    </div>
+  </div>
+</div></main>
+
+<!-- ============ DIALOG «Fonte Segnali» (replica di varie/03 e varie/04) ============ -->
+<div class="ovl" id="ovl" role="dialog" aria-modal="true" aria-labelledby="dlgT">
+  <div class="dlg">
+    <h3 id="dlgT">Fonte Segnali</h3>
+    <div class="body">
+      <label class="f" for="fNome">Nome Servizio</label>
+      <input type="text" id="fNome" value="BetRelay">
+
+      <div class="radio"><input type="radio" name="orig" id="fUrl"><label for="fUrl">URL</label></div>
+      <input type="text" id="fUrlV" disabled>
+
+      <div class="radio"><input type="radio" name="orig" id="fFile" checked><label for="fFile">Nome File</label></div>
+      <input type="text" id="fFileV" value="C:\XTrader\segnali.csv">
+
+      <div class="chk"><input type="checkbox" id="fAuto" checked>
+        <label for="fAuto">Aggiorna automaticamente ogni</label>
+        <input type="text" id="fInt" value="00:00:10" style="width:82px;text-align:center"></div>
+
+      <div class="chk"><input type="checkbox" id="fEsc">
+        <label for="fEsc">Escludi automaticamente segnali non validati</label></div>
+
+      <label class="f" for="fRic">Riconoscimento selezioni</label>
+      <select id="fRic" style="width:100%">
+        <option>MarketId, SelectionId</option>
+        <option selected>EventName,MarketType,SelectionName</option>
+      </select>
+
+      <div class="row-int" style="margin-top:12px">
+        <label class="f" for="fLang" style="margin:0">Lingua Palinsesto</label>
+        <select id="fLang"><option>EN</option><option selected>IT</option><option>ES</option></select>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="wbtn" id="dlgNo">✖ Annulla</button>
+      <button class="wbtn ok" id="dlgOk">✔ Ok</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+
+  var HDR = "Provider,EventId,EventName,MarketId,MarketName,MarketType,SelectionId," +
+            "SelectionName,Handicap,Price,MinPrice,MaxPrice,BetType,Points";
+
+  // Il segnale d'esempio. SelectionName cambia con la lingua: è il perno della demo.
+  var SIG = {
+    provider:"BetRelay", eventId:"35035280", eventName:"Spagna - Capo Verde",
+    marketId:"1.259018793", marketName:"Esito Finale", marketType:"MATCH_ODDS",
+    selectionId:"22", selName:{it:"Spagna", en:"Spain"}, handicap:"0",
+    price:"1,85", betType:"PUNTA", sport:"Calcio", inizio:"08/07/2026 21:00"
+  };
+
+  var st = { fonte:null, righe:[], soloValidi:false, csv:null };
+
+  function ora(){
+    var d = new Date();
+    return ["getHours","getMinutes","getSeconds"].map(function(m){
+      return ("0" + d[m]()).slice(-2); }).join(":");
+  }
+  function log(txt, cls){
+    var box = $("log"), d = document.createElement("div");
+    d.className = cls || ""; d.textContent = "[" + ora() + "] " + txt;
+    box.appendChild(d); box.scrollTop = box.scrollHeight;
+  }
+
+  function q(v){ return '"' + v + '"'; }
+
+  function renderCsv(){
+    var b = $("csvBox");
+    if (st.csv === null){
+      b.innerHTML = '<span class="none">C:\\XTrader\\segnali.csv — non ancora creato</span>';
+    } else if (st.csv === "vuoto"){
+      b.innerHTML = '<span class="hdr">' + HDR + '</span>\n' +
+                    '<span class="none">(solo intestazione — nessun segnale attivo)</span>';
+    } else {
+      b.innerHTML = '<span class="hdr">' + HDR + '</span>\n<span class="row">' + st.csv + '</span>';
+    }
+  }
+
+  function renderFonti(){
+    var tb = $("tbFonti");
+    var vecchia = tb.querySelector("tr.fonte-bridge");
+    if (vecchia) vecchia.remove();
+    if (!st.fonte) return;
+    var tr = document.createElement("tr");
+    tr.className = "fonte-bridge new";
+    var f = st.fonte;
+    [ "☑ " + f.nome, f.file, "", f.auto ? "Sì" : "No", f.auto ? f.intervallo : "",
+      f.escludi ? "Sì" : "No", f.ric, f.ultimo || "" ].forEach(function(v){
+      var td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  }
+
+  function renderSegnali(){
+    var tb = $("tbSegnali");
+    tb.innerHTML = "";
+    var mostrate = st.righe.filter(function(r){ return !st.soloValidi || r.valido; });
+
+    mostrate.forEach(function(r){
+      var tr = document.createElement("tr");
+      if (r.nuova) tr.className = "new";
+      var cells = [
+        { html:'<span class="dot ' + (r.valido ? "ok" : "ko") + '"></span>' + r.fonte },
+        { t:r.provider }, { t:r.data }, { t:r.sport }, { t:r.handicap }, { t:r.eventId },
+        { t:r.marketId }, { t:r.selectionId }, { t:r.eventName }, { t:r.marketName },
+        { t:r.selName }, { t:r.marketType }, { t:r.inizio }, { t:r.betType }
+      ];
+      cells.forEach(function(c){
+        var td = document.createElement("td");
+        if (c.html) td.innerHTML = c.html; else td.textContent = c.t;
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+      r.nuova = false;
+    });
+
+    var vuoto = mostrate.length === 0;
+    $("xtEmpty").hidden = !vuoto;
+    $("xtEmpty").textContent = st.righe.length && vuoto
+      ? "Nessun segnale valido da mostrare (il filtro «Solo Validi» è attivo)."
+      : "Nessun segnale disponibile.";
+
+    var validi = st.righe.filter(function(r){ return r.valido; }).length;
+    $("xtCount").textContent = st.righe.length
+      ? st.righe.length + " segnali elencati, " + validi + " validi."
+      : "Nessun segnale disponibile.";
+
+    $("btnEliminaTutti").disabled = !st.righe.length;
+    $("btnEliminaNV").disabled = !st.righe.some(function(r){ return !r.valido; });
+  }
+
+  function spiega(ok, testo){
+    var w = $("why");
+    w.hidden = false;
+    w.className = "why" + (ok ? " good" : "");
+    w.querySelector("b").textContent = ok ? "Segnale valido — icona verde. " : "Segnale non valido — icona rossa. ";
+    $("whyTxt").textContent = testo;
+  }
+
+  function stato(txt){ $("xtStatus").textContent = txt; }
+
+  // ---------- passo 1: creare la fonte ----------
+  $("a1").addEventListener("click", function(){ $("ovl").classList.add("show"); });
+  $("dlgNo").addEventListener("click", function(){ $("ovl").classList.remove("show"); });
+  $("fUrl").addEventListener("change", sincronizzaOrigine);
+  $("fFile").addEventListener("change", sincronizzaOrigine);
+  function sincronizzaOrigine(){
+    var perFile = $("fFile").checked;
+    $("fFileV").disabled = !perFile;
+    $("fUrlV").disabled = perFile;
+  }
+
+  $("dlgOk").addEventListener("click", function(){
+    if ($("fUrl").checked){
+      log("Origine «URL»: BetRelay scrive un file locale, non serve un indirizzo web.", "a");
+      return;
+    }
+    st.fonte = {
+      nome: $("fNome").value || "BetRelay",
+      file: $("fFileV").value,
+      auto: $("fAuto").checked,
+      intervallo: $("fInt").value,
+      escludi: $("fEsc").checked,
+      ric: $("fRic").value,
+      lingua: $("fLang").value,
+      ultimo: ""
+    };
+    $("ovl").classList.remove("show");
+    renderFonti();
+    stato("Fonte «" + st.fonte.nome + "» attiva su " + st.fonte.file +
+          (st.fonte.auto ? " — ricarica ogni " + st.fonte.intervallo : " — ricarica manuale") +
+          " · riconoscimento: " + st.fonte.ric + " · lingua: " + st.fonte.lingua);
+    log("Fonte creata. XTrader ora rilegge quel file " +
+        (st.fonte.auto ? "ogni " + st.fonte.intervallo + "." : "solo quando premi Aggiorna."), "g");
+    if (st.fonte.ric.indexOf("EventName") === 0){
+      log("Riconoscimento per NOMI: conta la «Lingua Palinsesto» (" + st.fonte.lingua + ").", "i");
+    } else {
+      log("Riconoscimento per ID: contano MarketId e SelectionId, la lingua non incide.", "i");
+    }
+    $("a2").disabled = false; $("a3").disabled = false;
+    $("btnAggiorna").disabled = false;
+    $("a1").disabled = true;
+  });
+
+  // ---------- scrittura di un segnale ----------
+  function scrivi(linguaNome){
+    var sel = SIG.selName[linguaNome];
+    st.csv = [ q(SIG.provider), q(SIG.eventId), q(SIG.eventName), q(SIG.marketId),
+               q(SIG.marketName), q(SIG.marketType), q(SIG.selectionId), q(sel),
+               q(SIG.handicap), q(SIG.price), '""', '""', q(SIG.betType), '""' ].join(",");
+    st.csvSel = sel;
+    st.csvLingua = linguaNome;
+    renderCsv();
+    log("BetRelay ha scritto una riga nel CSV (SelectionName = «" + sel + "»).", "i");
+    $("a4").disabled = false;
+    programmaRefresh();
+  }
+
+  var timer = null;
+  function programmaRefresh(){
+    if (!st.fonte) return;
+    clearTimeout(timer);
+    if (!st.fonte.auto){
+      log("Ricarica automatica disattivata: premi «⟳ Aggiorna» nella finestra Fonti.", "a");
+      return;
+    }
+    log("Attendo la ricarica automatica della fonte…", "");
+    timer = setTimeout(rileggi, 1600);
+  }
+
+  function rileggi(){
+    if (!st.fonte) return;
+    st.fonte.ultimo = ora();
+    renderFonti();
+
+    if (st.csv === null || st.csv === "vuoto"){
+      log("Ricarica: il file contiene solo l'intestazione, nessun segnale da aggiungere.", "");
+      return;
+    }
+
+    // Validazione simulata: col metodo a NOMI il nome deve essere nella lingua della fonte.
+    var perNomi = st.fonte.ric.indexOf("EventName") === 0;
+    var valido = perNomi ? (st.csvLingua === st.fonte.lingua.toLowerCase()) : true;
+
+    st.righe.push({
+      fonte: st.fonte.nome, provider: SIG.provider, data: ora(), sport: SIG.sport,
+      handicap: SIG.handicap, eventId: SIG.eventId, marketId: SIG.marketId,
+      selectionId: SIG.selectionId, eventName: SIG.eventName, marketName: SIG.marketName,
+      selName: st.csvSel, marketType: SIG.marketType, inizio: SIG.inizio,
+      betType: SIG.betType, valido: valido, nuova: true
+    });
+    renderSegnali();
+
+    if (valido){
+      log("Ricarica: segnale letto e riconosciuto → icona verde.", "g");
+      spiega(true, "XTrader ha ritrovato evento, mercato e selezione nel palinsesto Betfair. " +
+        "Da qui una strategia con l'azione «Piazza Scommesse su Segnali» può usarlo. " +
+        "Nota che le colonne fra parentesi quadre sono quelle lette dal file: sono le stesse 14 " +
+        "che scrive BetRelay.");
+    } else {
+      log("Ricarica: segnale letto ma NON riconosciuto → icona rossa.", "r");
+      spiega(false, "Il file dice «" + st.csvSel + "», ma la fonte cerca le selezioni in " +
+        st.fonte.lingua + ". Col riconoscimento per nomi i due lati devono parlare la stessa " +
+        "lingua: basta allineare la «Lingua Palinsesto» della fonte alla lingua impostata in " +
+        "BetRelay — oppure passare al riconoscimento per MarketId e SelectionId, che non dipende " +
+        "dai nomi. È la causa numero uno dei segnali rossi.");
+    }
+    if (st.fonte.escludi && !valido){
+      st.righe = st.righe.filter(function(r){ return r.valido; });
+      renderSegnali();
+      log("«Escludi automaticamente segnali non validati» attivo: la riga è stata scartata.", "a");
+    }
+  }
+
+  $("btnAggiorna").addEventListener("click", rileggi);
+
+  $("a2").addEventListener("click", function(){
+    log("— Segnale valido —", "i");
+    scrivi("it");
+  });
+  $("a3").addEventListener("click", function(){
+    log("— Segnale in lingua non allineata —", "i");
+    scrivi("en");
+  });
+
+  // ---------- passo 4: timeout del bridge ----------
+  $("a4").addEventListener("click", function(){
+    st.csv = "vuoto"; renderCsv();
+    log("Timeout del bridge: il CSV torna a sola intestazione.", "a");
+    log("Serve proprio a questo: una fonte con ricarica automatica rilegge il file a ogni " +
+        "ciclo, quindi una riga lasciata lì tornerebbe in lista anche dopo averla cancellata.", "");
+    $("a4").disabled = true;
+    programmaRefresh();
+  });
+
+  // ---------- filtro «Solo Validi» ----------
+  $("btnSoloValidi").addEventListener("click", function(){
+    st.soloValidi = !st.soloValidi;
+    this.textContent = (st.soloValidi ? "☑" : "☐") + " Solo Validi";
+    this.classList.toggle("on", st.soloValidi);
+    renderSegnali();
+  });
+
+  $("btnEliminaTutti").addEventListener("click", function(){
+    st.righe = []; renderSegnali();
+    log("Segnali eliminati. Attenzione: se il file contiene ancora la riga, la prossima " +
+        "ricarica la reintroduce.", "a");
+  });
+  $("btnEliminaNV").addEventListener("click", function(){
+    st.righe = st.righe.filter(function(r){ return r.valido; });
+    renderSegnali(); log("Segnali non validi eliminati.", "");
+  });
+
+  // ---------- reset ----------
+  $("a0").addEventListener("click", function(){
+    clearTimeout(timer);
+    st = { fonte:null, righe:[], soloValidi:false, csv:null };
+    ["a2","a3","a4"].forEach(function(id){ $(id).disabled = true; });
+    $("a1").disabled = false; $("btnAggiorna").disabled = true;
+    $("btnSoloValidi").textContent = "☐ Solo Validi";
+    $("btnSoloValidi").classList.remove("on");
+    $("why").hidden = true;
+    $("log").innerHTML = '<div class="i">[' + ora() + '] Pronto. Comincia dal passo 1.</div>';
+    stato("Nessuna fonte configurata: XTrader non sta leggendo nessun file.");
+    renderFonti(); renderSegnali(); renderCsv();
+  });
+
+  sincronizzaOrigine(); renderCsv(); renderSegnali();
+})();
+</script>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span>Progetto indipendente. XTrader, BETTINGTOOLKIT.COM/.ES/.LAT e i
+  relativi marchi appartengono ai rispettivi proprietari: BetRelay non è affiliato né sponsorizzato da
+  TradingSportivo.</span>
+  <span><a href="/contatti">Contatti e supporto</a></span>
+</div></footer>
+
+<script src="/static/chat.js" defer></script>
+</body>
+</html>
