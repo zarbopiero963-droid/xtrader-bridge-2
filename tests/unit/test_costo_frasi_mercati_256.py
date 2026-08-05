@@ -38,29 +38,56 @@ import pytest
 from xtrader_bridge import market_mapping_store as mms
 
 
+def _modulo_compilatore():
+    """Il modulo che contiene il compilatore regex reale, o ``None`` se non individuabile.
+
+    È un dettaglio interno di CPython e ha cambiato nome: `sre_compile` fino a 3.10,
+    `re._compiler` da 3.11 (il repo gira su 3.11 ovunque, CI inclusa). Sondarli entrambi, e
+    tollerare che nessuno dei due esista, evita che un upgrade di Python faccia fallire questi
+    test **all'import** — il modo più confuso di rompersi, perché nasconde l'unica cosa che
+    stanno misurando (rilievo Fable 5 e GPT-5.5 sulla #257).
+    """
+    for nome in ("re._compiler", "sre_compile"):
+        try:
+            modulo = __import__(nome, fromlist=["compile"])
+        except ImportError:
+            continue
+        if hasattr(modulo, "compile"):
+            return modulo
+    return None
+
+
 def _conta_compilazioni(fn):
     """Esegue `fn()` contando le compilazioni regex REALI (i cache miss di `re`).
 
-    Si conta `re._compiler.compile`, che `re._compile` invoca **solo** quando il pattern non
-    è già nella sua cache interna. Contare `re.search` direbbe solo quante volte è stata
-    chiamata la funzione, non quante volte ha davvero ricompilato — che è l'unica cosa che
-    questa patch cambia.
+    Si conta il compilatore interno, che `re._compile` invoca **solo** quando il pattern non
+    è già nella sua cache. Contare `re.search` direbbe solo quante volte è stata chiamata la
+    funzione, non quante volte ha davvero ricompilato — che è l'unica cosa che questa patch
+    cambia.
+
+    Lo stato che si tocca è globale (`re.purge()` e la sostituzione del compilatore), quindi
+    va ripristinato **sempre**: il `finally` lo garantisce anche se `fn()` solleva. Non è un
+    problema di parallelismo — `pytest-xdist` isola per **processo**, e dentro un processo i
+    test girano in sequenza — e `_phrase_pattern` è una cache **pura**: svuotarla cambia i
+    tempi, mai le risposte.
     """
-    import re._compiler as _c
-    vero = _c.compile
+    modulo = _modulo_compilatore()
+    if modulo is None:                  # pragma: no cover - solo su interpreti non-CPython
+        pytest.skip("compilatore regex interno non individuabile su questo interprete")
+    vero = modulo.compile
     n = [0]
 
     def contato(*a, **k):
         n[0] += 1
         return vero(*a, **k)
 
-    _c.compile = contato
+    modulo.compile = contato
     try:
         re.purge()                      # parte da cache fredda, altrimenti il conteggio mente
-        mms._phrase_pattern.cache_clear() if hasattr(mms, "_phrase_pattern") else None
+        mms._phrase_pattern.cache_clear()
         fn()
     finally:
-        _c.compile = vero
+        modulo.compile = vero
         re.purge()
     return n[0]
 

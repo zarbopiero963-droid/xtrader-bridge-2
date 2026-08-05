@@ -125,15 +125,20 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    conflitto per chi dichiara la lingua, ma lo sono per chi non la dichiara.
 
    **Tetto dichiarato.** Il controllo chiede al runtime una volta per voce (e per lingua),
-   quindi il costo cresce col **quadrato** delle voci. Misure allo START, prima e dopo la cache
-   dei pattern compilati introdotta dalla #256:
+   quindi il costo cresce col **quadrato** delle voci. Misure allo START **col tetto
+   disattivato**, prima e dopo la cache dei pattern compilati introdotta dalla #256:
 
-   | voci | prima (#255) | dopo (#256) |
-   |---:|---:|---:|
-   | 100 | 0,09 s | 0,09 s |
-   | 400 | 1,2 s | 1,15 s |
-   | 800 | **54 s** | **4,53 s** |
-   | 1200 | — | 9,35 s |
+   | voci | prima (#255) | dopo (#256) | col tetto attivo (oggi) |
+   |---:|---:|---:|---|
+   | 100 | 0,09 s | 0,09 s | 0,09 s — controllo eseguito |
+   | 400 | 1,2 s | 1,15 s | **non eseguito** (oltre il tetto) |
+   | 800 | **54 s** | **4,53 s** | **non eseguito** (oltre il tetto) |
+   | 1200 | — | 9,35 s | **non eseguito** (oltre il tetto) |
+
+   ⚠️ Le prime due colonne, dalle 400 voci in su, sono **ipotetiche**: servono a rispondere alla
+   domanda «quanto costerebbe senza tetto», cioè a **giustificare che il tetto esista**. Non
+   descrivono ciò che l'utente paga oggi — sopra le 300 voci per profilo il controllo non parte
+   proprio, e al suo posto compare un avviso.
 
    Il dirupo a 800 voci era il **thrashing della cache interna di `re`**: `_phrase_in_text`
    ricostruiva e ricompilava un regex per frase a ogni chiamata, e oltre ~512 pattern distinti
@@ -141,9 +146,9 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    `lru_cache` di modulo, chiusa la voragine (vedi §5.6).
 
    Oltre **300 voci per profilo** il controllo si ferma e **lo dice nel log**: il quadrato resta
-   anche senza thrashing — a 1200 voci sono ancora 9 s di finestra bloccata — e un cap che tace
-   si leggerebbe come «nessun conflitto». Il tetto è oggi più conservativo di quanto servirebbe:
-   alzarlo è una decisione a sé, con la sua misura. Le frasi ambigue restano comunque
+   anche senza thrashing — a 1200 voci *sarebbero* ancora 9 s di finestra bloccata — e un cap che
+   tace si leggerebbe come «nessun conflitto». Il tetto è oggi più conservativo di quanto
+   servirebbe: alzarlo è una decisione a sé, con la sua misura. Le frasi ambigue restano comunque
    fail-closed a runtime — cambia solo che non vengono elencate.
 
    **Il tetto non protegge il runtime.** Vale solo per la diagnostica allo START. Il percorso

@@ -66,10 +66,12 @@ _STORE_KEY = "market_mappings"
 # eseguito: il costo cresce col quadrato delle voci. Oltre il tetto il controllo si ferma e
 # LO DICE.
 #
-# Misure allo START, PRIMA e DOPO la cache dei pattern della #256:
+# Misure allo START col TETTO DISATTIVATO, prima e dopo la cache dei pattern della #256.
+# Dalle 400 voci in su sono IPOTETICHE: servono a giustificare che il tetto esista, non a
+# descrivere ciò che si paga oggi (col tetto attivo il controllo su quei profili non parte).
 #
 #     voci     prima      dopo
-#      100     0,09 s     0,09 s
+#      100     0,09 s     0,09 s     <- l'unica riga sotto il tetto, quindi davvero eseguita
 #      400     1,2  s     1,15 s
 #      800    54    s     4,53 s      <- il dirupo era il thrashing della cache di `re`
 #     1200      —        9,35 s
@@ -228,14 +230,15 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
         if not voci:
             continue
         # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
-        # (e per lingua), quindi il costo cresce col quadrato. Misure allo START, prima e dopo
-        # la cache dei pattern della #256 (vedi `_MAX_VOCI_CONTROLLO_AMBIGUITA`):
+        # (e per lingua), quindi il costo cresce col quadrato. Misure allo START **col tetto
+        # disattivato**, prima e dopo la cache dei pattern della #256 — dalle 400 voci in su
+        # sono IPOTETICHE, cioè il costo che si eviterebbe (vedi `_MAX_VOCI_CONTROLLO_AMBIGUITA`):
         #
         #     100 voci  0,09 s -> 0,09 s   ·   400 voci  1,2 s -> 1,15 s
         #     800 voci  54   s -> 4,53 s   ·  1200 voci    —   -> 9,35 s
         #
         # Il dirupo a 800 (54 s) era il thrashing della cache di `re`, ed è chiuso. Ma il
-        # quadrato resta: a 1200 voci sono ancora 9 s di finestra bloccata all'avvio, un danno
+        # quadrato resta: a 1200 voci sarebbero ancora 9 s di finestra bloccata all'avvio, un danno
         # peggiore del difetto che questo avviso diagnostica. Oltre il tetto il controllo si
         # ferma e **lo dice**: un cap che tace si legge come «nessun conflitto», che è
         # esattamente la bugia da evitare.
