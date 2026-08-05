@@ -168,9 +168,10 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
     codifica = _codifica_di_un_figlio_degradato()
     if "utf" in codifica:
         pytest.skip(
-            f"ambiente non degradabile (il figlio riporta {codifica!r}): qui il test passerebbe "
-            "anche SENZA encoding=, quindi non dimostrerebbe nulla. La copertura comportamentale "
-            "resta quella delle piattaforme POSIX."
+            f"ambiente non dimostrativo (il figlio riporta {codifica!r}): qui il test passerebbe "
+            "anche SENZA encoding=, quindi non dimostrerebbe nulla. Questo skip NON resta "
+            "silenzioso: `test_267_l_ambiente_DEVE_restare_dimostrativo_su_OGNI_piattaforma` "
+            "fallisce nello stesso momento e dice che la copertura è sparita."
         )
 
     repo = tmp_path / "repo"
@@ -221,23 +222,33 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
     )
 
 
-@pytest.mark.skipif(os.name != "posix", reason="la degradazione via LC_ALL è un meccanismo POSIX")
-def test_267_su_POSIX_la_degradazione_del_locale_DEVE_funzionare():
+def test_267_l_ambiente_DEVE_restare_dimostrativo_su_OGNI_piattaforma():
     """Contro-guardia dello **skip**, non dell'ambiente — ed è la parte che conta.
 
     Lo skip del test precedente è onesto ma pericoloso: uno skip si legge come un puntino verde, e
-    se un domani la degradazione smettesse di funzionare **anche su Linux** la copertura
-    comportamentale sparirebbe lì dentro senza che nessuno se ne accorga. Sarebbe di nuovo un
-    controllo che tace — la forma esatta del difetto che questa serie di PR insegue.
+    se un domani l'ambiente smettesse di essere non-UTF8 la copertura comportamentale sparirebbe
+    lì dentro senza che nessuno se ne accorga. Sarebbe di nuovo un controllo che tace — la forma
+    esatta del difetto che questa serie di PR insegue.
 
-    Su POSIX — dove `LC_ALL` funziona, ed è la CI principale — la degradazione deve riuscire
-    **sempre**. Su Windows lo skip è legittimo e atteso (rilievo Fable 5): lì il runner gira già
-    col codepage ANSI nativo, cioè l'ambiente reale che la issue descrive.
+    **Vale su ogni piattaforma, senza `skipif`** (rilievo GPT-5.5): una prima stesura la limitava a
+    POSIX, e così su Windows lo scenario «il figlio riporta UTF-8» avrebbe fatto saltare il test
+    comportamentale *e* questa guardia insieme — copertura persa senza un solo segnale. Cioè il
+    buco veniva chiuso da un lato e riaperto dall'altro.
+
+    Che la condizione regga su entrambe è **misurato**, non supposto. Confronto dei riepiloghi
+    `windows-tests`, prima e dopo l'aggiunta di questo file:
+
+        PR #273 (senza questo file):  5181 passed, 16 skipped
+        PR #275 (con questo file):    5184 passed, 17 skipped   → +3 passati, +1 saltato
+
+    Su Windows quindi **tre** dei quattro test girano: l'unico che saltava era proprio questa
+    guardia, per via del vecchio `skipif`. Il comportamentale gira e passa anche lì, perché il
+    runner Windows riporta il suo codepage ANSI — l'ambiente reale che la issue descrive.
     """
     codifica = _codifica_di_un_figlio_degradato()
     assert codifica, "il figlio non ha riportato alcuna codifica"
     assert "utf" not in codifica, (
-        f"su POSIX la degradazione del locale non funziona più (riportato {codifica!r}): il test "
+        f"l'ambiente non è più dimostrativo (il figlio riporta {codifica!r}): il test "
         "comportamentale sta saltando invece di verificare, e la copertura è sparita in silenzio. "
-        "Va rivisto il modo di degradare il locale, non tolto il test."
+        "Va rivisto il modo di ottenere un ambiente non-UTF8, non tolto il test."
     )
