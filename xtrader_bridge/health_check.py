@@ -69,7 +69,15 @@ def localized(item: "HealthItem") -> "HealthItem":
     prefisso = DETTAGLIO_ERRORE.split("{err}")[0]
     dettaglio = str(item.detail or "")
     if dettaglio.startswith(prefisso):
-        reso = i18n.tr(DETTAGLIO_ERRORE).format(err=dettaglio[len(prefisso):])
+        try:
+            reso = i18n.tr(DETTAGLIO_ERRORE).format(err=dettaglio[len(prefisso):])
+        except (KeyError, IndexError, ValueError):
+            # Traduzione col segnaposto sbagliato o con una graffa non chiusa: un refuso
+            # plausibile in un catalogo scritto a mano (rilievo Fable #281). Il pannello si
+            # dichiara diagnostica BEST-EFFORT: degrada al testo canonico invece di spegnersi.
+            # `except` STRETTO di proposito — non è un blind-except: sono esattamente gli
+            # errori che `str.format` solleva su un template rotto.
+            reso = dettaglio
     else:
         reso = i18n.tr(dettaglio)
     return HealthItem(item.key, i18n.tr(item.label), item.state, reso)

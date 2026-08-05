@@ -313,3 +313,60 @@ def test_269_l_etichetta_di_QUALUNQUE_lingua_e_riconosciuta(lingua_scelta, lingu
     assert bridge_mode.mode_for_form_value(etichetta) == bridge_mode.REALE, (
         f"etichetta scritta in {lingua_etichetta}, letta con lingua {lingua_scelta}: "
         f"{etichetta!r} non riconosciuta")
+
+
+# ── rilievi non bloccanti di GPT-5.5 e Fable sul secondo push ──────────────────────────────
+
+def test_269_nessuna_COLLISIONE_fra_etichette_tradotte():
+    """Rilievo GPT-5.5. `mode_for_form_value` confronta le etichette di tutte le lingue e
+    **vince il primo match** in `LABELS`: se due modi avessero la stessa etichetta in qualche
+    lingua, uno dei due diventerebbe irraggiungibile — su un selettore che decide se il CSV
+    operativo viene scritto.
+
+    Oggi non succede (9 etichette distinte su 3 modi × 3 lingue). Questo test lo blocca per il
+    futuro, che è il punto: la collisione la introdurrebbe un traduttore, non un programmatore,
+    e nessun'altra guardia la vedrebbe.
+    """
+    import collections
+
+    per_etichetta = collections.defaultdict(set)
+    for lingua in i18n.LANGUAGES:
+        for modo, etichetta in bridge_mode.LABELS.items():
+            per_etichetta[i18n.tr_in(lingua, etichetta)].add(modo)
+
+    collisioni = {e: modi for e, modi in per_etichetta.items() if len(modi) > 1}
+
+    assert collisioni == {}, (
+        f"etichette che mappano a PIÙ modalità: {collisioni} — una diventerebbe irraggiungibile")
+
+
+def test_269_una_traduzione_MALFORMATA_non_rompe_il_pannello(monkeypatch):
+    """Rilievo Claude Fable 5, e misurato vero: prima della correzione questo sollevava
+    `KeyError`.
+
+    `localized` fa `.format(err=…)` su una stringa che viene dal **catalogo**. Una traduzione
+    con una graffa sbagliata — `{sbagliato}` invece di `{err}`, o una graffa non chiusa — è un
+    errore di battitura plausibile, e faceva esplodere la funzione. Il pannello 🚦 Salute si
+    dichiara **diagnostica best-effort**: un refuso in una traduzione non deve poterlo
+    spegnere. Ora il template rotto degrada al testo canonico invece di sollevare.
+    """
+    monkeypatch.setitem(i18n._CATALOG["EN"], health_check.DETTAGLIO_ERRORE,
+                        "no signal; last error: {sbagliato}")
+    i18n.set_language("EN")
+
+    item = health_check.HealthItem("signal", "Ultimo segnale", health_check.YELLOW,
+                                   health_check.DETTAGLIO_ERRORE.format(err="boom"))
+
+    reso = health_check.localized(item)          # non deve sollevare
+
+    assert "boom" in reso.detail, f"il testo dell'errore non deve sparire: {reso.detail!r}"
+
+
+def test_269_tr_in_e_fail_safe():
+    """`tr_in` è la nuova API pubblica su cui si appoggia il riconoscimento cross-lingua:
+    una lingua inesistente o una chiave mai catalogata devono restituire il testo, mai
+    sollevare — altrimenti il selettore Modalità si romperebbe invece di rifiutare."""
+    assert i18n.tr_in("XX", "qualunque") == "qualunque"      # lingua sconosciuta
+    assert i18n.tr_in("EN", "mai catalogata") == "mai catalogata"
+    assert i18n.tr_in("IT", "▶  AVVIA") == "▶  AVVIA"        # IT è il riferimento
+    assert i18n.tr_in("EN", "") == ""
