@@ -4,23 +4,77 @@ Un `except Exception:` (o `except BaseException:`, o un bare `except:`) cattura 
 errore, anche quelli inattesi: usato dove serve (best-effort/fail-safe documentati) è corretto,
 ma un nuovo blind-except introdotto per sbaglio può **ingoiare silenziosamente** un bug reale.
 
-Questo test NON vieta i blind-except: ne fotografa il numero **per modulo** in una **allowlist**
-con motivazione, e **fallisce se il conteggio cambia** (ratchet). Così:
-- aggiungere un nuovo blind-except in un file → il conteggio sale → il test FALLISCE finché non
-  lo si restringe a un'eccezione specifica, OPPURE lo si motiva aggiornando `_ALLOWLIST`;
-- rimuoverne uno → il conteggio scende → il test FALLISCE per ricordare di **stringere** il
-  baseline (mantiene l'allowlist onesta, come `test_build_exe_safety.py` per le opzioni PyInstaller).
+Questo test NON vieta i blind-except: ne fotografa i **siti** in un baseline motivato e
+**fallisce se cambiano** (ratchet). Così:
+- aggiungere un nuovo blind-except → il sito non è nel baseline → il test FALLISCE finché non
+  lo si restringe a un'eccezione specifica, OPPURE lo si motiva aggiornando il baseline;
+- rimuoverne uno → il sito sparisce → il test FALLISCE per ricordare di **stringere** il
+  baseline (lo mantiene onesto, come `test_build_exe_safety.py` per le opzioni PyInstaller).
 
-Conta per **modulo** (non per riga) così un refactor che sposta le righe non rompe il test.
+## Perché per SITO e non più per conteggio (#224)
+
+Fino alla #224 il baseline era un **numero per file**. Un numero non sa *dove*: rimuovere un
+`except Exception` motivato e approvato e aggiungerne uno **nudo** in un'altra funzione dello
+stesso file lasciava il totale invariato, e il gate passava. Dimostrato:
+
+    def sana():                          def sana():
+        try: pass                            pass
+        except Exception:  # motivato    def altra():
+            pass                             try: pass
+    def altra():                             except Exception:      <- NUDO
+        pass                                     pass
+
+    conteggio: 1                         conteggio: 1     -> gate VERDE
+
+Su `app.py` — 53 handler, ed è il modulo di START/STOP, listener, scrittura CSV e conferme
+XTrader — è esattamente la classe di bug che questo gate esiste per fermare.
+
+Ora l'identità di un sito è **(funzione, motivo)**, dove il motivo viene dal `# noqa: BLE001`
+sulla riga dell'except. Il motivo è **troncato e normalizzato**: riformulare un dettaglio non
+rompe il gate, cambiare il senso sì. Il baseline sta in `blind_except_sites.py` e si rigenera
+con `python tools/gen_blind_except_sites.py`.
+
+⚠️ **Un baseline aggiornato a occhi chiusi è peggio di nessun baseline**, perché dà falsa
+sicurezza: quando questo test fallisce, il messaggio dice **quali** siti sono comparsi o
+spariti — vanno letti, non rigenerati per far tornare il verde.
+
+## Il debito dichiarato
+
+19 dei 194 siti **non dichiarano un motivo**: 11 non hanno alcun marcatore, 8 hanno un
+`# noqa: BLE001` **muto**, cioè il timbro «approvato» senza il perché. Non sono stati inventati
+motivi a posteriori per codice scritto da altri: sono registrati com'è (motivo vuoto) e
+`test_il_debito_dei_siti_senza_motivo_non_cresce` impedisce che il numero salga. Scriverli è
+lavoro a sé, da fare da chi conosce l'intento di quegli handler.
 """
 
 import ast
+import importlib.util
 import os
 
 import pytest
 
-_PKG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                    "xtrader_bridge")
+_RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PKG = os.path.join(_RADICE, "xtrader_bridge")
+
+
+def _carica_generatore():
+    """Il modulo `tools/gen_blind_except_sites.py`, importato per path.
+
+    **La scansione è UNA SOLA** (#224, Regola 3): il generatore che scrive il baseline e il
+    test che lo verifica devono usare la stessa identica funzione. Se il test si riscrivesse
+    la sua, le due divergerebbero alla prima modifica di una delle due — e un gate che misura
+    qualcosa di diverso da ciò che il baseline registra è peggio che inutile.
+
+    `tools/` non è un package installabile, quindi si importa per path invece che con `import`.
+    """
+    percorso = os.path.join(_RADICE, "tools", "gen_blind_except_sites.py")
+    spec = importlib.util.spec_from_file_location("_gen_blind_except_sites", percorso)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+_GEN = _carica_generatore()
 
 # Allowlist: per ogni modulo che ne contiene, il numero di blind-except ATTESI + il perché.
 # I blind-except qui sono best-effort/fail-safe documentati (spesso con `# noqa: BLE001`):
@@ -276,82 +330,98 @@ _ALLOWLIST = {
 }
 
 
-def _is_broad_name(node) -> bool:
-    return isinstance(node, ast.Name) and node.id in ("Exception", "BaseException")
+def _siti_attuali():
+    """Siti attuali, con la STESSA scansione del generatore del baseline."""
+    return _GEN.scansiona(_PKG)
 
 
-def _handler_is_blind(node: ast.ExceptHandler) -> bool:
-    """``True`` se l'handler cattura in modo "cieco": bare ``except:``, ``except Exception``/
-    ``except BaseException``, oppure un handler a **tupla** che include uno di quei due
-    (``except (Exception, X):``) — altrimenti il blind-catch sfuggirebbe (Codex P2 su #232)."""
-    t = node.type
-    if t is None:                                       # bare `except:`
-        return True
-    if _is_broad_name(t):                               # except Exception / BaseException
-        return True
-    if isinstance(t, ast.Tuple):                        # except (Exception, X) / (BaseException, …)
-        return any(_is_broad_name(e) for e in t.elts)
-    return False
-
-
-class _BlindExceptVisitor(ast.NodeVisitor):
-    def __init__(self):
-        self.count = 0
-
-    def visit_ExceptHandler(self, node):
-        if _handler_is_blind(node):
-            self.count += 1
-        self.generic_visit(node)
-
-
-def _scan_blind_excepts():
-    """Mappa modulo (relpath POSIX) → numero di blind-except, su tutto `xtrader_bridge/`."""
-    counts = {}
-    for dirpath, _dirs, files in os.walk(_PKG):
-        if "__pycache__" in dirpath:
-            continue
-        for fn in files:
-            if not fn.endswith(".py"):
-                continue
-            path = os.path.join(dirpath, fn)
-            tree = ast.parse(open(path, encoding="utf-8").read())
-            v = _BlindExceptVisitor()
-            v.visit(tree)
-            if v.count:
-                rel = os.path.relpath(path, _PKG).replace(os.sep, "/")
-                counts[rel] = v.count
-    return counts
+def _siti_baseline():
+    from tests.safety.blind_except_sites import SITI
+    return SITI
 
 
 def test_nessun_blind_except_nuovo_o_non_motivato():
-    actual = _scan_blind_excepts()
-    expected = {k: v[0] for k, v in _ALLOWLIST.items()}
+    attuali = _siti_attuali()
+    baseline = _siti_baseline()
 
     # File con blind-except ma NON in allowlist → nuovo file non motivato.
-    non_allowlisted = sorted(set(actual) - set(expected))
-    assert not non_allowlisted, (
+    fuori_allowlist = sorted(set(attuali) - set(_ALLOWLIST))
+    assert not fuori_allowlist, (
         "Blind-except (`except Exception`/bare `except:`) in moduli NON in allowlist: "
-        f"{ {f: actual[f] for f in non_allowlisted} }. "
+        f"{ {f: len(attuali[f]) for f in fuori_allowlist} }. "
         "Restringili a un'eccezione specifica, oppure aggiungi il file a _ALLOWLIST con il motivo.")
 
-    # Conteggio diverso dal baseline → aumentato (nuovo blind-except) o diminuito (stringi il baseline).
-    drifted = {f: (actual.get(f, 0), expected[f]) for f in expected if actual.get(f, 0) != expected[f]}
-    assert not drifted, (
-        "Conteggio blind-except cambiato rispetto all'allowlist (attuale, atteso): "
-        f"{drifted}. Se hai AGGIUNTO un except ampio, restringilo o motivalo aggiornando _ALLOWLIST; "
-        "se ne hai RIMOSSO uno, abbassa il numero nel baseline.")
+    # Confronto per SITO, non per conteggio: è ciò che chiude la sostituzione a saldo zero.
+    # Multiset, non insieme: due handler identici nella stessa funzione sono due siti, e
+    # rimuoverne uno solo deve farsi notare.
+    from collections import Counter
+    comparsi, spariti = {}, {}
+    for f in sorted(set(attuali) | set(baseline)):
+        a, b = Counter(attuali.get(f, ())), Counter(baseline.get(f, ()))
+        if a == b:
+            continue
+        piu, meno = a - b, b - a
+        if piu:
+            comparsi[f] = sorted(piu.elements())
+        if meno:
+            spariti[f] = sorted(meno.elements())
+
+    assert not (comparsi or spariti), (
+        "I siti blind-except non combaciano col baseline.\n"
+        f"COMPARSI (nuovi o spostati qui): {comparsi or '—'}\n"
+        f"SPARITI  (rimossi o spostati altrove): {spariti or '—'}\n"
+        "LEGGI queste righe prima di rigenerare. Un sito comparso senza motivo, o comparso in "
+        "una funzione diversa a saldo zero, è precisamente ciò che questo gate esiste per "
+        "fermare. Se il cambiamento è voluto e motivato: "
+        "`python tools/gen_blind_except_sites.py` e committa il diff del baseline.")
 
 
-def test_allowlist_totale_coerente():
-    # Il totale dell'allowlist deve coincidere con la somma per-file (nessun refuso nel baseline).
-    actual = _scan_blind_excepts()
-    assert sum(actual.values()) == sum(v[0] for v in _ALLOWLIST.values())
+def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():
+    """Il numero in `_ALLOWLIST` è il riassunto leggibile; `SITI` è l'identità verificabile.
+    Questo test li tiene agganciati, così il riassunto non può mentire sul dettaglio."""
+    baseline = _siti_baseline()
+    disallineati = {f: (n, len(baseline.get(f, ())))
+                    for f, (n, _motivo) in _ALLOWLIST.items() if n != len(baseline.get(f, ()))}
+    assert not disallineati, (
+        f"conteggio _ALLOWLIST ≠ numero di siti in blind_except_sites.py (allowlist, siti): "
+        f"{disallineati}")
+
+
+# Debito dichiarato al momento della #224: siti il cui `# noqa: BLE001` non dice il perché.
+# 11 non hanno alcun marcatore, 8 ce l'hanno MUTO — il timbro «approvato» senza motivazione.
+_SITI_SENZA_MOTIVO_ATTESI = 19
+
+
+def test_il_debito_dei_siti_senza_motivo_non_cresce():
+    """Ratchet sul debito, non sulla sua esistenza.
+
+    Non sono state inventate motivazioni a posteriori per handler scritti da altri: sarebbe
+    stato peggio del silenzio, perché un motivo plausibile ma sbagliato è più difficile da
+    smascherare di un motivo assente. Qui si blocca solo la **crescita**: un blind-except
+    nuovo deve dire perché, e i 19 esistenti restano un lavoro dichiarato.
+    """
+    attuali = _siti_attuali()
+    senza = sorted(f"{f}::{fn}" for f, siti in attuali.items() for fn, motivo in siti if not motivo)
+    assert len(senza) <= _SITI_SENZA_MOTIVO_ATTESI, (
+        f"siti blind-except senza motivo: {len(senza)} (attesi al massimo "
+        f"{_SITI_SENZA_MOTIVO_ATTESI}). Nuovi senza motivazione:\n" + "\n".join(senza) +
+        "\n\nOgni blind-except nuovo deve portare `# noqa: BLE001 <perché>` sulla sua riga.")
+    if len(senza) < _SITI_SENZA_MOTIVO_ATTESI:
+        pytest.fail(
+            f"il debito è SCESO a {len(senza)}: ottimo, ma abbassa "
+            f"_SITI_SENZA_MOTIVO_ATTESI a {len(senza)} per non lasciare margine libero.")
 
 
 def _count_in_snippet(code: str) -> int:
-    v = _BlindExceptVisitor()
-    v.visit(ast.parse(code))
-    return v.count
+    """Blind-except in uno snippet, contati col rilevatore **vero** — quello del generatore.
+
+    Prima della #224 questo helper aveva una copia locale di `_handler_is_blind`: il test sui
+    tuple verificava quindi la copia, non il rilevatore che scansiona davvero il package. Se
+    quest'ultimo avesse perso il caso `except (Exception, X)`, il test sarebbe rimasto verde
+    mentre il gate smetteva di vederlo. Una copia in meno, un modo in meno di divergere.
+    """
+    return sum(1 for n in ast.walk(ast.parse(code))
+               if isinstance(n, ast.ExceptHandler) and _GEN.is_blind(n))
 
 
 def test_rileva_handler_a_tupla_che_include_exception():

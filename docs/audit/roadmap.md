@@ -5301,3 +5301,48 @@ dizionario». I tre casi, misurati dopo:
 correttezza è «indica l'azione giusta», e nessun test di comportamento la cattura.
 
 Suite completa dopo la correzione: **5079 passed, 1 skipped**, zero `xfail` residui.
+
+---
+
+## #224 — il gate blind-except contava, ma non sapeva DOVE
+
+`tests/safety/test_blind_except_allowlist.py` confrontava un **numero per file**. Un numero non
+sa dove: rimuovere un `except Exception` motivato e approvato e aggiungerne uno **nudo** in
+un'altra funzione dello stesso file lasciava il totale invariato, e il gate passava. Misurato su
+`reconnect_policy.py`, togliendo la motivazione a un handler approvato:
+
+```text
+blind-except nel file : 1 (baseline: 1)  -> INVARIATO, il gate vecchio passava
+gate nuovo            : ROSSO
+  COMPARSI: [('_real_transient_types', '')]
+  SPARITI : [('_real_transient_types', 'telegram assente/incompleto → fallback per nome')]
+```
+
+Su `app.py` — 53 handler, ed è il modulo di START/STOP, listener, scrittura CSV e conferme
+XTrader — è esattamente la classe di bug che il gate esiste per fermare.
+
+**Identità per sito, non conteggio.** Ogni sito è ora `(funzione, motivo)`, col motivo preso dal
+`# noqa: BLE001` sulla riga dell'except, normalizzato e **troncato a 60 caratteri**: riformulare
+un dettaglio non rompe il gate, cambiare il senso sì. Baseline in
+`tests/safety/blind_except_sites.py`, rigenerabile con `python tools/gen_blind_except_sites.py`.
+
+**Granularità scelta misurando, non assumendo.** La issue dava per scontato che il per-funzione
+fosse «molto più economico» del per-riga. Misurato: **194 siti in 175 funzioni** — quasi tutte ne
+contengono uno solo, quindi il risparmio in dimensione è nullo. Il costo vero di un baseline non è
+quante voci ha ma **quanto spesso cambia**, e lì il per-funzione è stabile dove il per-riga si
+muove a ogni refactor cosmetico.
+
+**Il debito che si è visto costruendo il gate.** 19 dei 194 siti non dichiarano un motivo: 11 non
+hanno alcun marcatore, e **8 hanno un `# noqa: BLE001` muto** — il timbro «approvato» senza il
+perché, che è il caso peggiore perché sembra a posto. Non sono state inventate motivazioni a
+posteriori per handler scritti da altri: un motivo plausibile ma sbagliato è più difficile da
+smascherare di un motivo assente. Sono registrati com'è, e un ratchet dedicato impedisce che il
+numero cresca.
+
+**Una copia in meno.** Il test aveva un proprio `_handler_is_blind` e il generatore il suo: il
+test sui `except (Exception, X)` verificava quindi la copia del test, non il rilevatore che
+scansiona davvero il package. Sabotando il generatore restava verde. Ora la scansione è una sola,
+importata dal generatore, e lo stesso sabotaggio lo fa fallire.
+
+Suite completa: **5157 passed, 1 skipped**. **Nessun file di `xtrader_bridge/` toccato**: il
+gate è test-only, e i 19 siti senza motivo restano tali per scelta dichiarata.

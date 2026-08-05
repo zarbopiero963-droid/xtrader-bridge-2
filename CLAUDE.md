@@ -1118,8 +1118,10 @@ stesso PR** — aggiornare TUTTO:
    dipendenze iniettabili; fail-safe su risorse mancanti; output capato; **schema di output coerente**
    (chiavi sempre presenti); solo API pubbliche;
 2. **test hard** — caso valido / vuoto-o-risorsa-assente / read-only-non-scrive /
-   nessun-segreto-in-output / contratto; se aggiungi un `except` fail-safe, aggiorna l'allowlist
-   blind-except con motivazione;
+   nessun-segreto-in-output / contratto; se aggiungi un `except` fail-safe, mettigli un
+   `# noqa: BLE001 <perché>` sulla sua riga e rigenera il baseline blind-except
+   (`python tools/gen_blind_except_sites.py`), poi LEGGI il diff — dalla #224 il gate
+   identifica ogni sito per (funzione, motivo), non per conteggio del file;
 3. **system prompt** — la riga che dice al modello **quando** usare il tool;
 4. **docs** — `docs/internal/config_agent.md` + `docs/user/assistente.md` + `README.md` +
    `docs/design/design_handoff.md` (oppure `N/A` con motivazione scritta).
