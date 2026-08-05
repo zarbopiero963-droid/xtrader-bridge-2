@@ -370,3 +370,28 @@ def test_269_tr_in_e_fail_safe():
     assert i18n.tr_in("EN", "mai catalogata") == "mai catalogata"
     assert i18n.tr_in("IT", "▶  AVVIA") == "▶  AVVIA"        # IT è il riferimento
     assert i18n.tr_in("EN", "") == ""
+
+
+@pytest.mark.parametrize("template_rotto,errore", [
+    ("no signal; last error: {sbagliato}", "KeyError"),
+    ("no signal; last error: {err.inesistente}", "AttributeError"),
+    ("no signal; last error: {0}", "IndexError"),
+    ("no signal; last error: {err!z}", "ValueError"),
+])
+def test_269_ogni_forma_di_template_rotto_degrada(template_rotto, errore, monkeypatch):
+    """Rilievo GPT-5.5 sul terzo push, ed era fondato: la prima stesura del fallback copriva
+    `KeyError/IndexError/ValueError` ma **non** `AttributeError`, che `str.format` solleva su
+    `{err.qualcosa}` — un refuso plausibile quanto gli altri.
+
+    Le quattro forme qui sono state misurate una per una su `str.format`, non indovinate.
+    L'`except` resta **stretto e nominato**: quattro eccezioni documentate, non un blind-except.
+    """
+    monkeypatch.setitem(i18n._CATALOG["EN"], health_check.DETTAGLIO_ERRORE, template_rotto)
+    i18n.set_language("EN")
+
+    item = health_check.HealthItem("signal", "Ultimo segnale", health_check.YELLOW,
+                                   health_check.DETTAGLIO_ERRORE.format(err="boom"))
+
+    reso = health_check.localized(item)          # nessuna delle quattro deve sfuggire
+
+    assert "boom" in reso.detail, f"{errore}: il testo dell'errore è sparito — {reso.detail!r}"

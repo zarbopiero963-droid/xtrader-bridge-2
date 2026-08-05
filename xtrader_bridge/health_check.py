@@ -71,12 +71,15 @@ def localized(item: "HealthItem") -> "HealthItem":
     if dettaglio.startswith(prefisso):
         try:
             reso = i18n.tr(DETTAGLIO_ERRORE).format(err=dettaglio[len(prefisso):])
-        except (KeyError, IndexError, ValueError):
-            # Traduzione col segnaposto sbagliato o con una graffa non chiusa: un refuso
-            # plausibile in un catalogo scritto a mano (rilievo Fable #281). Il pannello si
-            # dichiara diagnostica BEST-EFFORT: degrada al testo canonico invece di spegnersi.
-            # `except` STRETTO di proposito — non è un blind-except: sono esattamente gli
-            # errori che `str.format` solleva su un template rotto.
+        except (KeyError, IndexError, ValueError, AttributeError):
+            # Traduzione col segnaposto sbagliato, con una graffa non chiusa o con un accesso
+            # ad attributo (`{err.qualcosa}`): refusi plausibili in un catalogo scritto a mano
+            # (rilievi Fable e GPT-5.5 sulla #281). Il pannello si dichiara diagnostica
+            # BEST-EFFORT: degrada al testo canonico invece di spegnersi.
+            # `except` STRETTO di proposito — non è un blind-except: le quattro eccezioni sono
+            # state MISURATE una per una su `str.format`, non indovinate.
+            #   {sbagliato} → KeyError · {0} → IndexError · {err!z} → ValueError
+            #   {err.inesistente} → AttributeError  ← mancava alla prima stesura
             reso = dettaglio
     else:
         reso = i18n.tr(dettaglio)
