@@ -570,8 +570,20 @@ righe togliere. Per chi disegna il pannello questo allunga la riga — ogni cont
 La seconda variante dei nomi è la più lunga di tutte e la più probabile su dizionari multi-sport o multilingua:
 chi disegna il pannello non può assumere una riga corta. Per chi disegna la UI il punto resta che
 allo START il log può contenere **N righe ⚠️ di configurazione** prima delle righe di stato:
-l'elenco cresce col numero di conflitti, quindi il pannello non può assumere un numero fisso di
-avvisi né troncarli in silenzio — sono la ragione per cui un segnale verrà scartato. I **dialoghi modali di
+sono la ragione per cui un segnale verrà scartato, quindi il pannello non può troncarle in
+silenzio.
+
+**Quante possono essere, di preciso (#256 punto 2).** L'elenco degli avvisi sui **mercati** non
+è più illimitato: al massimo **50 righe di conflitto** più una riga di sintesi
+(«…e altri N conflitti di frase NON elencati»), più eventuali righe che spiegano cosa **non è
+stato controllato** (profilo oltre il tetto, budget complessivo esaurito). Prima poteva
+arrivare a **1200 righe**, misurate, che è oltre ciò che chiunque scorre. Chi disegna può quindi
+dimensionare sull'ordine delle decine, non delle migliaia — ma non su un numero fisso, e
+soprattutto **senza tagliare in silenzio**: il taglio esiste già a monte e si dichiara da sé.
+
+Gli avvisi del dizionario **nomi** non hanno (ancora) un tetto equivalente.
+
+I **dialoghi modali di
 conferma modalità** (REALE/COLLAUDO/MULTI-segnale + i due gate autostart/START reale) sono invece
 **localizzati dalla slice 4y** — vedi §9.
 

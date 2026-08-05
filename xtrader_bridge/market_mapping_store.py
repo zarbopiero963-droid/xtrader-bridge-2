@@ -82,6 +82,23 @@ _STORE_KEY = "market_mappings"
 # È ora più conservativo del necessario — alzarlo è una decisione a sé, con la sua misura.
 _MAX_VOCI_CONTROLLO_AMBIGUITA = 300
 
+# Budget GLOBALE di voci esaminate dal controllo frasi ambigue, su tutti i profili (#256 punto
+# 2). Il tetto per profilo qui sopra non limitava il totale, e il costo e' lineare nelle voci:
+# ~2,2 ms l'una, misurato. Con profili tutti al tetto per profilo:
+#
+#     1 profilo  =  300 voci ->  0,66 s ·  150 avvisi
+#     3 profili  =  900 voci ->  1,92 s ·  450 avvisi
+#     8 profili  = 2400 voci ->  5,39 s · 1200 avvisi
+#
+# 900 tiene il caso peggiore sotto i ~2 s di finestra bloccata allo START, ed e' ben oltre
+# qualunque config reale (i profili veri hanno decine di voci, non centinaia).
+_MAX_VOCI_TOTALI_CONTROLLO = 900
+
+# Tetto sul NUMERO di avvisi di conflitto elencati. Problema distinto dal tempo: 1200 righe di
+# avviso nel log non si leggono, e un elenco che nessuno scorre informa quanto il silenzio che
+# la #254 aveva tolto. Si tronca DICENDO quanti ne restano.
+_MAX_AVVISI_AMBIGUITA = 50
+
 # Esito della risoluzione di un mercato da una frase.
 #   status: "ok"        → match univoco; `market` = {market_type, market_name, selection_name}
 #           "ambiguous" → più frasi combaciano con mercati DIVERSI (fail-closed, D2); market=None
@@ -220,15 +237,40 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     lingua presente nelle voci. Due voci di lingue diverse non sono un conflitto per chi
     dichiara la lingua, ma lo sono per chi non la dichiara — e va detto a quest'ultimo.
 
+    **Due tetti, non uno** (#256 punto 2). Quello per profilo (`_MAX_VOCI_CONTROLLO_AMBIGUITA`)
+    non limitava il totale: N profili al tetto sommavano il costo allo START, perché il costo è
+    lineare nelle voci esaminate (~2,2 ms l'una, misurato). Da qui il budget **globale**
+    `_MAX_VOCI_TOTALI_CONTROLLO`. E il numero di avvisi ha un tetto suo, indipendente dal tempo:
+    1200 righe di ⚠️ non si leggono, e un elenco che nessuno scorre informa quanto il silenzio
+    che la #254 aveva tolto.
+
+    Entrambi **dichiarati, mai silenziosi**: un cap che tace si legge come «nessun conflitto».
+    Vale anche per un profilo saltato che era *sano* — chi legge non può saperlo, e l'assenza di
+    avvisi significherebbe «controllato e pulito».
+
     Fail-safe come i fratelli: la config arriva da un file editabile a mano, e un avviso
     diagnostico non deve mai impedire l'avvio."""
-    warnings = []
+    # `struttura` = ciò che dice cosa NON è stato controllato; `conflitti` = i conflitti veri.
+    # Separati perché il troncamento degli avvisi non deve mai mangiarsi la riga che spiega una
+    # copertura parziale: sarebbe il cap muto travestito.
+    struttura, conflitti = [], []
+    voci_esaminate = 0
+    saltati_per_budget = []
+    warnings = conflitti                 # i conflitti veri; la struttura ha la sua lista
     for profile, righe in _store(cfg).items():
         if not isinstance(righe, (list, tuple)):
             continue
         voci = [e for e in righe if isinstance(e, dict)]
         if not voci:
             continue
+        # BUDGET GLOBALE (#256 punto 2). Il tetto per profilo qui sotto non limita il TOTALE:
+        # il costo è lineare nelle voci esaminate (~2,2 ms l'una), quindi 8 profili al tetto
+        # costavano 5,4 s allo START. Si salta il profilo che non ci sta e lo si dice a fine
+        # elenco — anche se quel profilo era sano, perché chi legge non può saperlo.
+        if voci_esaminate + len(voci) > _MAX_VOCI_TOTALI_CONTROLLO:
+            saltati_per_budget.append(_norm_profile_name(profile))
+            continue
+        voci_esaminate += len(voci)
         # TETTO DICHIARATO, non silenzioso. Il controllo chiede al runtime una volta per voce
         # (e per lingua), quindi il costo cresce col quadrato. Misure allo START **col tetto
         # disattivato**, prima e dopo la cache dei pattern della #256 — dalle 400 voci in su
@@ -243,7 +285,7 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
         # ferma e **lo dice**: un cap che tace si legge come «nessun conflitto», che è
         # esattamente la bugia da evitare.
         if len(voci) > _MAX_VOCI_CONTROLLO_AMBIGUITA:
-            warnings.append(
+            struttura.append(
                 f"Mappatura mercati «{_norm_profile_name(profile)}»: {len(voci)} voci, oltre il "
                 f"tetto di {_MAX_VOCI_CONTROLLO_AMBIGUITA} per il controllo delle frasi ambigue "
                 f"-> controllo NON eseguito su questo profilo (l'avvio resterebbe bloccato per "
@@ -348,7 +390,29 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                     f"NON viene risolto e il segnale è scartato (fail-closed). Rendi le frasi "
                     f"distinguibili, oppure togli una delle voci in conflitto.")
                 break
-    return warnings
+
+    if saltati_per_budget:
+        struttura.append(
+            f"Controllo frasi ambigue: budget complessivo di {_MAX_VOCI_TOTALI_CONTROLLO} voci "
+            f"esaurito -> {len(saltati_per_budget)} profili NON controllati "
+            f"({', '.join(f'«{p}»' for p in saltati_per_budget)}). Il controllo costa ~2 ms per "
+            f"voce e allo START blocca la finestra: oltre il budget si ferma. Le frasi ambigue "
+            f"restano fail-closed a runtime, ma su questi profili non vengono elencate — non "
+            f"significa che siano puliti. Riduci o dividi i profili per farli rientrare.")
+
+    # Tetto sugli AVVISI, indipendente dal tempo: un elenco di centinaia di righe non si legge,
+    # e un avviso che nessuno scorre informa quanto il silenzio che la #254 aveva tolto. Si
+    # tronca dicendo QUANTI ne restano — troncare in silenzio ricreerebbe il cap muto.
+    # La `struttura` non si tronca MAI: spiega cosa non e' stato controllato, ed e' l'ultima
+    # cosa che deve sparire.
+    nascosti = len(conflitti) - _MAX_AVVISI_AMBIGUITA
+    if nascosti > 0:
+        conflitti = conflitti[:_MAX_AVVISI_AMBIGUITA]
+        conflitti.append(
+            f"...e altri {nascosti} conflitti di frase NON elencati (tetto di "
+            f"{_MAX_AVVISI_AMBIGUITA} avvisi). Correggi quelli sopra e riavvia per vedere i "
+            f"successivi.")
+    return struttura + conflitti
 
 
 def _canonical_market(market_name: str, selection_name: str, rows=None):
