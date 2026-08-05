@@ -180,7 +180,7 @@ class ProviderPanel(ctk.CTkFrame):
             return
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
-        except Exception as exc:                 # noqa: BLE001
+        except Exception as exc:                 # noqa: BLE001 — config illeggibile -> messaggio nel pannello e nessuna aggiunta, mai crash della finestra
             self._status.configure(
                 text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
                 text_color=ui_theme.STATUS_ERR)
@@ -236,7 +236,7 @@ class ProviderPanel(ctk.CTkFrame):
             return
         try:
             cfg = config_store.load_config(config_store.CONFIG_FILE)
-        except Exception as exc:                 # noqa: BLE001
+        except Exception as exc:                 # noqa: BLE001 — config illeggibile -> messaggio nel pannello e nessuna rimozione, mai crash della finestra
             self._status.configure(
                 text=i18n.tr("❌ Config illeggibile: {exc}").format(exc=exc),
                 text_color=ui_theme.STATUS_ERR)

@@ -41,7 +41,7 @@ def fit_to_screen(window, width, height, min_width, min_height, margin=80):
     """
     try:
         screen_w, screen_h = window.winfo_screenwidth(), window.winfo_screenheight()
-    except Exception:
+    except Exception:   # noqa: BLE001 — finestra non ancora mappata: winfo_screen* solleva -> nessun clamp, dimensioni richieste as-is
         # winfo_screen* può fallire se la finestra non è ancora mappata: in tal
         # caso si usano le dimensioni richieste così come sono (nessun clamp).
         w, h = width, height

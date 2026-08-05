@@ -237,7 +237,7 @@ def atomic_write(path, write_fn, *, prefix="tmp_", suffix=".tmp", mode="w",
         # Rende DURABILE anche la voce di directory del rename (H2). Best-effort e non
         # solleva: il file è già al suo posto, un fallimento qui non deve perderlo.
         _fsync_dir(d)
-    except BaseException:
+    except BaseException:   # noqa: BLE001 — cleanup del temporaneo su QUALSIASI errore, anche KeyboardInterrupt/SystemExit, e poi RILANCIA: senza, un .tmp resterebbe orfano sul disco
         if not preso_in_carico:
             # `fdopen` non e' arrivato a prendersi il fd: va chiuso a mano, altrimenti resta
             # aperto per tutta la vita del processo.
