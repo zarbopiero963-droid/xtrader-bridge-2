@@ -92,7 +92,9 @@ def _carica_generatore():
 _GEN = _carica_generatore()
 
 # Allowlist: per ogni modulo che ne contiene, il numero di blind-except ATTESI + il perché.
-# I blind-except qui sono best-effort/fail-safe documentati (spesso con `# noqa: BLE001`):
+# I blind-except qui sono best-effort/fail-safe documentati (spesso con un marcatore
+# `noqa: BLE001` — scritto senza cancelletto perche' ruff leggerebbe la menzione come una
+# direttiva vera e la segnalerebbe malformata, #211 R4):
 # GUI Tk (un callback che solleva non deve buttare giù la finestra), soft-import/fallback
 # (keyring/credential store: qualsiasi errore = backend non disponibile), best-effort di
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
@@ -577,7 +579,7 @@ def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():
         f"{disallineati}")
 
 
-# Debito ESTINTO. Alla #224 erano 19 (11 senza marcatore, 8 con un `# noqa: BLE001` MUTO —
+# Debito ESTINTO. Alla #224 erano 19 (11 senza marcatore, 8 con un `noqa: BLE001` MUTO —
 # il timbro «approvato» senza motivazione); tutti e 19 sono stati scritti leggendo cosa il
 # codice dimostra di fare, non indovinando. A zero il ratchet diventa una regola secca: ogni
 # blind-except deve dire perché, senza eccezioni residue.

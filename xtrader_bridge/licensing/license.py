@@ -26,7 +26,7 @@ import math
 from collections import namedtuple
 
 from . import ed25519
-from .hwid import NO_HARDWARE_ID, is_identifiable
+from .hwid import is_identifiable
 
 # ── Chiave pubblica di verifica ──────────────────────────────────────────────────────────────
 # Chiave pubblica **REALE** del proprietario, sostituita il 2026-07-31 (issue #12 PARTE 0). Il seed

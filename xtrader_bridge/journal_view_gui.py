@@ -27,7 +27,7 @@ import sys
 
 import customtkinter as ctk
 
-from . import event_journal, i18n, journal_view, ui_cards, ui_theme
+from . import event_journal, i18n, journal_view, ui_cards
 
 # Scelte numeriche del filtro «Ultimi N» (quantità sensate per una lettura a colpo
 # d'occhio); l'ultima voce «tutti» (nessun taglio) è aggiunta TRADOTTA alla costruzione.

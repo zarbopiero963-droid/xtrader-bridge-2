@@ -20,7 +20,6 @@ Invarianti di sicurezza preservate:
 Modulo puro: nessuna dipendenza da GUI/CSV/Telegram, interamente testabile.
 """
 
-import math
 import time
 
 from dataclasses import dataclass, field

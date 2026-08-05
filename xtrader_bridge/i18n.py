@@ -642,14 +642,10 @@ _CATALOG = {
         # (confronto `s == _SPORT_ALL` in _selected_sport): resta IT e NON è a catalogo.
         "🧹  Nomi squadra noti (permanenti) — ripulitura": "🧹  Known team names (permanent) — cleanup",
         "Nomi squadra del dizionario locale, conservati per sempre. Elimina qui quelli obsoleti/errati (es. squadre retrocesse).": "Team names from the local dictionary, kept forever. Delete obsolete/wrong ones here (e.g. relegated teams).",
-        "Sport": "Sport",
-        "🔄 Aggiorna": "🔄 Refresh",
         "Nomi noti": "Known names",
         "⛔ Provider del dizionario locale non disponibile.": "⛔ Local dictionary provider not available.",
-        "⏳ Dizionario occupato: riprova tra poco.": "⏳ Dictionary busy: try again shortly.",
         "⚠️ Errore lettura nomi: {exc}": "⚠️ Error reading names: {exc}",
         "{count} nomi noti.": "{count} known names.",
-        "🗑 Elimina": "🗑 Delete",
         "Elimina nome noto": "Delete known name",
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "Delete the name «{name}»?\nIt is permanent and cannot be undone: the resolver will no longer recognize that team until you add it again.",
@@ -662,7 +658,6 @@ _CATALOG = {
         "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
             "Remove provider «{name}»?\nIt is permanent: messages from that source will no longer be recognized until you add it again.",
         "Rimozione annullata.": "Removal cancelled.",
-        "Eliminazione annullata.": "Deletion cancelled.",
         "⛔ Eliminazione non disponibile.": "⛔ Deletion not available.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Deletion failed: {exc}",
         "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Deletion failed: local dictionary not available.",
@@ -1365,14 +1360,10 @@ _CATALOG = {
         # Pannello «🧹 Nomi squadra noti» (#343 slice 4t) — vedi nota nel blocco EN.
         "🧹  Nomi squadra noti (permanenti) — ripulitura": "🧹  Nombres de equipo conocidos (permanentes) — limpieza",
         "Nomi squadra del dizionario locale, conservati per sempre. Elimina qui quelli obsoleti/errati (es. squadre retrocesse).": "Nombres de equipo del diccionario local, conservados para siempre. Elimina aquí los obsoletos/erróneos (p. ej. equipos descendidos).",
-        "Sport": "Deporte",
-        "🔄 Aggiorna": "🔄 Actualizar",
         "Nomi noti": "Nombres conocidos",
         "⛔ Provider del dizionario locale non disponibile.": "⛔ Proveedor del diccionario local no disponible.",
-        "⏳ Dizionario occupato: riprova tra poco.": "⏳ Diccionario ocupado: reinténtalo en breve.",
         "⚠️ Errore lettura nomi: {exc}": "⚠️ Error al leer los nombres: {exc}",
         "{count} nomi noti.": "{count} nombres conocidos.",
-        "🗑 Elimina": "🗑 Eliminar",
         "Elimina nome noto": "Eliminar nombre conocido",
         "Eliminare il nome «{name}»?\nÈ permanente e non annullabile: il resolver non riconoscerà più quella squadra finché non la reinserisci.":
             "¿Eliminar el nombre «{name}»?\nEs permanente y no se puede deshacer: el resolutor ya no reconocerá ese equipo hasta que lo vuelvas a añadir.",
@@ -1385,7 +1376,6 @@ _CATALOG = {
         "Rimuovere il provider «{name}»?\nÈ permanente: i messaggi da quella sorgente non verranno più riconosciuti finché non lo reinserisci.":
             "¿Eliminar el proveedor «{name}»?\nEs permanente: los mensajes de esa fuente ya no se reconocerán hasta que lo vuelvas a añadir.",
         "Rimozione annullata.": "Eliminación cancelada.",
-        "Eliminazione annullata.": "Eliminación cancelada.",
         "⛔ Eliminazione non disponibile.": "⛔ Eliminación no disponible.",
         "⚠️ Eliminazione fallita: {exc}": "⚠️ Eliminación fallida: {exc}",
         "⚠️ Eliminazione non riuscita: dizionario locale non disponibile.": "⚠️ Eliminación fallida: diccionario local no disponible.",
