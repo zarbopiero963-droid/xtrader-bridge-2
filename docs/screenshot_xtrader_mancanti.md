@@ -102,13 +102,32 @@ Basta una riga, con importi coperti.
 
 ---
 
-## Bonus: le altre versioni del network
+## 🌍 Le altre versioni del network — servono per le tre sezioni del sito
 
-Screenshot delle **stesse finestre** su **BETTINGTOOLKIT.COM / .ES / .LAT** sarebbero preziosi per
-la parte multilingua del sito: confermerebbero che struttura e codici `MarketType` sono davvero
-identici e mostrerebbero come sono tradotte le etichette. Non è realistico se il proprietario non
-ha quegli abbonamenti — ma se capita di vederli anche solo in un video o in una demo pubblica,
-vale la pena annotarlo.
+Il sito avrà **una sezione per prodotto**: *BetRelay per XTrader* · *for BETTINGTOOLKIT.COM* ·
+*para .ES* · *para .LAT* (vedi [`policy_lingue_sito.md`](policy_lingue_sito.md)). Ogni sezione
+mostra le schermate **nella lingua di quel software**, quindi servirebbero le stesse finestre in
+**inglese** e in **spagnolo**.
+
+Le più importanti, nell'ordine:
+
+- [ ] **Fonte Segnali** in EN e in ES — è la schermata centrale della guida di collegamento
+- [ ] **Finestra Segnali** in EN e in ES
+- [ ] **Filtro Mercati** in EN e in ES
+- [ ] Menu principale (per le voci di menu tradotte) in EN e in ES
+
+Confermerebbero anche una cosa che oggi diamo per buona sulla parola del supporto: che struttura
+del CSV e codici `MarketType` sono **davvero identici** fra le versioni, e che cambiano solo le
+etichette dell'interfaccia.
+
+**Se non sono disponibili non è bloccante**: per la regola delle lingue, in mancanza di quelle
+schermate le sezioni non-italiane usano gli screenshot **inglesi**, e se mancano anche quelli si
+parte con gli italiani dichiarando che l'interfaccia mostrata è la versione IT.
+
+> 📌 **Regola permanente da ricordare** ([`policy_lingue_sito.md`](policy_lingue_sito.md)): gli
+> screenshot esistono solo in **IT/EN/ES**, perché il software esiste solo in quelle tre lingue.
+> Se il sito aggiungerà francese, rumeno o altro, **il testo si traduce ma gli screenshot restano
+> in inglese** — e le etichette vanno citate verbatim come appaiono a schermo.
 
 ---
 

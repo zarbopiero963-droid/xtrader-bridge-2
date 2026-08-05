@@ -138,7 +138,7 @@
       "docs.family.p": "XTrader (Italy) belongs to the same family as BETTINGTOOLKIT.COM, .ES and .LAT: CSV structure, column names and <code>MarketType</code> codes are identical in every version. Only the language the software reads the catalogue in changes.",
       "docs.rights.h": "Rights on the manual.",
       "docs.rights.p": "The manual is the work of TradingSportivo and is republished here with their permission, for the convenience of BetRelay users. It is not our material and may not be modified or redistributed: to reuse it elsewhere, ask the author directly.",
-      "footer.independent": "Independent project. XTrader, BETTINGTOOLKIT.COM/.ES/.LAT and the related trademarks belong to their respective owners: BetRelay is not affiliated with or sponsored by TradingSportivo."
+      "footer.independent": "Independent project: BetRelay is not affiliated with, associated with, authorised or sponsored by TradingSportivo (XTrader) or Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader, Betting Toolkit, Betfair, Telegram and the related trademarks belong to their respective owners and are named for descriptive purposes only, to indicate compatibility."
     },
     es: {
       "nav.home": "Inicio", "nav.demo": "Demo interactiva", "nav.faq": "FAQ", "nav.contact": "Contacto",
@@ -274,7 +274,7 @@
       "docs.family.p": "XTrader (Italia) pertenece a la misma familia que BETTINGTOOLKIT.COM, .ES y .LAT: la estructura del CSV, los nombres de las columnas y los códigos <code>MarketType</code> son idénticos en todas las versiones. Solo cambia el idioma con el que el software lee el catálogo.",
       "docs.rights.h": "Derechos sobre el manual.",
       "docs.rights.p": "El manual es obra de TradingSportivo y se republica aquí con su autorización, para comodidad de los usuarios de BetRelay. No es material nuestro y no puede modificarse ni redistribuirse: para reutilizarlo en otro lugar, pide permiso directamente al autor.",
-      "footer.independent": "Proyecto independiente. XTrader, BETTINGTOOLKIT.COM/.ES/.LAT y las marcas relacionadas pertenecen a sus respectivos propietarios: BetRelay no está afiliado ni patrocinado por TradingSportivo."
+      "footer.independent": "Proyecto independiente: BetRelay no está afiliado, asociado, autorizado ni patrocinado por TradingSportivo (XTrader) ni por Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader, Betting Toolkit, Betfair, Telegram y las marcas relacionadas pertenecen a sus respectivos propietarios y se citan solo con fines descriptivos, para indicar la compatibilidad."
     }
   };
 
