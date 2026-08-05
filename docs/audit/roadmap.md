@@ -5349,3 +5349,42 @@ importata dal generatore, e lo stesso sabotaggio lo fa fallire.
 
 Suite completa: **5157 passed, 1 skipped**. **Nessun file di `xtrader_bridge/` toccato**: il
 gate è test-only, e i 19 siti senza motivo restano tali per scelta dichiarata.
+
+---
+
+## #256 punto 2 — il tetto anti-costo era per profilo, non globale
+
+Il tetto della #255 (`_MAX_VOCI_CONTROLLO_AMBIGUITA = 300`) valeva **per profilo**: nulla
+limitava il totale, e il costo è **lineare** nelle voci esaminate (~2,2 ms l'una, misurato).
+Con profili tutti al tetto per profilo, allo START:
+
+| profili | voci | prima | dopo |
+|---:|---:|---:|---:|
+| 1 | 300 | 0,66 s · 150 avvisi | 0,66 s · 51 avvisi |
+| 3 | 900 | 1,92 s · 450 avvisi | 1,98 s · 51 avvisi |
+| 5 | 1500 | 3,31 s · 750 avvisi | 1,95 s · 52 avvisi |
+| 8 | 2400 | **5,39 s · 1200 avvisi** | **1,93 s · 52 avvisi** |
+
+**Due problemi distinti, non uno.** Il tempo è quello ovvio. L'altro è che **1200 righe di ⚠️
+non si leggono**, e un elenco che nessuno scorre informa quanto il silenzio che la #254 aveva
+tolto — cioè fallisce nello stesso modo, per una ragione diversa. Da qui due tetti:
+
+- `_MAX_VOCI_TOTALI_CONTROLLO = 900` — budget globale di voci esaminate, tiene il caso peggiore
+  sotto ~2 s di finestra bloccata;
+- `_MAX_AVVISI_AMBIGUITA = 50` — tetto sugli avvisi di conflitto elencati.
+
+**Entrambi dichiarati**, coerentemente con la regola stabilita dalla #254: il budget **nomina i
+profili non controllati**, il troncamento dice **quanti** conflitti restano fuori.
+
+**Il caso che il test fail-first ha reso visibile** è quello a zero conflitti: 1500 voci su 5
+profili, di cui 2 saltati per budget, producevano **zero avvisi** — cioè «tutto pulito» su una
+config controllata a metà. Un profilo saltato va detto **anche se era sano**, perché chi legge
+non può saperlo.
+
+**Dettaglio di struttura che vale la pena ricordare:** le righe che spiegano la copertura
+parziale stanno in una lista **separata** dai conflitti e non vengono mai troncate. Un
+troncamento che si mangia la spiegazione sarebbe il cap muto travestito — cioè il difetto
+originale, rientrato dalla finestra.
+
+Suite completa: **5164 passed, 1 skipped**. Nessun impatto sul percorso runtime: la funzione è
+diagnostica e sola-lettura sulla config.

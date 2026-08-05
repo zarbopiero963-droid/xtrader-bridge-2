@@ -155,6 +155,31 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    live non ha tetto e non può averne uno — non si può rifiutare di risolvere un mercato perché
    il dizionario è grande — ed è esattamente per questo che la #256 era necessaria: prima della
    cache, un dizionario oltre le ~512 frasi costava ~100 ms **per messaggio** invece di ~1 ms.
+
+   **Due tetti in più, dal punto 2 della #256.** Quello per profilo non limitava il **totale**:
+   N profili al tetto sommavano il costo allo START, perché il costo è lineare nelle voci
+   esaminate (~2,2 ms l'una). E il numero di **avvisi** è un problema a sé, indipendente dal
+   tempo: 1200 righe di ⚠️ non si leggono, e un elenco che nessuno scorre informa quanto il
+   silenzio che la #254 aveva tolto.
+
+   | profili al tetto | voci | prima | dopo |
+   |---:|---:|---:|---:|
+   | 1 | 300 | 0,66 s · 150 avvisi | 0,66 s · 51 avvisi |
+   | 3 | 900 | 1,92 s · 450 avvisi | 1,98 s · 51 avvisi |
+   | 5 | 1500 | 3,31 s · 750 avvisi | 1,95 s · 52 avvisi |
+   | 8 | 2400 | 5,39 s · 1200 avvisi | 1,93 s · 52 avvisi |
+
+   - `_MAX_VOCI_TOTALI_CONTROLLO = 900` — budget globale, tiene il caso peggiore sotto ~2 s;
+   - `_MAX_AVVISI_AMBIGUITA = 50` — tetto sugli avvisi elencati.
+
+   **Entrambi dichiarati, come i precedenti.** Il budget nomina i profili **non controllati**
+   («…5 profili NON controllati («P3», «P4»…)») e il troncamento dice **quanti** conflitti
+   restano fuori. Vale anche per un profilo saltato che era *sano*: chi legge non può saperlo, e
+   l'assenza di avvisi significherebbe «controllato e pulito».
+
+   La riga che spiega la copertura parziale **non viene mai troncata**: è tenuta in una lista
+   separata dai conflitti, perché un troncamento che si mangia la spiegazione sarebbe il cap
+   muto travestito.
 3bis. **Niente ID stantii quando il dizionario vince.** La mappatura mercati è *name-based*
    (`resolve_market` non risolve `MarketId`/`SelectionId`: non sono nel Catalogo). Se le
    regole-colonna hanno estratto una coppia ID e poi il dizionario vince, lasciare quegli ID
