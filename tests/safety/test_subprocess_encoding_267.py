@@ -40,12 +40,39 @@ _RADICE = pathlib.Path(__file__).resolve().parents[2]
 # Chiamate che accettano `text=`/`universal_newlines=` e quindi decodificano.
 _CHIAMATE_TESTUALI = {"run", "check_output", "Popen", "check_call", "call"}
 
+# Ogni processo figlio ha un tetto di tempo. Un test che si APPENDE in CI non fallisce: resta
+# appeso fino al timeout del workflow, e nel frattempo è indistinguibile da uno lento — cioè di
+# nuovo un controllo che non parla. `timeout=` trasforma l'attesa infinita in un errore leggibile
+# (`subprocess.TimeoutExpired`) che dice quale comando non è tornato.
+_TIMEOUT_S = 120
+
+# `LC_ALL`/`LANG` sono meccanismi POSIX; `PYTHONCOERCECLOCALE=0` disattiva la coercizione del
+# locale (PEP 538) e `PYTHONUTF8=0` il UTF-8 mode (PEP 540). Insieme portano un figlio a
+# riportare ASCII invece di UTF-8.
+_AMBIENTE_DEGRADATO = {"LC_ALL": "C", "LANG": "C",
+                       "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"}
+
+
+def _codifica_di_un_figlio_degradato() -> str:
+    """La codifica riportata da un figlio avviato con `_AMBIENTE_DEGRADATO`, in minuscolo.
+
+    Serve a sapere **se la degradazione ha funzionato** prima di dedurre qualcosa da un test che
+    la presuppone: su Windows `LC_ALL` non ha effetto (rilievo Fable 5), e un domani PEP 686
+    potrebbe accendere UTF-8 mode di serie ovunque.
+    """
+    figlio = subprocess.run(
+        [sys.executable, "-c", "import locale; print(locale.getpreferredencoding(False))"],
+        capture_output=True, text=True, encoding="utf-8", timeout=_TIMEOUT_S,
+        env={**os.environ, **_AMBIENTE_DEGRADATO})
+    return figlio.stdout.strip().lower()
+
 
 def _file_python_tracciati() -> list:
     """I `.py` tracciati da git. `-z` + split su NUL: i percorsi con spazi non si spezzano."""
     try:
         res = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=_RADICE,
-                             capture_output=True, text=True, encoding="utf-8")
+                             capture_output=True, text=True, encoding="utf-8",
+                             timeout=_TIMEOUT_S)
     except OSError as exc:      # NON blind: `git` assente/non eseguibile, niente altro
         pytest.fail(f"`git` non disponibile ({exc}): la guardia non può enumerare i file.")
     assert res.returncode == 0, f"git ls-files fallito: {res.stderr[:400]}"
@@ -133,7 +160,19 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
     in cui `git ls-files` emette byte UTF-8 grezzi invece degli escape ottali.
 
     **Rosso prima della patch** con `UnicodeDecodeError`, verde dopo.
+
+    Se l'ambiente **non** è degradabile — su Windows `LC_ALL` non ha effetto — questo test
+    **salta dichiarandolo** invece di passare: un verde ottenuto perché l'ambiente è già UTF-8
+    non dimostra che `encoding=` c'è, e conterebbe come copertura senza esserlo.
     """
+    codifica = _codifica_di_un_figlio_degradato()
+    if "utf" in codifica:
+        pytest.skip(
+            f"ambiente non degradabile (il figlio riporta {codifica!r}): qui il test passerebbe "
+            "anche SENZA encoding=, quindi non dimostrerebbe nulla. La copertura comportamentale "
+            "resta quella delle piattaforme POSIX."
+        )
+
     repo = tmp_path / "repo"
     repo.mkdir()
     ambiente_git = {**os.environ, "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig-vuoto"),
@@ -143,11 +182,13 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
                  ["config", "user.email", "t@e.st"],
                  ["config", "user.name", "T"]):
         r = subprocess.run(["git", *args], cwd=repo, capture_output=True,
-                           text=True, encoding="utf-8", env=ambiente_git)
+                           text=True, encoding="utf-8", env=ambiente_git,
+                           timeout=_TIMEOUT_S)
         assert r.returncode == 0, f"git {args[0]} fallito: {r.stderr[:300]}"
     (repo / "caffè.txt").write_text("x", encoding="utf-8")
     r = subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True,
-                       text=True, encoding="utf-8", env=ambiente_git)
+                       text=True, encoding="utf-8", env=ambiente_git,
+                       timeout=_TIMEOUT_S)
     assert r.returncode == 0, r.stderr[:300]
 
     # Il figlio stampa SOLO ASCII: il verdetto non deve dipendere dalla codifica del suo stdout,
@@ -168,9 +209,8 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
     )
     figlio = subprocess.run(
         [sys.executable, "-c", programma, str(repo), str(_RADICE)],
-        capture_output=True, text=True, encoding="utf-8",
-        env={**ambiente_git, "LC_ALL": "C", "LANG": "C",
-             "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"})
+        capture_output=True, text=True, encoding="utf-8", timeout=_TIMEOUT_S,
+        env={**ambiente_git, **_AMBIENTE_DEGRADATO})
 
     assert figlio.returncode == 0, f"il figlio è morto: {figlio.stderr[-600:]}"
     esito = figlio.stdout.strip()
@@ -181,25 +221,23 @@ def test_267_git_legge_un_percorso_accentato_anche_con_locale_non_utf8(tmp_path)
     )
 
 
-def test_267_l_ambiente_del_test_precedente_e_DAVVERO_non_utf8():
-    """Contro-guardia dell'ambiente, non del codice — e serve.
+@pytest.mark.skipif(os.name != "posix", reason="la degradazione via LC_ALL è un meccanismo POSIX")
+def test_267_su_POSIX_la_degradazione_del_locale_DEVE_funzionare():
+    """Contro-guardia dello **skip**, non dell'ambiente — ed è la parte che conta.
 
-    Se un domani Python cambiasse il default (PEP 686: UTF-8 mode acceso di serie) o se la
-    coercizione del locale non fosse disattivabile, il test qui sopra resterebbe **verde senza
-    dimostrare nulla**: passerebbe perché l'ambiente è UTF-8, non perché `encoding=` c'è.
+    Lo skip del test precedente è onesto ma pericoloso: uno skip si legge come un puntino verde, e
+    se un domani la degradazione smettesse di funzionare **anche su Linux** la copertura
+    comportamentale sparirebbe lì dentro senza che nessuno se ne accorga. Sarebbe di nuovo un
+    controllo che tace — la forma esatta del difetto che questa serie di PR insegue.
 
-    È il difetto che questa serie di PR continua a incontrare — un controllo che sembra guardare
-    e non guarda — quindi qui si verifica esplicitamente che il locale sia davvero degradato.
+    Su POSIX — dove `LC_ALL` funziona, ed è la CI principale — la degradazione deve riuscire
+    **sempre**. Su Windows lo skip è legittimo e atteso (rilievo Fable 5): lì il runner gira già
+    col codepage ANSI nativo, cioè l'ambiente reale che la issue descrive.
     """
-    figlio = subprocess.run(
-        [sys.executable, "-c",
-         "import locale; print(locale.getpreferredencoding(False))"],
-        capture_output=True, text=True, encoding="utf-8",
-        env={**os.environ, "LC_ALL": "C", "LANG": "C",
-             "PYTHONCOERCECLOCALE": "0", "PYTHONUTF8": "0"})
-
-    codifica = figlio.stdout.strip().lower()
+    codifica = _codifica_di_un_figlio_degradato()
+    assert codifica, "il figlio non ha riportato alcuna codifica"
     assert "utf" not in codifica, (
-        f"l'ambiente di prova è ancora UTF-8 ({codifica!r}): il test comportamentale "
-        "passerebbe senza dimostrare nulla. Va rivisto il modo di degradare il locale."
+        f"su POSIX la degradazione del locale non funziona più (riportato {codifica!r}): il test "
+        "comportamentale sta saltando invece di verificare, e la copertura è sparita in silenzio. "
+        "Va rivisto il modo di degradare il locale, non tolto il test."
     )
