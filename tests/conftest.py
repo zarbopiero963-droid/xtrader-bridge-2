@@ -235,7 +235,15 @@ def chiave_pubblica_di_test(monkeypatch):
 # lunghezza quindi stessi indici. Le posizioni si cercano sulla maschera, il testo si legge
 # dall'originale.
 def _maschera_codice(testo: str) -> str:
-    """Il sorgente con stringhe e commenti resi spazi: stessa lunghezza, solo codice visibile."""
+    """Il sorgente con stringhe e commenti resi spazi: stessa lunghezza, solo codice visibile.
+
+    **Limite dichiarato** (rilievo Claude Fable 5 sulla #289): non riconosce i *regex literal*
+    JS. Un pattern come `/a\\/\\/b/` contiene `//`, e da lì in poi la riga verrebbe scambiata per
+    un commento. Non è un problema per `i18n.js`, che è un unico oggetto di stringhe doppie
+    (zero backtick, zero regex — verificato), ma questo lettore è «robusto a una
+    riformattazione», **non** un parser JavaScript: se un domani gli si desse un file con
+    espressioni regolari, il posto da sistemare è questo.
+    """
     fuori, i, n = [], 0, len(testo)
     while i < n:
         c = testo[i]
