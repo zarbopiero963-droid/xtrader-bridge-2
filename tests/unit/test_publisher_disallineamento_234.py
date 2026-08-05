@@ -128,7 +128,7 @@ def test_234_slash_o_spazi_finali_AVVISANO_e_lo_spiegano(monkeypatch):
         avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
                                                   "revocation_list.txt", "main")
         assert avviso, f"coda {coda!r}: un 404 per tutti i bridge non puo' essere silenzioso"
-        assert "SPAZI o SLASH in eccesso" in avviso, coda
+        assert "SPAZI (a inizio o fine) o SLASH finali" in avviso, coda
         assert "404" in avviso, coda
         assert repr(_REALE + coda) in avviso, "il repr rende VISIBILE la differenza invisibile"
 
@@ -150,11 +150,37 @@ def test_234_spazio_INIZIALE_avvisa_e_il_testo_NON_lo_chiama_finale(monkeypatch)
                                               "revocation_list.txt", "main")
 
     assert avviso, "uno spazio iniziale rompe il download per tutti i bridge: va detto"
-    assert "SPAZI o SLASH in eccesso" in avviso, avviso
-    # e il testo non deve MENTIRE dicendo che la differenza è in coda
-    assert "finali" not in avviso, avviso
+    # Il testo deve dire ESATTAMENTE cosa copre il ramo, in entrambe le direzioni: `strip()` è
+    # bilaterale sugli spazi, `rstrip("/")` agisce SOLO in coda sugli slash (rilievo indipendente
+    # di Fable 5 e Fugu Ultra sulla prima stesura di questa correzione, che diceva «SLASH in
+    # eccesso (a inizio o fine)» — cioè si era allargata di un lato mentre ne stringeva un altro).
+    assert "SPAZI (a inizio o fine) o SLASH finali" in avviso, avviso
     assert repr(" " + _REALE) in avviso, "il repr rende VISIBILE la differenza invisibile"
     assert "NON allargare il token" in avviso, avviso
+
+
+def test_234_slash_INIZIALE_tace_perche_lo_ferma_un_gate_PIU_FORTE(monkeypatch):
+    """Perché `rstrip("/")` può restare solo-coda: il caso simmetrico non arriva mai qui.
+
+    Fable 5 e Fugu Ultra hanno notato che uno slash *iniziale* non entra nel ramo spazi/slash;
+    entrambi hanno supposto che finisse nel messaggio generico «indirizzo diverso». Misurato,
+    non è così: `"/https://…"` **non ha host**, quindi `is_placeholder_url` lo classifica
+    placeholder (fail-closed) e `disallineamento_bridge` esce prima di qualunque confronto.
+
+    Il silenzio è **corretto**, e per una ragione più forte: un `REVOCATION_LIST_URL` malformato
+    significa revoca online inattiva per costruzione, e il **gate di release** legge quello stesso
+    predicato e **blocca il tag** — non può finire in un EXE distribuito. Il caso è fermato a
+    monte da una barriera più severa di un avviso, non lasciato passare.
+
+    Questo test esiste per bloccare l'inversione: se un domani `is_placeholder_url` smettesse di
+    essere fail-closed sugli URL senza host, qui si accenderebbe.
+    """
+    assert revocation_client.is_placeholder_url("/" + _REALE), (
+        "un URL senza host deve restare placeholder: è il fail-closed su cui poggia il gate di release")
+
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", "/" + _REALE)
+    assert publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                            "revocation_list.txt", "main") == ""
 
 
 def test_234_configurazione_ESATTAMENTE_uguale_non_avvisa(monkeypatch):

@@ -109,15 +109,21 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     a, b = str(configurato), str(atteso or "")
     if a == b:
         return ""
-    # `strip()` toglie il bianco da ENTRAMBI i lati, quindi ci finisce anche uno spazio iniziale:
-    # il messaggio deve dire «in eccesso», non «finali» (rilievo Fable 5 + GPT-5.5 sul commit
-    # precedente). Chiamarlo «finale» mandava a cercare in coda una differenza che sta in testa —
-    # cioè di nuovo un testo che dichiara una cosa diversa da quella che il codice fa, che è
-    # esattamente il difetto che questa PR esiste per togliere.
+    # Il testo deve nominare ESATTAMENTE ciò che il ramo copre, senza allargarsi né stringersi:
+    # `strip()` è bilaterale sugli spazi, `rstrip("/")` agisce SOLO in coda sugli slash. Le due
+    # stesure precedenti hanno sbagliato una volta per lato — «SPAZI o SLASH finali» ignorava lo
+    # spazio in testa (rilievo Fable 5 + GPT-5.5), e «in eccesso (a inizio o fine)» prometteva uno
+    # slash iniziale che il codice non tratta (rilievo indipendente di Fable 5 e Fugu Ultra). È la
+    # stessa classe di difetto che questa funzione esiste per intercettare, applicata a se stessa:
+    # un testo che dichiara qualcosa di diverso da ciò che il codice fa.
+    #
+    # Lo slash iniziale non serve trattarlo qui: `"/https://…"` non ha host, quindi
+    # `is_placeholder_url` lo ferma in cima a questa funzione (fail-closed) e il gate di release
+    # legge lo stesso predicato e BLOCCA il tag — barriera più severa di un avviso.
     if a.strip().rstrip("/") == b.strip().rstrip("/"):
         return (
             "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono solo "
-            f"per SPAZI o SLASH in eccesso (a inizio o fine).\nConfigurato:      {a!r}\n"
+            f"per SPAZI (a inizio o fine) o SLASH finali.\nConfigurato:      {a!r}\n"
             f"Atteso dai bridge: {b!r}\n"
             "Sembrano identici ma non lo sono, e i bridge NON scaricherebbero la lista: su "
             "raw.githubusercontent.com un file con slash o spazio in coda risponde 404, e uno "

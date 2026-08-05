@@ -821,7 +821,9 @@ collaterale di questa PR.
   rende la richiesta non valida — cioè sarebbero bridge **realmente rotti**, silenziati dentro la
   funzione che esiste per non silenziare nulla. Branch e percorso sono inoltre
   **case-sensitive**: un `Main` al posto di `main` è un 404 per tutti i bridge. Si avvisa quindi
-  su **qualunque** differenza, ma il messaggio la **nomina** — spazi/slash in eccesso,
+  su **qualunque** differenza, ma il messaggio la **nomina** — spazi a inizio o fine e slash
+  finali (esattamente ciò che il ramo confronta: `strip()` è bilaterale, `rstrip("/")` solo in
+  coda; uno slash *iniziale* non arriva fin qui perché un URL senza host è già placeholder),
   maiuscole/minuscole, o indirizzo diverso — e mostra i due URL con `repr()`, perché due stringhe
   che differiscono per uno spazio si leggono come identiche e un avviso che *sembra* sbagliato è
   un avviso che la volta dopo nessuno legge.
