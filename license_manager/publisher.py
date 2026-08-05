@@ -62,19 +62,6 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
 
 
-def _per_confronto(url) -> str:
-    """URL ridotto alla forma confrontabile: spazi ai bordi via e **uno** slash finale via.
-
-    Si normalizza **solo** ciò che non cambia il file servito. In particolare NON si abbassa il
-    case (rilievo Fable 5): su `raw.githubusercontent.com` branch e percorso sono
-    **case-sensitive**, quindi un confronto case-insensitive maschererebbe un disallineamento
-    **vero** — `main` contro `Main` darebbe 404 a tutti i bridge. Un avviso in più costa una
-    lettura; un avviso in meno costa la propagazione delle revoche, che è il difetto per cui
-    questa funzione esiste.
-    """
-    return str(url or "").strip().rstrip("/")
-
-
 def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     """Avviso se si sta per pubblicare a un indirizzo **diverso** da quello che i bridge leggono,
     altrimenti stringa vuota. Puro: nessuna rete, nessuna scrittura.
@@ -108,11 +95,27 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     if revocation_client.is_placeholder_url(atteso):
         return ""
     configurato = raw_url(repo, path, branch)
-    # Si normalizzano SOLO le differenze che non cambiano il file servito: spazi ai bordi e uno
-    # slash finale. Nient'altro (rilievo Fable 5 sulla #265→#234).
-    a, b = _per_confronto(configurato), _per_confronto(atteso)
+    # Confronto ESATTO, nessuna normalizzazione (secondo rilievo Fable 5, che ha corretto il
+    # primo). Una stesura intermedia toglieva spazi e slash finali «perché servono lo stesso
+    # file»: falso. Su `raw.githubusercontent.com` un file con slash finale
+    # (`…/revocation_list.txt/`) risponde **404**, e uno spazio in coda pure — e
+    # `REVOCATION_LIST_URL` non è una preferenza, è la stringa che i bridge **scaricano
+    # davvero**. Normalizzarle silenziava un bridge realmente rotto, dentro la funzione che
+    # esiste per non silenziare nulla: il difetto originale, riprodotto nella sua correzione.
+    #
+    # Quindi si avvisa SEMPRE su qualunque differenza. Ma il messaggio deve **nominarla**: due
+    # URL che differiscono per uno spazio finale o per una maiuscola si leggono come identici, e
+    # un avviso che sembra sbagliato è un avviso che la volta dopo nessuno legge.
+    a, b = str(configurato), str(atteso or "")
     if a == b:
         return ""
+    if a.strip().rstrip("/") == b.strip().rstrip("/"):
+        return (
+            "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono solo "
+            f"per SPAZI o SLASH finali.\nConfigurato:      {a!r}\nAtteso dai bridge: {b!r}\n"
+            "Sembrano identici ma non lo sono: su raw.githubusercontent.com un file con slash "
+            "o spazio in coda risponde 404, quindi i bridge NON scaricherebbero la lista. "
+            "Correggi REVOCATION_LIST_URL o la configurazione. NON allargare il token.")
     if a.lower() == b.lower():
         # Differenza di SOLE maiuscole/minuscole. Si avvisa comunque — perché su
         # `raw.githubusercontent.com` branch e percorso SONO case-sensitive, e un `Main` al posto

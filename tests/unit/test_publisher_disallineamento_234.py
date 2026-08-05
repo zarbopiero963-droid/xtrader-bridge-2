@@ -109,14 +109,33 @@ def test_234_il_403_di_RATE_LIMIT_resta_pulito():
     assert "Contents: Read and write" not in msg
 
 
-def test_234_slash_finale_e_spazi_NON_sono_un_disallineamento(monkeypatch):
-    """Rilievo Fable 5: il confronto non deve inciampare su differenze che non cambiano il file.
+def test_234_slash_o_spazi_finali_AVVISANO_e_lo_spiegano(monkeypatch):
+    """Secondo rilievo Fable 5, che ha CORRETTO il primo — e io avevo seguito il primo.
 
-    Uno slash finale o spazi ai bordi in `REVOCATION_LIST_URL` servono lo stesso identico file,
-    quindi avvisare sarebbe un falso positivo — e un avviso falso su una configurazione giusta
-    insegna a ignorare quello vero.
+    Una stesura intermedia normalizzava spazi e slash finali «perché servono lo stesso file».
+    È falso: su `raw.githubusercontent.com` un file con slash in coda
+    (`…/revocation_list.txt/`) risponde **404**, e uno spazio pure. E `REVOCATION_LIST_URL` non
+    è una preferenza: è la stringa che i bridge **scaricano davvero**.
+
+    Normalizzarle significava **silenziare un bridge realmente rotto** — dentro la funzione che
+    esiste per non silenziare nulla. Il difetto originale, riprodotto nella sua correzione.
+
+    Si avvisa sempre, ma nominando la differenza: due URL che differiscono per uno spazio si
+    leggono come identici, e un avviso che sembra sbagliato è un avviso che nessuno rilegge.
     """
-    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", "  " + _REALE + "/  ")
+    for coda in ("/", "//", " ", "\t"):
+        monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", _REALE + coda)
+        avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                                  "revocation_list.txt", "main")
+        assert avviso, f"coda {coda!r}: un 404 per tutti i bridge non puo' essere silenzioso"
+        assert "SPAZI o SLASH finali" in avviso, coda
+        assert "404" in avviso, coda
+        assert repr(_REALE + coda) in avviso, "il repr rende VISIBILE la differenza invisibile"
+
+
+def test_234_configurazione_ESATTAMENTE_uguale_non_avvisa(monkeypatch):
+    """Contro-guardia del confronto esatto: l'uguaglianza vera resta silenziosa."""
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", _REALE)
     assert publisher.disallineamento_bridge("tizio/xtrader-revocation",
                                             "revocation_list.txt", "main") == ""
 
