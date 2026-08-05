@@ -52,6 +52,8 @@ PAGINE = [
     ("/contatti", "Contatti"),
     ("/guida/bot-telegram", "Guida bot"),
     ("/documentazione", "Documentazione"),
+    ("/privacy", "Privacy"),
+    ("/gioco-responsabile", "Gioco responsabile · 18+"),
 ]
 
 # Disclaimer di non-affiliazione (docs/policy_lingue_sito.md §7). Il browser headless
