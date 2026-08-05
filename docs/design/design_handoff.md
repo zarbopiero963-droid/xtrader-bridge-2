@@ -169,7 +169,7 @@ FINESTRA PRINCIPALE  (720×760, ridimensionabile in entrambi gli assi, min 720×
 │
 └── Tabview MONITORAGGIO (6 tab)
       ├─ 📡 Chat ascoltate   (elenco chat + Esporta audit / Apri log / Copia diagnostica)
-      ├─ 🚦 Salute           (7 semafori: Telegram / messaggio / parser / CSV / modalità …)
+      ├─ 🚦 Salute           (8 semafori: Telegram / messaggio / parser / CSV / modalità / Dizionari …)
       ├─ 📡 Stato            (ultimo segnale / messaggio / CSV / errore)
       ├─ 📊 Dashboard        (contatori di sessione)
       ├─ 📋 Log              (viewer log + filtro + retention + Debug + Svuota log)
@@ -704,10 +704,11 @@ universale ✅/⛔. Le **invarianti di sicurezza** (mai attivazione REALE, token
 
 ### 6.2-ter Scheda «🚦 Salute» — health check a semafori (#311 §3.3)
 
-Nuova scheda nel Tabview di monitoraggio (fra «📡 Chat ascoltate» e «📡 Stato»): sette
+Nuova scheda nel Tabview di monitoraggio (fra «📡 Chat ascoltate» e «📡 Stato»): **otto**
 righe-semaforo `🟢/🟡/🔴 <Etichetta>: <dettaglio>` + pulsante **«🔄 Aggiorna»**. Ordine e
 etichette verbatim: *Telegram* · *Ultimo messaggio* · *Parser Personalizzato* · *Ultimo
-segnale* · *CSV scrivibile* · *Conferme XTrader* · *Modalità*. Colori: verde
+segnale* · *CSV scrivibile* · *Conferme XTrader* · *Modalità* · ***Dizionari*** (#258, ultima
+riga — vedi il paragrafo dedicato in fondo a questa sezione). Colori: verde
 `#2e7d32/#66bb6a`, giallo `#e65100/#ffa726`, rosso `#c62828/#ef5350` (le stesse tuple
 theme-aware dello stato listener). Semantica: dato assente = MAI verde (giallo onesto);
 *Modalità* usa la semantica di rischio dei banner (verde Simulazione, giallo Collaudo,
@@ -740,6 +741,48 @@ si ferma a **giallo onesto** su ENTRAMBI i rami — file esistente E file da cre
 («probabilmente scrivibile»: ACL/lock NTFS non rilevabili senza aprire/scrivere —
 Fable/Fugu #351), mai un verde non verificabile. Nella scheda «📡 Stato» compare
 anche il nuovo campo **«Ultima conferma XTrader»** (fonte unica `_LAST_FIELDS`).
+
+#### Semaforo «Dizionari» (#258) — l'unico il cui colore non dipende da quanti sono
+
+Ottava riga, etichetta verbatim **«Dizionari»**. Porta nel pannello ciò che le #253/#255/#257
+avevano reso rilevabile ma dicibile **solo nel log eventi allo START**: un conflitto nei
+dizionari non è un errore di configurazione qualunque, è un segnale che il bridge **scarta
+invece di piazzare** (fail-closed). Chi non legge il log lo vede solo come un segnale che non
+è arrivato.
+
+**Il colore non deriva da una soglia numerica, e non è una semplificazione.** La gravità di un
+conflitto dipende da **se un parser usa quel profilo**, non da quanti conflitti ci sono: un
+profilo orfano con cinquanta conflitti non fa perdere un solo segnale. Una soglia tarata a mano
+andrebbe ritarata a ogni dizionario, e nel frattempo direbbe una cosa diversa da quella che
+succede.
+
+| stato | quando | forma del dettaglio |
+|---|---|---|
+| 🔴 | almeno un conflitto su un profilo che un parser **usa** | «*N* conflitti su profili usati dai tuoi parser: i segnali che li toccano vengono SCARTATI» |
+| 🟡 | un profilo **in uso** non è stato **esaminato** (tetto per profilo o budget globale) | «controllo NON eseguito su *N* profili in uso («*X*», «*Y*»): non si sa se abbiano conflitti — riducili o dividili per farli rientrare nel tetto» |
+| 🟡 | uno o più **parser illeggibili** | «*N* parser non leggibili (*nomi*): non si sa quali profili usino» |
+| 🟡 | conflitti **solo su profili orfani** | «*N* conflitti, ma solo su profili che NESSUN parser usa: nessun segnale perso oggi» |
+| 🟢 | controllo completo, nessun conflitto sui profili in uso | «nessun conflitto sui profili in uso» |
+
+Le tre righe gialle sono la stessa affermazione detta di tre cause diverse: **«non lo so»**. Chi
+disegna la UI deve sapere che qui il giallo non è «quasi verde» — è l'assenza di una risposta, e
+non va compresso nel verde per estetica. In particolare il secondo caso: un profilo mai
+esaminato **non è un profilo pulito**, e mostrarlo verde sarebbe una rassicurazione senza
+copertura.
+
+**«Controlla adesso» è il pulsante «🔄 Aggiorna» già presente**, non un secondo pulsante: passa
+`force=True` e ricalcola davvero. Fuori da quel click il valore è **cacheato ~30 s**, per la
+stessa ragione della sonda CSV — il pannello si aggiorna a ogni messaggio ricevuto, e questo
+controllo legge i parser da disco. I dizionari cambiano solo quando qualcuno li salva, quindi il
+ritardo non è percepibile; chi vuole l'esito immediato dopo una modifica preme il pulsante.
+
+**Se il calcolo fallisce** (config manomessa, cartella parser sparita) lo stato è 🟡 «stato non
+calcolabile (vedi log): non si sa se ci siano conflitti» — mai verde dedotto da un errore, e mai
+un'eccezione che chiude la finestra.
+
+L'elenco dei conflitti è **capato a 8** con il numero dei nascosti dichiarato: la stessa
+convenzione degli avvisi allo START. Un elenco che nessuno scorre informa quanto il silenzio, ma
+un taglio muto si legge come «non ce ne sono altri».
 
 ### 6.2-bis Banner modalità COLLAUDO (#311 §3.1)
 

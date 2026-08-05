@@ -77,6 +77,32 @@ rischio** (non uno per singolo file di test):
 | `generate-lockfile.yaml` | PR sui `.in`/lock · manuale | genera `requirements-build.lock` (hash) su **Windows**; consegna via Job Summary; gate anti-stantio + validazione in venv pulito |
 | `generate-linux-lockfile.yaml` | PR sui `.in`/lock Linux · manuale | speculare, su **Linux** (#36): genera `requirements-build-linux.lock` (hash) per il job `build-linux`; consegna via Job Summary; gate anti-stantio + validazione |
 
+**Semaforo Dizionari nel pannello 🚦 Salute (#258).** Le #253/#255/#257 hanno reso il bridge
+capace di **rilevare** i conflitti nei dizionari (alias ambigui, righe malformate, frasi ambigue),
+ma li dice solo nel log eventi allo START. `xtrader_bridge/dictionary_health.py` porta lo stato
+nel pannello, con due regole che ne determinano l'onestà:
+
+1. **conta solo ciò che costa segnali** — la gravità si calcola sui profili che un parser usa
+   davvero (`custom_parser.list_parser_files` + `load_parser`, **mai** `load_all_parsers`, che
+   risolve il parser attivo *per chat* e darebbe una vista parziale). Lo stesso conflitto è 🔴 su
+   un profilo in uso e 🟡 su uno orfano. **Nessuna soglia numerica**: la gravità non dipende da
+   quanti sono, e una soglia tarata a mano andrebbe ritarata a ogni dizionario;
+2. **«non controllato» non è «pulito»** — il controllo delle frasi ambigue può saltare interi
+   profili (tetto per profilo, budget globale). Su un profilo **in uso** mai esaminato il semaforo
+   è 🟡 «non si sa», non verde. `market_mapping_store.profili_non_controllati` risponde a questa
+   domanda dalla **stessa** decisione che governa gli avvisi (`_piano_controllo_ambiguita`, fonte
+   unica): due copie direbbero, prima o poi, una «pulito» dove l'altra dice «non controllato».
+
+Nota di attuazione: `ambiguous_phrase_warnings` restituisce *struttura* e *conflitti* mescolati
+nella stessa lista, e i messaggi di struttura dicono «questo profilo non è stato controllato».
+Contarli come conflitti trasforma un «non so» in un «stai perdendo segnali». Si separano
+togliendo l'**ingresso** — si interrogano solo i profili che verrebbero esaminati, e lì la parte
+struttura è vuota per costruzione — non distinguendoli dal testo, che accoppierebbe la
+diagnostica a un messaggio di interfaccia.
+
+Cache TTL ~30 s nel pannello (il refresh gira a ogni messaggio sul thread Tk e il calcolo legge i
+parser da disco); «🔄 Aggiorna» forza il ricalcolo ed è il «Controlla adesso» della issue.
+
 **Convenzione `subprocess` — `encoding="utf-8"` sempre esplicito (#267).** Ogni chiamata che
 cattura output testuale (`text=True`) deve passare anche `encoding="utf-8"`. Senza, la decodifica
 usa `locale.getpreferredencoding(False)`: UTF-8 su Linux, ma il **codepage ANSI su Windows** — che
