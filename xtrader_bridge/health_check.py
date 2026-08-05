@@ -84,7 +84,8 @@ def csv_writable(path, *, platform=None) -> "tuple[str, str]":
 
 def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parser_active=False,
                      last_signal="", last_error="", csv_state=RED, csv_detail="",
-                     confirmations_enabled=False, last_confirmation="", mode="") -> list:
+                     confirmations_enabled=False, last_confirmation="", mode="",
+                     dictionary_state=None, dictionary_detail="") -> list:
     """I sette semafori (#311 §3.3) dagli input GIÀ disponibili nell'app. Puro.
 
     Rinominata da `evaluate` (ambiguità A3 della #69): il nome generico era condiviso con
@@ -140,4 +141,13 @@ def build_semaphores(*, listener_status=LISTENER_OFFLINE, last_message="", parse
     mode_state = {bridge_mode.SIMULAZIONE: GREEN, bridge_mode.COLLAUDO: YELLOW,
                   bridge_mode.REALE: RED}[eff]
     items.append(HealthItem("mode", "Modalità", mode_state, bridge_mode.label_for(eff)))
+
+    # Dizionari (#258). **Opzionale**: `None` = lo stato non è stato calcolato, e allora il
+    # semaforo NON compare invece di comparire verde. È la stessa regola che governa il suo
+    # colore: un indicatore che non sa non deve rassicurare. Un default a `GREEN` avrebbe
+    # mostrato «dizionari a posto» a ogni chiamante che si dimentica di passarlo — cioè una
+    # riga di conferma prodotta dall'omissione, non dai dati.
+    if dictionary_state is not None:
+        stato = dictionary_state if dictionary_state in (GREEN, YELLOW, RED) else RED  # fail-closed
+        items.append(HealthItem("dictionary", "Dizionari", stato, str(dictionary_detail or "")))
     return items

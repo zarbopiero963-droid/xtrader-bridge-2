@@ -141,6 +141,7 @@ SITI = {
         ('App._copy_diagnostics', 'clipboard tk indisponibile/rifiutata -> esito a log, mai crash della finestra'),
         ('App._delete_betfair_team', 'best-effort: db assente/illeggibile → non eliminato'),
         ('App._dictionary_viewer_controller', 'best-effort: degrada a none, niente crash gui'),
+        ('App._dizionari_cached', 'diagnostica: mai far cadere il pannello'),
         ('App._expire_tick', 'esito riportato a log, no crash'),
         ('App._export_real_audit', 'esito a log, no crash'),
         ('App._journal', 's110 — il journal è diagnostico: un suo errore non deve'),

@@ -116,7 +116,7 @@ _ALLOWLIST = {
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
                               "(la marcatura avviene comunque PRIMA di armare il retry, crash-safe)"),
-    "xtrader_bridge/app.py": (53, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
+    "xtrader_bridge/app.py": (54, "glue runtime/GUI Tk: teardown, callback after(), log e auto-start best-effort; #182 PR A: `_select_tool_tab` — navigazione fra schede dell'hub, hub chiuso/distrutto = nessuna UI da spostare; "
                    "gate revoca (#159): la traccia diagnostica del ramo fail-open è essa stessa "
                    "protetta — `_dbg` può sollevare (GUI non costruita, istanza parziale) e "
                    "l'eccezione USCIREBBE dal gate, che `_license_is_valid` non assorbe: una riga "

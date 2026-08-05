@@ -46,6 +46,7 @@ from . import (
     bridge_mode,
     config_agent_gui,
     config_store,
+    dictionary_health,
     health_check,
     i18n,
     license_status,
@@ -120,6 +121,13 @@ _STOP_CLEAR_RETRY_MS = 5000
 # Con la cache il probe reale parte al più una volta ogni TTL per path (il pulsante
 # «🔄 Aggiorna» del pannello Salute forza comunque il probe fresco).
 _CSV_PROBE_TTL_S = 5.0
+
+# TTL (secondi) della cache del semaforo Dizionari (#258). Come la sonda CSV, `_refresh_health`
+# gira a OGNI messaggio sul thread Tk, e questo controllo legge i parser da disco e riesegue le
+# quattro funzioni di avviso: rifarlo per messaggio congelerebbe la finestra. I dizionari e i
+# parser cambiano di rado — si salvano a mano — quindi il TTL è lungo; «🔄 Aggiorna» forza
+# comunque il ricalcolo fresco, ed è il «Controlla adesso» chiesto dalla #258.
+_DIZIONARI_TTL_S = 30.0
 
 # Soglia di STALLO del worker probe (review Fable PR #111): su share SMB morta la
 # sonda può appendersi indefinitamente — il worker non ha timeout (os.access non è
@@ -2042,7 +2050,7 @@ class App(ctk.CTk):
         health_card.pack(fill="both", expand=True, padx=10, pady=8)
         self._health_lbls = {}
         for i, key in enumerate(("telegram", "message", "parser", "signal",
-                                 "csv", "confirmation", "mode")):
+                                 "csv", "confirmation", "mode", "dictionary")):
             lbl = ctk.CTkLabel(health_card, text="", font=ctk.CTkFont(size=12),
                                wraplength=_CONTENT_WRAP, anchor="w", justify="left")
             lbl.pack(anchor="w", padx=12, pady=(8 if i == 0 else 2, 0))
@@ -2398,6 +2406,7 @@ class App(ctk.CTk):
         # (share di rete degradata = GUI congelata a ogni messaggio).
         csv_state, csv_detail = self._csv_writable_cached(cfg.get("csv_path", ""),
                                                           force=force_probe)
+        diz = self._dizionari_cached(cfg, force=force_probe)
         return health_check.build_semaphores(
             listener_status=status,
             last_message=self._last_vals.get("message", ""),
@@ -2408,7 +2417,31 @@ class App(ctk.CTk):
             confirmations_enabled=bool(str(cfg.get(
                 "xtrader_notification_chat_id", "") or "").strip()),
             last_confirmation=self._last_vals.get("confirmation", ""),
-            mode=bridge_mode.mode_from_cfg(cfg))
+            mode=bridge_mode.mode_from_cfg(cfg),
+            dictionary_state=diz.get("stato"), dictionary_detail=diz.get("titolo", ""))
+
+    def _dizionari_cached(self, cfg, force: bool = False) -> dict:
+        """Stato del semaforo Dizionari (#258) con cache TTL, come la sonda CSV.
+
+        Il calcolo legge i parser da disco e riesegue le quattro funzioni di avviso: farlo a
+        ogni messaggio congelerebbe la finestra. I dizionari cambiano solo quando qualcuno li
+        salva, quindi `_DIZIONARI_TTL_S` è lungo; `force=True` (pulsante «🔄 Aggiorna») è il
+        «Controlla adesso» della issue e ricalcola davvero.
+
+        Best-effort come tutto il pannello: se il calcolo fallisce si torna uno stato GIALLO
+        che **dice** di non sapere, mai un verde dedotto da un errore."""
+        adesso = time.monotonic()
+        cache = self.__dict__.get("_dizionari_cache")
+        if not force and cache is not None and adesso - cache[0] < _DIZIONARI_TTL_S:
+            return cache[1]
+        try:
+            esito = dictionary_health.stato_dizionari(cfg)
+        except Exception as exc:    # noqa: BLE001 — diagnostica: mai far cadere il pannello
+            logger.warning("Semaforo dizionari non calcolabile [%s]", type(exc).__name__)
+            esito = {"stato": health_check.YELLOW, "nascosti": 0, "dettagli": [],
+                     "titolo": "stato non calcolabile (vedi log): non si sa se ci siano conflitti"}
+        self.__dict__["_dizionari_cache"] = (adesso, esito)
+        return esito
 
     def _refresh_health_inner(self, lbls, force_probe: bool = False) -> None:
         items = self._live_health_items(force_probe)
