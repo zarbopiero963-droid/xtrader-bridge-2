@@ -36,7 +36,8 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Apri **http://127.0.0.1:8000** — pagine: `/` (home), `/demo`, `/faq`, `/contatti`.
+Apri **http://127.0.0.1:8000** — pagine: `/` (home), `/demo`, `/documentazione`, `/faq`,
+`/contatti`, `/guida/bot-telegram`.
 
 ### Chatbot: due modalità
 
@@ -76,9 +77,30 @@ Senza `ANTHROPIC_API_KEY` il sito funziona comunque, col chatbot in modalità de
 ```
 main.py                  FastAPI: pagine statiche + POST /api/chat + /api/health
 knowledge/bridge_kb.md   knowledge base del chatbot (dalle docs reali del bridge)
-static/                  index.html · demo.html · faq.html · contatti.html · style.css · chat.js
+static/                  index.html · demo.html · documentazione.html · faq.html ·
+                         contatti.html · guida-bot.html · style.css · chat.js · i18n.js
+static/docs/             manuale PDF di XTrader (materiale di terzi — vedi sotto)
+static/img/guida/        screenshot delle guide (valori d'esempio, mai dati reali)
 Dockerfile               build per Railway / locale
 ```
+
+## Materiale di terzi ospitato
+
+`static/docs/guida-xtrader.pdf` è il **manuale ufficiale di XTrader**, opera di
+**TradingSportivo**, ripubblicato **con la loro autorizzazione** (concessa al proprietario del
+progetto). Regole:
+
+- non è materiale nostro: **non va modificato né ridistribuito** altrove;
+- la pagina `/documentazione` deve sempre mostrare **attribuzione**, **data della versione
+  ospitata** e il rimando alla **guida online** — il manuale viene aggiornato nel tempo, la nostra
+  copia no (test: `tests/unit/test_website_docs_page.py`);
+- versione attuale: scaricata il **05/08/2026**, capitoli aggiornati fino al **12/06/2026**.
+  Quando si sostituisce il file, aggiornare anche `docs.pdf.version` in `static/i18n.js` (IT nel
+  markup, EN/ES nei dizionari).
+
+Ogni pagina del sito porta il **disclaimer di non-affiliazione** nel footer
+(`footer.independent`; su `demo.html`, che ha un footer proprio, in forma testuale). È verificato
+da test: una pagina nuova senza disclaimer fa fallire la suite.
 
 ## Da fare prima di andare pubblici
 
@@ -86,3 +108,6 @@ Dockerfile               build per Railway / locale
       (o implementare `/api/contact` con invio email dal backend).
 - [ ] Aggiornare la demo quando ci sono screenshot freschi dell'app.
 - [ ] (Opzionale) Dominio personalizzato su Railway.
+- [ ] Tradurre in EN/ES la guida `/guida/bot-telegram` (la pagina `/documentazione` lo è già).
+- [ ] Scrivere la guida «Collegare BetRelay a XTrader» (card già presente in `/documentazione`,
+      marcata «In preparazione»): serve prima la serie di screenshot reali di XTrader.

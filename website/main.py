@@ -342,7 +342,8 @@ async def health() -> dict:
 
 # Pagine (route esplicite, così /faq funziona senza estensione)
 _PAGES = {"/": "index.html", "/demo": "demo.html", "/faq": "faq.html",
-          "/contatti": "contatti.html", "/guida/bot-telegram": "guida-bot.html"}
+          "/contatti": "contatti.html", "/guida/bot-telegram": "guida-bot.html",
+          "/documentazione": "documentazione.html"}
 for route, fname in _PAGES.items():
     def _make(fn: str):
         async def _page() -> FileResponse:

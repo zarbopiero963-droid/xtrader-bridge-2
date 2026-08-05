@@ -77,6 +77,29 @@ Price,MinPrice,MaxPrice,BetType,Points.
 Scrittura atomica (mai file parziali); una sola riga attiva nel design one-signal-at-a-time;
 dopo il timeout il CSV torna a SOLO header; dopo un crash/blackout un CSV stantio viene
 ripulito al successivo avvio. XTrader non vede mai segnali vecchi.
+Formato del file: nomi colonna sulla prima riga, tutti i valori fra doppi apici, UTF-8 con BOM.
+BetType: il bridge scrive PUNTA (back) / BANCA (lay); XTrader e Betting Toolkit accettano
+indifferentemente PUNTA/BANCA e BACK/LAY in tutte le versioni — non c'è nulla da convertire.
+Separatore decimale: il software accetta sia virgola sia punto; il bridge allinea il file alla
+lingua scelta, quindi non è una causa plausibile di segnale non riconosciuto.
+Points: moltiplicatore dello stake, usato solo se la strategia attiva l'opzione; lasciato vuoto.
+Perché lo svuotamento è necessario: una fonte con aggiornamento automatico rilegge il file a ogni
+ciclo, quindi una riga vecchia lasciata sul disco verrebbe reintrodotta dal software anche dopo
+averla cancellata a mano.
+
+## Lato XTrader: come legge i segnali
+XTrader legge i segnali da un URL che serve un CSV oppure da un FILE CSV locale (è il caso del
+bridge). Ogni fonte ha: nome, percorso/url, aggiornamento automatico + intervallo, esclusione
+automatica dei segnali non validi, algoritmo di riconoscimento e lingua.
+Riconoscimento (si sceglie nelle proprietà della fonte): per ID (MarketId + SelectionId, devono
+coincidere col palinsesto Betfair della giurisdizione del conto) oppure per NOMI (EventName +
+MarketType + SelectionName). Con il metodo a nomi la lingua della fonte deve corrispondere a
+quella con cui il software legge il palinsesto: è la causa tipica del segnale che resta rosso.
+Segnale valido = icona verde, non valido = icona rossa (evento concluso, dati incompleti o
+incoerenti col palinsesto). Una strategia usa ogni segnale UNA sola volta per esecuzione.
+La documentazione completa di XTrader è sul sito, pagina /documentazione (manuale PDF ufficiale
+ospitato con autorizzazione dell'autore). BetRelay è un progetto indipendente, non affiliato a
+TradingSportivo.
 
 ## Conferme XTrader (tab ✅)
 Configurando la chat notifiche di XTrader, il bridge legge gli esiti: scommessa confermata o
