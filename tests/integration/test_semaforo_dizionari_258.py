@@ -199,3 +199,26 @@ def test_258_un_guasto_nelle_funzioni_di_avviso_da_GIALLO_non_un_verde_parziale(
     assert diz.state == health_check.YELLOW, (
         f"un guasto nel calcolo ha prodotto {diz.state}: un verde su un risultato parziale")
     assert "non si sa" in diz.detail or "non calcolabile" in diz.detail, diz.detail
+
+
+def test_258_cartella_parser_illeggibile_da_GIALLO_nel_pannello(make_app, app_mod, monkeypatch):
+    """L'altra metà del bloccante Fable 5: la catena completa, fino al semaforo.
+
+    Il test unitario prova che `profili_usati` **solleva**; qui si prova che quel sollevare
+    diventa il 🟡 promesso dal design handoff, e non un 🟢 «nessun conflitto» dedotto dal fatto
+    che, senza profili leggibili, non c'era niente da attribuire.
+    """
+    from xtrader_bridge import custom_parser as cp
+
+    def _esplode(*a, **k):
+        raise OSError("cartella parser illeggibile")
+
+    monkeypatch.setattr(cp, "list_parser_files", _esplode)
+    a = make_app(running=False)
+    _predisponi(a, app_mod)
+
+    diz = next(i for i in app_mod.App._live_health_items(a) if i.key == "dictionary")
+
+    assert diz.state == health_check.YELLOW, (
+        f"cartella parser illeggibile ha prodotto {diz.state}: non si sa quali profili siano "
+        "in uso, quindi non si può dire che non ci siano conflitti")

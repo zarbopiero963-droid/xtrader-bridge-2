@@ -75,11 +75,16 @@ def profili_usati(cartella: "str | None" = None, *, elenca=None, carica=None) ->
     elenca = elenca or cp.list_parser_files
     carica = carica or cp.load_parser
     nomi, mercati, illeggibili = set(), set(), []
-    try:
-        percorsi = elenca(cartella) if cartella else elenca()
-    except OSError as exc:      # contratto di `list_parser_files`: solo accesso al filesystem
-        _LOG.warning("Elenco parser non leggibile [%s]", type(exc).__name__)
-        return {"nomi": set(), "mercati": set(), "illeggibili": []}
+    # **Non si cattura l'OSError** (bloccante Fable 5 sulla PR #276). Una prima stesura tornava
+    # una vista vuota «per non far cadere il pannello»: senza profili in uso non c'erano
+    # conflitti da attribuire, e il semaforo mostrava 🟢 «nessun conflitto sui profili in uso»
+    # con la cartella dei parser **illeggibile**. Verde dedotto da un errore, e per giunta in
+    # contraddizione col design handoff di questa stessa PR, che promette 🟡 «non calcolabile».
+    #
+    # Ora l'errore sale al confine unico (`App._dizionari_cached`) che mostra il giallo. Nota:
+    # una cartella *inesistente* non solleva — `list_parser_files` torna `[]` di proposito, ed è
+    # corretto: nessun parser configurato è uno stato noto, non un'incognita.
+    percorsi = elenca(cartella) if cartella else elenca()
 
     for percorso in percorsi or []:
         try:
