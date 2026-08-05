@@ -23,7 +23,11 @@ _I18N = _STATIC / "i18n.js"
 
 # Ogni pagina HTML del sito deve linkare le due pagine e mostrare il richiamo 18+.
 _PAGINE = sorted(p.name for p in _STATIC.glob("*.html"))
-assert _PAGINE, "nessuna pagina in website/static: il gate non coprirebbe nulla"
+# NON un `assert`: `python -O` li rimuove, e questa riga esiste proprio per impedire che
+# il gate diventi un no-op silenzioso. Una guardia che sparisce con un flag
+# dell'interprete è la stessa cosa che sta cercando di prevenire.
+if not _PAGINE:  # pragma: no cover - scatta solo se la cartella sparisce
+    raise RuntimeError("nessuna pagina in website/static: il gate non coprirebbe nulla")
 
 
 def _dizionari() -> dict:

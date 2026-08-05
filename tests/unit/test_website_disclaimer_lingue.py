@@ -23,7 +23,11 @@ _PAGINE = sorted(p.name for p in _STATIC.glob("*.html"))
 # Senza questa riga, una cartella spostata o rinominata produce una lista vuota: parametrize
 # salterebbe entrambi i test e la suite direbbe «nessun problema» dopo aver controllato ZERO
 # pagine. Un gate che non guarda è indistinguibile da uno che approva.
-assert _PAGINE, "nessuna pagina HTML in website/static: il gate del disclaimer non copre nulla"
+# NON un `assert`: `python -O` li rimuove, e questa riga esiste proprio per impedire che
+# il gate diventi un no-op silenzioso. Una guardia che sparisce con un flag
+# dell'interprete è la stessa cosa che sta cercando di prevenire.
+if not _PAGINE:  # pragma: no cover - scatta solo se la cartella sparisce
+    raise RuntimeError("nessuna pagina HTML in website/static: il gate del disclaimer non copre nulla")
 
 # I due soggetti da cui BetRelay deve dichiararsi indipendente.
 _SOGGETTI = ("TradingSportivo", "Betting Toolkit")
