@@ -45,10 +45,17 @@ anti-abuso, visto che è un endpoint pubblico).
 ### S4. Deploy su Railway 👤 (setup) + agente (verifica)
 Il sito **non è mai stato visto online**: tutto ciò che è stato verificato gira in locale.
 Servono: account Railway, `ANTHROPIC_API_KEY` fra le Variables, Root Directory su `website`,
-dominio generato. Poi va provato davvero: pagine, demo, chatbot, favicon, footer.
+dominio generato.
 
-### S5. Dominio `betrelay.net` 👤
-Da registrare (~8 $/anno) e collegare a Railway.
+La verifica poi la faccio io: `python3 tools/e2e/check_site.py --base-url https://<dominio>`
+apre il sito con un browser vero e prova pagine, demo, chatbot, favicon e footer (S13).
+Quello che **non** posso fare è entrare nel pannello Railway: setup, Variables e collegamento
+del dominio restano azioni del proprietario, e la `ANTHROPIC_API_KEY` non deve passarmi mai
+davanti.
+
+### S5. Dominio 👤 — acquistato su Railway
+Il proprietario ha comprato il dominio direttamente da Railway. Resta da collegarlo al
+servizio e da attendere la propagazione DNS; poi va passato all'agente l'URL per il collaudo.
 
 ---
 
@@ -93,9 +100,15 @@ Telegram appare oggi senza anteprima. Mancano anche `robots.txt`, `sitemap.xml` 
 Verificato solo in modalità demo. Da provare: risposte reali sulla knowledge base, rifiuto del
 fuori-tema, rate limit, comportamento in tre lingue.
 
-### S13. Test end-to-end del sito
-Oggi i test verificano contenuto e rotte. Con Playwright già installato si possono automatizzare
-i percorsi che finora ho guidato a mano (le due demo).
+### S13. Test end-to-end del sito ✅ fatto
+[`tools/e2e/check_site.py`](../tools/e2e/README.md) guida Chromium contro un URL qualsiasi —
+locale o Railway — e verifica rotte, footer nelle tre lingue, errori JavaScript, asset, PDF,
+404, selettore lingua, i flussi completi delle due demo e il chatbot. **57 controlli, exit code
+0/1.** Verificato in locale: 57 PASS.
+
+Sul dominio Railway va lanciato con `--base-url https://<dominio>`. Nell'ambiente agente il
+browser richiede tre accorgimenti di rete documentati nel README (proxy come flag, CA nel trust
+NSS, ClientHello post-quantum disattivato) — **senza mai** disattivare la verifica TLS.
 
 ---
 
@@ -118,7 +131,8 @@ Tre voci P1 dove il sito mostra oggi materiale ricostruito.
 
 1. **S10** (`paths-ignore`) — poco lavoro, risparmia subito
 2. **S1 + S2** (privacy, gioco responsabile) — bloccanti per la pubblicazione
-3. **S4 + S5** (Railway, dominio) — vedere il sito vivo cambia le priorità successive
+3. **S4 + S5** (Railway, dominio) — vedere il sito vivo cambia le priorità successive; appena
+   c'è l'URL, il collaudo con browser vero è già pronto (S13)
 4. **S7 + S6** (guida e sezioni) — il contenuto che dà valore al sito
 5. il resto
 
