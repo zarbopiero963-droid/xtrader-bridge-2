@@ -113,6 +113,21 @@ def test_non_si_disattiva_mai_la_verifica_dei_certificati():
         assert vietato not in testo, "lo script disattiva la verifica TLS (%s)" % vietato
 
 
+def test_gli_errori_del_browser_sono_catturati_stretti_non_alla_cieca():
+    """Il collaudo deve reggere un sito irraggiungibile **senza** un `except Exception`.
+
+    Servono entrambe le cose: catturare (una traceback non dice quanti controlli erano
+    passati prima, e il riepilogo non uscirebbe) e catturare STRETTO — un handler cieco qui
+    ingoierebbe anche i bug dello script stesso, facendo passare per «sito rotto» un errore
+    nostro. Il gate `tests/safety/test_blind_except_allowlist.py` lo verifica a livello di
+    repo; questo test lo àncora al file.
+    """
+    testo = _SCRIPT.read_text(encoding="utf-8")
+    assert "except Exception" not in testo and "except:" not in testo
+    assert testo.count("except ErrorePlaywright") >= 3, \
+        "i rami che reggono un sito irraggiungibile sono spariti o sono stati allargati"
+
+
 def test_le_rotte_controllate_sono_quelle_servite_dal_sito():
     """Se qualcuno aggiunge una pagina a `_PAGES` senza toccare il collaudo, quella pagina
     non verrebbe mai aperta da un browser: nessuno se ne accorgerebbe fino alla pubblicazione."""

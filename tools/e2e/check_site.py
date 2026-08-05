@@ -36,6 +36,9 @@ import time
 from urllib.parse import urljoin, urlparse
 
 try:
+    # `Error` è la base di tutte le eccezioni di Playwright, TimeoutError compreso: basta
+    # quella per raccogliere «la pagina non si è aperta» senza un except cieco.
+    from playwright.sync_api import Error as ErrorePlaywright
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover - dipende dall'ambiente
     sys.exit("Manca Playwright: pip install playwright")
@@ -123,7 +126,9 @@ def controlla_pagine(pagina, base: str, es: Esito, errori: list[str], out: str) 
         url = urljoin(base, rotta)
         try:
             r = _apri(pagina, url, errori)
-        except Exception as exc:  # noqa: BLE001 - vogliamo il messaggio, non il crash
+        except ErrorePlaywright as exc:
+            # Una pagina che non si apre è un FAIL da riportare, non un crash del collaudo:
+            # le altre rotte vanno provate lo stesso.
             es.add("rotta %s" % rotta, False, str(exc).splitlines()[0][:120])
             continue
         es.add("rotta %s (%s)" % (rotta, nome), r.status == 200, "HTTP %s" % r.status)
@@ -156,7 +161,9 @@ def controlla_asset(pagina, base: str, es: Esito) -> None:
             resp = pagina.request.get(src, timeout=20000)
             if resp.status >= 400:
                 rotti.append("%s → %s" % (src.rsplit("/", 1)[-1], resp.status))
-        except Exception as exc:  # noqa: BLE001
+        except ErrorePlaywright as exc:
+            # Idem: un asset irraggiungibile è il risultato del controllo, non un errore
+            # del controllo.
             rotti.append("%s → %s" % (src.rsplit("/", 1)[-1], str(exc)[:40]))
     es.add("asset della home raggiungibili (%d)" % len(sorgenti), not rotti, "; ".join(rotti)[:160])
 
@@ -332,14 +339,25 @@ def main() -> int:
         pagina.on("pageerror", lambda e: errori.append(str(e)[:120]))
         pagina.on("console", lambda m: errori.append(m.text[:120]) if m.type == "error" else None)
 
-        controlla_pagine(pagina, base, es, errori, args.out)
-        controlla_endpoint(pagina, base, es)
-        controlla_asset(pagina, base, es)
-        controlla_lingue(pagina, base, es)
-        controlla_demo_bridge(pagina, base, es, errori, args.out)
-        controlla_demo_xtrader(pagina, base, es, errori, args.out)
+        sezioni = [
+            ("pagine", lambda: controlla_pagine(pagina, base, es, errori, args.out)),
+            ("endpoint", lambda: controlla_endpoint(pagina, base, es)),
+            ("asset", lambda: controlla_asset(pagina, base, es)),
+            ("lingue", lambda: controlla_lingue(pagina, base, es)),
+            ("demo BetRelay", lambda: controlla_demo_bridge(pagina, base, es, errori, args.out)),
+            ("demo XTrader", lambda: controlla_demo_xtrader(pagina, base, es, errori, args.out)),
+        ]
         if not args.skip_chat:
-            controlla_chatbot(pagina, base, es)
+            sezioni.append(("chatbot", lambda: controlla_chatbot(pagina, base, es)))
+
+        for nome, sezione in sezioni:
+            try:
+                sezione()
+            except ErrorePlaywright as exc:
+                # Se il sito è irraggiungibile o una sezione si pianta, le altre vanno provate
+                # lo stesso e il riepilogo finale deve comunque uscire: un collaudo che termina
+                # con una traceback non dice quanti controlli erano passati prima.
+                es.add("sezione «%s» interrotta" % nome, False, str(exc).splitlines()[0][:120])
 
         browser.close()
 
