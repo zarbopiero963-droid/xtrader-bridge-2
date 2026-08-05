@@ -264,6 +264,54 @@ def test_234_case_diverso_in_BRANCH_o_PERCORSO_avvisa_ANCHE_con_owner_repo_diver
         assert "NON allargare il token" in avviso, descrizione
 
 
+def test_234_la_normalizzazione_del_case_non_silenzia_host_o_SCHEMA_diversi(monkeypatch):
+    """Contro-guardia richiesta da GPT-5.5: «URL non canonici → silenziamenti inattesi?».
+
+    `_case_normalizzata_dove_il_server_lo_e` abbassa il case anche di schema e host, ed è lì che
+    un allargamento futuro farebbe il danno peggiore: un **host diverso** silenziato significa
+    credere di pubblicare dove i bridge leggono mentre si pubblica altrove — la issue #234 nella
+    sua forma più grave.
+
+    Misurato: si silenziano **solo** le differenze di solo-case in schema e host, che sono
+    case-insensitive per RFC 3986 (schema) e per DNS (host) — cioè sono davvero lo stesso
+    indirizzo. Tutto il resto avvisa, incluso un URL troppo corto per essere interpretato.
+
+    Onestà su cosa questo test dimostra e cosa no. Il caso «URL troppo corto» **non** è un
+    presidio del ramo fail-safe: provato per sabotaggio (`return str(u).lower()` al posto di
+    `return str(u)`) resta verde, perché quell'URL è già minuscolo. Il ramo `len(parti) < 5` è del
+    resto **strutturalmente** incapace di produrre silenzio — un URL con meno di cinque segmenti
+    non può risultare uguale ai sette dell'URL configurato, comunque lo si normalizzi. Il confine
+    che conta davvero è dove la normalizzazione si ferma, ed è presidiato altrove: portandola al
+    sesto segmento diventano rossi `test_234_differenza_di_SOLO_CASE_avvisa_ma_lo_DICE` e
+    `test_234_case_diverso_in_BRANCH_o_PERCORSO_avvisa_ANCHE_con_owner_repo_diverso`.
+    """
+    casi = {
+        "host DIVERSO":
+            "https://evil.example.com/tizio/xtrader-revocation/main/revocation_list.txt",
+        "schema http invece di https":
+            "http://raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt",
+        "URL troppo corto per avere owner/repo":
+            "https://raw.githubusercontent.com",
+    }
+    for descrizione, atteso in casi.items():
+        monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", atteso)
+        assert publisher.disallineamento_bridge(
+            "tizio/xtrader-revocation", "revocation_list.txt", "main"), (
+            f"{descrizione}: NON è lo stesso indirizzo, silenziarlo è il difetto della issue")
+
+    # ...mentre solo-case in schema e host è lo stesso indirizzo per lo standard: tacere è giusto,
+    # e avvisare sarebbe il falso allarme che insegna a ignorare quello vero.
+    for descrizione, atteso in {
+        "host in maiuscolo (case-insensitive per DNS)":
+            "https://RAW.GITHUBUSERCONTENT.COM/tizio/xtrader-revocation/main/revocation_list.txt",
+        "schema in maiuscolo (case-insensitive per RFC 3986)":
+            "HTTPS://raw.githubusercontent.com/tizio/xtrader-revocation/main/revocation_list.txt",
+    }.items():
+        monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", atteso)
+        assert publisher.disallineamento_bridge(
+            "tizio/xtrader-revocation", "revocation_list.txt", "main") == "", descrizione
+
+
 def test_234_branch_o_PERCORSO_diverso_producono_l_avviso(monkeypatch):
     """Rilievo CodeRabbit, ed è un buco vero: negli altri test differisce solo il `repo`.
 
