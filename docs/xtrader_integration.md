@@ -306,7 +306,8 @@ documentazione ufficiale invece di inventare un percorso di menu.
 - **Nessun passo di questa guida è stato eseguito su XTrader reale** in questo ambiente: è ricavata
   dal manuale ufficiale, dalle risposte del supporto e dagli screenshot del proprietario. Va
   verificata sul campo prima di pubblicarla come guida utente.
-- Il catalogo copre **le finestre fotografate**. Mancano, fra le altre: la finestra Mercato con
-  l'icona dei segnali, il Monitor Mercati, la creazione manuale di un segnale.
+- Il catalogo copre **le finestre fotografate**. L'elenco completo di ciò che manca, con priorità
+  e con l'indicazione di cosa oggi è ricostruito al suo posto, sta in
+  [`screenshot_xtrader_mancanti.md`](screenshot_xtrader_mancanti.md).
 - La dialog «Fonte Segnali» degli screenshot è quella della versione italiana alla data di cattura
   (08/07/2026): le altre versioni Betting Toolkit potrebbero avere etichette tradotte diversamente.

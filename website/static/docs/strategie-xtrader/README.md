@@ -85,6 +85,12 @@ formule è [`docs/xtrader_formule.md`](../../../../docs/xtrader_formule.md).
 indice condizioni e criteri di selezione (`condizioni/17`, `18`), codici MarketType
 (`condizioni/20`, `21`, `22`) e la guardia anti-doppione (`condizioni/42`).
 
+## Cosa manca ancora
+
+L'elenco degli screenshot **non ancora disponibili**, in ordine di utilità e con l'indicazione di
+cosa è oggi ricostruito al loro posto, è in
+[`docs/screenshot_xtrader_mancanti.md`](../../../../docs/screenshot_xtrader_mancanti.md).
+
 ## Diritti
 
 Screenshot dell'interfaccia di XTrader, prodotto di **TradingSportivo**, catturati dal
