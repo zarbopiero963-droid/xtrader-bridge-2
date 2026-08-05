@@ -109,8 +109,8 @@ disclaimer fa fallire la suite.
 |---|---|
 | Screenshot XTrader **IT** | ✅ 102, catalogati |
 | Screenshot XTrader **EN** / **ES** | ❌ mancanti — vedi #266 |
-| Screenshot BetRelay **IT** | ✅ 5 (Xvfb, `docs/assets/screenshots/linux-xvfb/`) |
-| Screenshot BetRelay **EN** / **ES** | ❌ mancanti, ma **generabili da noi**: l'app è trilingue e la pipeline Xvfb esiste già (`tools/screenshots/README.md`) — basta cambiare `app_language` nella config d'esempio |
+| Screenshot BetRelay **IT / EN / ES** | ✅ 3 schermate per lingua in `docs/assets/screenshots/linux-xvfb/<lang>/`, più i due Wizard in IT. Rigenerabili con `tools/screenshots/shoot.sh` |
+| ⚠️ Localizzazione EN/ES dell'app | **incompleta**: header «Righe attive», selettore modalità bridge e tutta la tab Salute restano in italiano — emerso proprio generando questi screenshot |
 | Testo del sito | ✅ IT/EN/ES sulle pagine principali · ❌ guida bot e demo ancora solo IT |
 | Footer non-affiliazione | ✅ su tutte le pagine, IT/EN/ES |
-| Suffisso lingua nei percorsi screenshot | ❌ da introdurre quando arriveranno le prime immagini non-IT |
+| Suffisso lingua nei percorsi screenshot | ✅ introdotto per l'app (`<lang>/`); ❌ da fare per gli screenshot XTrader quando arriveranno EN/ES |
