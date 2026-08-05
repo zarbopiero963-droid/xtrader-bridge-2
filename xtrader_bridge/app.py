@@ -2809,7 +2809,7 @@ class App(ctk.CTk):
             self.clipboard_clear()
             self.clipboard_append(report)
             self._log(i18n.tr("📋 Diagnostica copiata negli appunti."))
-        except Exception as ex:                 # noqa: BLE001
+        except Exception as ex:                 # noqa: BLE001 — clipboard tk indisponibile/rifiutata -> esito a log, mai crash della finestra
             self._log(i18n.tr("❌ Copia diagnostica fallita: {exc}").format(exc=ex))
 
     def _on_retention_change(self, label: str):
@@ -3977,7 +3977,7 @@ class App(ctk.CTk):
 
         try:
             loop.run_until_complete(_shutdown())
-        except Exception:                # noqa: BLE001
+        except Exception:                # noqa: BLE001 — teardown best-effort del loop: un errore qui non deve impedire l'azzeramento dell'handle
             pass
         # Azzera l'handle SOLO se punta ancora alla nostra app: non clobberare il `_tg_app`
         # di un nuovo START intervenuto nel frattempo (Codex #191).

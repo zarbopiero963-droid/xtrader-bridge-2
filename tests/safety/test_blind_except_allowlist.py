@@ -45,13 +45,21 @@ vero invece di dirne una versione accorciata.
 sicurezza: quando questo test fallisce, il messaggio dice **quali** siti sono comparsi o
 spariti — vanno letti, non rigenerati per far tornare il verde.
 
-## Il debito dichiarato
+## Il debito dichiarato — estinto
 
-19 dei 194 siti **non dichiarano un motivo**: 11 non hanno alcun marcatore, 8 hanno un
-`# noqa: BLE001` **muto**, cioè il timbro «approvato» senza il perché. Non sono stati inventati
-motivi a posteriori per codice scritto da altri: sono registrati com'è (motivo vuoto) e
-`test_il_debito_dei_siti_senza_motivo_non_cresce` impedisce che il numero salga. Scriverli è
-lavoro a sé, da fare da chi conosce l'intento di quegli handler.
+Alla #224 erano **19 su 194** a non dichiarare un motivo: 11 senza alcun marcatore, 8 con un
+`# noqa: BLE001` **muto**, cioè il timbro «approvato» senza il perché. Non furono inventati
+motivi a posteriori — un motivo plausibile ma sbagliato è più difficile da smascherare di un
+motivo assente — e il ratchet impediva solo che il numero salisse.
+
+Sono stati poi scritti **tutti e 19, uno per uno leggendo il codice**. Nessuno ha richiesto di
+indovinare: l'intento era già dimostrato dal docstring o dal ramo di fallback. `token_store`,
+che da solo ne conteneva 8, dichiara in ogni docstring cosa significa il `False` che ritorna —
+inclusa la distinzione che conta davvero, «lettura fallita» ≠ «token assente». `atomic_io`
+cattura `BaseException` e **rilancia**: cattura larga perché il temporaneo va rimosso anche su
+`KeyboardInterrupt`, non perché l'errore vada ingoiato.
+
+Oggi `_SITI_SENZA_MOTIVO_ATTESI = 0`: il ratchet non è più un tetto sul debito, è un divieto.
 """
 
 import ast
@@ -394,18 +402,27 @@ def test_il_conteggio_dell_allowlist_resta_agganciato_ai_siti():
         f"{disallineati}")
 
 
-# Debito dichiarato al momento della #224: siti il cui `# noqa: BLE001` non dice il perché.
-# 11 non hanno alcun marcatore, 8 ce l'hanno MUTO — il timbro «approvato» senza motivazione.
-_SITI_SENZA_MOTIVO_ATTESI = 19
+# Debito ESTINTO. Alla #224 erano 19 (11 senza marcatore, 8 con un `# noqa: BLE001` MUTO —
+# il timbro «approvato» senza motivazione); tutti e 19 sono stati scritti leggendo cosa il
+# codice dimostra di fare, non indovinando. A zero il ratchet diventa una regola secca: ogni
+# blind-except deve dire perché, senza eccezioni residue.
+_SITI_SENZA_MOTIVO_ATTESI = 0
 
 
 def test_il_debito_dei_siti_senza_motivo_non_cresce():
-    """Ratchet sul debito, non sulla sua esistenza.
+    """Ratchet sul debito — ora a zero, quindi di fatto un divieto.
 
-    Non sono state inventate motivazioni a posteriori per handler scritti da altri: sarebbe
-    stato peggio del silenzio, perché un motivo plausibile ma sbagliato è più difficile da
-    smascherare di un motivo assente. Qui si blocca solo la **crescita**: un blind-except
-    nuovo deve dire perché, e i 19 esistenti restano un lavoro dichiarato.
+    Alla #224 il debito era 19 e restava dichiarato: non erano state inventate motivazioni a
+    posteriori, perché un motivo plausibile ma sbagliato è più difficile da smascherare di un
+    motivo assente. I 19 sono stati poi scritti **uno per uno leggendo il codice**: in ogni
+    caso l'intento era già dimostrato dal docstring della funzione o dal ramo di fallback (es.
+    `token_store` dichiara in ogni docstring cosa significa il `False` che ritorna), quindi
+    trascriverlo non è stato indovinare.
+
+    A zero il ratchet non tollera più margine: un blind-except nuovo senza `# noqa: BLE001
+    <perché>` fallisce subito. Il ramo `<` resta e serve: se un domani un handler viene
+    rimosso, obbliga ad abbassare ancora invece di lasciare spazio libero che si riempie in
+    silenzio.
     """
     attuali = _siti_attuali()
     senza = sorted(f"{f}::{fn}" for f, siti in attuali.items() for fn, motivo in siti if not motivo)

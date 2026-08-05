@@ -1571,7 +1571,7 @@ class RealAnthropicClient:
         if self._client is None:
             try:
                 import anthropic
-            except Exception as exc:   # noqa: BLE001
+            except Exception as exc:   # noqa: BLE001 — soft-import: qualsiasi errore di import = libreria assente -> RuntimeError con messaggio guida
                 raise RuntimeError(
                     "La libreria 'anthropic' non è installata: impossibile contattare il modello. "
                     "Installa 'anthropic' per usare l'assistente.") from exc

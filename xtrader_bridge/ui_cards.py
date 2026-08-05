@@ -143,7 +143,7 @@ def badge(ctk, parent, text, kind="muted", *, side="left", padx=3):
     _best_effort(shell, "pack", side=side, padx=padx)
     try:
         font = ctk.CTkFont(size=10)
-    except Exception:                # noqa: BLE001
+    except Exception:                # noqa: BLE001 — font ctk non costruibile (tk non pronto/headless) -> badge senza font, mai crash della vista
         font = None
     kwargs = {"text": text, "text_color": color}
     if font is not None:
@@ -157,7 +157,7 @@ def hint(ctk, parent, text, *, pad=(10, 2)):
     """Riga di aiuto grigia e piccola sotto una sezione (lo stile «hint» degli sketch)."""
     try:
         font = ctk.CTkFont(size=11)
-    except Exception:                # noqa: BLE001
+    except Exception:                # noqa: BLE001 — font ctk non costruibile (tk non pronto/headless) -> hint senza font, mai crash della vista
         font = None
     kwargs = {"text": text, "anchor": "w", "justify": "left",
               "text_color": ui_theme.TEXT3, "wraplength": 760}

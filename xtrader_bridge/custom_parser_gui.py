@@ -231,7 +231,7 @@ class CustomParserPanel(ctk.CTkFrame):
             cfg = config_store.load_config(config_store.CONFIG_FILE)
             cfg = provider_store.add_provider(cfg, name)
             saved, ok = config_store.save_config(cfg, config_store.CONFIG_FILE)
-        except Exception as exc:                 # noqa: BLE001
+        except Exception as exc:                 # noqa: BLE001 — config illeggibile o salvataggio fallito -> messaggio nel pannello, mai crash della finestra
             self._result.configure(text=i18n.tr("❌ Errore salvataggio provider: {exc}").format(exc=exc))
             return
         # Sincronizza la config in memoria della GUI principale (no perdita provider).
@@ -1891,7 +1891,7 @@ class CustomParserPanel(ctk.CTkFrame):
             return None
         try:
             return factory()
-        except Exception:
+        except Exception:   # noqa: BLE001 — anteprima sola-lettura: resolver non costruibile -> nessuna anteprima, mai crash del pannello
             return None
 
     def _test(self):

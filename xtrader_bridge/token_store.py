@@ -29,7 +29,7 @@ def _keyring():
     try:
         import keyring
         return keyring
-    except Exception:
+    except Exception:   # noqa: BLE001 — soft-import: qualsiasi errore = keyring non disponibile (dipendenza opzionale), mai propagato
         return None
 
 
@@ -44,7 +44,7 @@ def available() -> bool:
     try:
         kr.get_password(SERVICE, "__probe__")
         return True
-    except Exception:
+    except Exception:   # noqa: BLE001 — probe non distruttivo: il backend 'fail' solleva -> keyring non utilizzabile, si ripiega
         return False
 
 
@@ -58,7 +58,7 @@ def save_token(token: str) -> bool:
     try:
         kr.set_password(SERVICE, ACCOUNT, token)
         return True
-    except Exception:
+    except Exception:   # noqa: BLE001 — backend che solleva = token non salvato -> il chiamante ripiega sul plaintext
         return False
 
 
@@ -76,7 +76,7 @@ def load_token_status():
         return None, False
     try:
         return kr.get_password(SERVICE, ACCOUNT), True
-    except Exception:
+    except Exception:   # noqa: BLE001 — lettura fallita -> read_ok=False, MAI confuso con 'token assente': cancellarlo distruggerebbe un token preesistente solo illeggibile
         return None, False
 
 
@@ -97,8 +97,7 @@ def delete_token() -> bool:
     try:
         kr.delete_password(SERVICE, ACCOUNT)
         return True
-    except Exception:
-        # PasswordDeleteError (voce inesistente) o backend assente → niente da fare.
+    except Exception:   # noqa: BLE001 — voce inesistente (PasswordDeleteError) o backend assente -> niente da rimuovere
         return False
 
 
@@ -118,7 +117,7 @@ def save_api_key(api_key: str) -> bool:
     try:
         kr.set_password(SERVICE, API_KEY_ACCOUNT, api_key)
         return True
-    except Exception:
+    except Exception:   # noqa: BLE001 — backend che solleva = chiave non salvata; nessun fallback plaintext, resta assente (fail-safe)
         return False
 
 
@@ -132,7 +131,7 @@ def load_api_key_status():
         return None, False
     try:
         return kr.get_password(SERVICE, API_KEY_ACCOUNT), True
-    except Exception:
+    except Exception:   # noqa: BLE001 — lettura fallita -> read_ok=False, MAI confuso con 'chiave assente'
         return None, False
 
 
@@ -152,5 +151,5 @@ def delete_api_key() -> bool:
     try:
         kr.delete_password(SERVICE, API_KEY_ACCOUNT)
         return True
-    except Exception:
+    except Exception:   # noqa: BLE001 — voce inesistente o backend assente -> niente da rimuovere
         return False
