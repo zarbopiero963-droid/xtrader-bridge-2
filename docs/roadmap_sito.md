@@ -137,9 +137,23 @@ proprietario da dichiarare in pagina — non un ripiego che l'agente possa prend
 Il contenuto esiste già in [`xtrader_integration.md`](xtrader_integration.md); manca la pagina.
 Oggi la card in `/documentazione` rimanda alla demo con la nota «in preparazione».
 
-### S8. Traduzioni EN/ES mancanti
-`guida-bot.html` e le due demo (`/demo`, `/demo/xtrader`) sono solo in italiano. Le pagine
-principali sono già trilingui.
+### S8. Traduzioni EN/ES — ✅ guida bot fatta · ❌ restano le due demo
+`guida-bot.html` è **trilingue** (Issue #287): selettore IT/EN/ES, `i18n.js` caricato — prima non
+lo era, quindi i quattro `data-i18n` che il footer già aveva erano **morti** — e tutta la prosa
+tradotta, comprese le didascalie.
+
+Rispetta la [regola permanente](policy_lingue_sito.md): gli screenshot restano **quelli veri in
+italiano**, la pagina lo **dichiara** in ogni lingua (§4: il fallback non è silenzioso) e le
+etichette Telegram sono citate **verbatim** con la traduzione fra parentesi — «Amministratori»
+(Administrators), «Aggiungi amministratore» (Add administrator). Tradurle avrebbe mandato
+l'utente a cercare a schermo un pulsante inesistente; un test unitario **e** un controllo del
+collaudo live lo impediscono.
+
+Restano **`/demo` e `/demo/xtrader`**. Non sono state fatte in questa PR, e il motivo è
+tecnico: il loro testo non sta nel markup ma **dentro il JavaScript** delle simulazioni (~94
+stringhe fra le due), quindi tradurle non è aggiungere `data-i18n` ma introdurre una lookup
+lato JS e rendere il collaudo e2e consapevole della lingua — un lavoro a sé, con rischio di
+rompere i flussi che oggi il collaudo verifica riga per riga.
 
 ### S9. Wizard in EN/ES
 Ho solo l'italiano. Generabili subito, un comando per lingua (in shell `|` aprirebbe una

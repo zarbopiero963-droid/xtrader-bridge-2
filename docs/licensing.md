@@ -78,7 +78,7 @@ vive nel License Manager (PR 3), che gira sul PC del proprietario e può usare u
 
 ## Formato del token licenza (base64, decisione proprietario #140 §4)
 
-```
+```text
 <b64url(payload_json)>.<b64url(signature)>
 ```
 
@@ -482,7 +482,7 @@ nel repo/EXE.
   per cambiarne il **serial** lasciandolo valido — e il serial è ciò con cui la lista di revoche
   identifica la licenza, quindi un cliente revocato si riattivava da solo. Misurato:
 
-  ```
+  ```text
   onesto        valid=True   serial=LIC-598B9916DE34
   token + '='   valid=True   serial=LIC-5EC5A2983E9B   ← la revoca non lo intercettava
   ```

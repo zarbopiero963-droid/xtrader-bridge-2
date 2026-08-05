@@ -111,6 +111,7 @@ disclaimer fa fallire la suite.
 | Screenshot XTrader **EN** / **ES** | ❌ mancanti — vedi #266 |
 | Screenshot BetRelay **IT / EN / ES** | ✅ 3 schermate per lingua in `docs/assets/screenshots/linux-xvfb/<lang>/`, più i due Wizard in IT. Rigenerabili con `tools/screenshots/shoot.sh` |
 | ⚠️ Localizzazione EN/ES dell'app | **incompleta**: header «Righe attive», selettore modalità bridge e tutta la tab Salute restano in italiano — emerso proprio generando questi screenshot |
-| Testo del sito | ✅ IT/EN/ES sulle pagine principali · ❌ guida bot e demo ancora solo IT |
+| Testo del sito | ✅ IT/EN/ES sulle pagine principali e sulla **guida bot** (#287) · ❌ le due demo ancora solo IT: il loro testo sta dentro il JavaScript, serve una lookup lato JS |
+| Etichette verbatim nella guida bot | ✅ le etichette italiane di Telegram e dell'app restano verbatim in EN/ES con la traduzione fra parentesi, e la pagina dichiara che gli screenshot sono in italiano (§3 e §4). Verificato da un test unitario e dal collaudo live |
 | Footer non-affiliazione | ✅ su tutte le pagine, IT/EN/ES |
 | Suffisso lingua nei percorsi screenshot | ✅ introdotto per l'app (`<lang>/`); ❌ da fare per gli screenshot XTrader quando arriveranno EN/ES |

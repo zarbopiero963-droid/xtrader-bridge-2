@@ -224,6 +224,35 @@ def controlla_lingue(pagina, base: str, es: Esito) -> None:
     pagina.click('button[data-lang="it"]')
 
 
+def controlla_guida_bot(pagina, base: str, es: Esito) -> None:
+    """La guida bot in inglese: tradotta davvero, ma con le etichette Telegram intatte.
+
+    È la pagina che era pubblicata solo in italiano (Issue #287). Due cose vanno vere insieme,
+    e sono in tensione fra loro: il testo deve cambiare lingua, e l'etichetta italiana che si
+    vede nello screenshot **non** deve cambiare — altrimenti l'utente cerca a schermo un
+    pulsante che non esiste (`docs/policy_lingue_sito.md` §3).
+    """
+    _apri(pagina, urljoin(base, "/guida/bot-telegram"), [])
+    if pagina.query_selector('button[data-lang="en"]') is None:
+        es.add("guida bot: selettore di lingua", False, "pulsante assente")
+        return
+    es.add("guida bot: selettore di lingua", True)
+
+    pagina.click('button[data-lang="en"]')
+    pagina.wait_for_timeout(300)
+    corpo = pagina.inner_text("main")
+    es.add("  guida bot: il testo passa in inglese", "Create the Telegram bot" in corpo,
+           corpo.strip().splitlines()[0][:70] if corpo.strip() else "vuoto")
+    es.add("  guida bot: dice che le schermate sono in italiano",
+           "screenshots are in Italian" in corpo or "in Italian" in corpo)
+    es.add("  guida bot: etichetta Telegram verbatim in inglese",
+           "Amministratori" in corpo,
+           "" if "Amministratori" in corpo else "l'etichetta è stata tradotta: il pulsante "
+                                                "non si troverebbe a schermo")
+    pagina.click('button[data-lang="it"]')
+    pagina.wait_for_timeout(200)
+
+
 def controlla_demo_bridge(pagina, base: str, es: Esito, errori: list[str], out: str) -> None:
     """Percorso reale: esplora liberamente → AVVIA → segnale di prova."""
     _apri(pagina, urljoin(base, "/demo"), errori)
@@ -353,6 +382,7 @@ def main() -> int:
             ("endpoint", lambda: controlla_endpoint(pagina, base, es)),
             ("asset", lambda: controlla_asset(pagina, base, es)),
             ("lingue", lambda: controlla_lingue(pagina, base, es)),
+            ("guida bot", lambda: controlla_guida_bot(pagina, base, es)),
             ("demo BetRelay", lambda: controlla_demo_bridge(pagina, base, es, errori, args.out)),
             ("demo XTrader", lambda: controlla_demo_xtrader(pagina, base, es, errori, args.out)),
         ]

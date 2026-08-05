@@ -10,7 +10,7 @@
 
 ## Struttura del repository
 
-```
+```text
 xtrader-bridge/
 ├── main.py                      ← intera app: GUI + parser + CSV + Telegram
 ├── requirements.txt             ← 2 dipendenze runtime

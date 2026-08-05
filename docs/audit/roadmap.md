@@ -5156,7 +5156,7 @@ selezione è pericoloso: se il `MarketName` risolto coincide col `MarketType` di
 la selezione arriva da quella riga e si accoppia al `market_type` di questa. Misurato sul codice
 vecchio, con un catalogo di due righe:
 
-```
+```text
 {'market_type': 'MATCH_ODDS', 'market_name': 'Vincente',
  'selection_name': 'Selezione di UN ALTRO mercato'}
 ```
@@ -5184,7 +5184,7 @@ quelle dimensioni: un parser sport-agnostico passa `sport=None`, le due righe re
 distinte, la guardia anti-ambiguità non scattava e la risoluzione ricadeva sulla **prima salvata**.
 Misurato prima della correzione:
 
-```
+```text
 alias "Inter" -> "Inter Milano" (Calcio)  |  "Inter Miami" (Basket)
 ordine A -> 'Inter Milano'
 ordine B -> 'Inter Miami'      <-- la squadra dipende dall'ORDINE DI SALVATAGGIO

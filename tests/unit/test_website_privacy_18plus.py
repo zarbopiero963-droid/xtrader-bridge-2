@@ -139,12 +139,14 @@ def test_ogni_pagina_richiama_il_18plus_e_linka_le_due_pagine(pagina):
     assert "/privacy" in footer, "%s non linka la privacy dal footer" % pagina
 
 
-# Le pagine trilingui. Escluse di proposito: `demo.html`, `demo-xtrader.html` e
-# `guida-bot.html`, che sono ancora solo in italiano — è un debito tracciato nella roadmap
-# (S8), non una dimenticanza. Elencarle a mano invece di leggere la cartella serve proprio a
-# questo: quando saranno tradotte, aggiungerle qui è il modo di dichiararlo.
+# Le pagine trilingui. Escluse di proposito: `demo.html` e `demo-xtrader.html`, che sono ancora
+# solo in italiano — è un debito tracciato nella roadmap (S8), non una dimenticanza: il loro
+# testo vive quasi tutto dentro il JavaScript delle simulazioni, e tradurlo è un lavoro a sé.
+# Elencarle a mano invece di leggere la cartella serve proprio a questo: quando saranno
+# tradotte, aggiungerle qui è il modo di dichiararlo — come è appena successo per
+# `guida-bot.html` (Issue #287).
 _TRILINGUI = ("index.html", "faq.html", "contatti.html", "documentazione.html",
-              "privacy.html", "gioco-responsabile.html")
+              "privacy.html", "gioco-responsabile.html", "guida-bot.html")
 
 
 @pytest.mark.parametrize("pagina", _TRILINGUI)
