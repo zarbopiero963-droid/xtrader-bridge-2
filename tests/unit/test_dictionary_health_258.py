@@ -225,3 +225,47 @@ def test_258_righe_MALFORMATE_su_un_profilo_escluso_dal_budget_restano_ROSSE(mon
     assert esito["stato"] == health_check.RED, (
         f"un conflitto NOTO è stato declassato a {esito['stato']}: {esito['titolo']}")
     assert esito["dettagli"], "i conflitti noti vanno elencati anche se l'ambiguità non è stata controllata"
+
+
+def test_258_le_righe_malformate_non_vengono_contate_DUE_volte(monkeypatch):
+    """Rilievo Fable 5: dopo aver separato malformate e ambiguità, un profilo che sta in
+    entrambe le viste potrebbe far comparire lo stesso conflitto due volte.
+
+    Un conteggio gonfiato è un difetto della stessa famiglia degli altri di questa PR: il
+    numero nel titolo smetterebbe di corrispondere a quello che succede, e chi conta i
+    conflitti nel dizionario per correggerli non li ritroverebbe.
+    """
+    voci = [{"phrase": "p1", "market_name": "M", "selection_name": "S", "language": "klingon"}]
+    cfg = {"market_mappings": {"Piccolo": voci}}      # dentro i tetti: sta in ENTRAMBE le viste
+
+    esito = dh.stato_dizionari(cfg, _usati(mercati=["Piccolo"]))
+
+    assert esito["stato"] == health_check.RED, esito
+    totale = len(esito["dettagli"]) + esito["nascosti"]
+    assert totale == 1, f"la stessa voce malformata contata {totale} volte: {esito['dettagli']}"
+
+
+def test_258_i_nomi_non_hanno_tetti_quindi_non_c_e_asimmetria_da_correggere():
+    """Rilievo Fable 5, che chiedeva di chiudere l'asimmetria **o dimostrarne l'inapplicabilità**.
+
+    La separazione fra «malformate» e «ambiguità» esiste per i mercati perché lì il controllo
+    ambiguità **ha dei tetti** e può saltare profili: escluderne uno nasconderebbe anche le
+    malformate, che sono sempre complete.
+
+    Sui nomi il problema non esiste: `name_mapping_store` non ha alcun tetto né budget, quindi
+    nessun profilo viene mai saltato e non c'è nulla da escludere. L'asimmetria nel codice
+    riflette un'asimmetria **reale** fra i due store, non una svista.
+
+    Questo test lo blocca: se un domani anche i nomi guadagnassero un tetto, `profili_non_
+    controllati` dovrebbe esistere anche lì e questa dimostrazione cadrebbe — meglio scoprirlo
+    da un rosso che da un giallo che nasconde righe malformate note.
+    """
+    import inspect
+
+    from xtrader_bridge import name_mapping_store as nms_mod
+
+    sorgente = inspect.getsource(nms_mod)
+    assert "_MAX_VOCI" not in sorgente and "saltati_per_budget" not in sorgente, (
+        "name_mapping_store ha guadagnato un tetto: ora anche i nomi possono avere profili "
+        "NON controllati, e le righe malformate vanno separate dall'ambiguità come per i "
+        "mercati (vedi il commento in dictionary_health.stato_dizionari)")
