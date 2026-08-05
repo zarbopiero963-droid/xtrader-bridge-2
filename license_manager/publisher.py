@@ -62,6 +62,19 @@ def raw_url(repo: str, path: str, branch: str) -> str:
     return f"https://raw.githubusercontent.com/{_quote_repo(repo)}/{branch}/{path}"
 
 
+def _per_confronto(url) -> str:
+    """URL ridotto alla forma confrontabile: spazi ai bordi via e **uno** slash finale via.
+
+    Si normalizza **solo** ciò che non cambia il file servito. In particolare NON si abbassa il
+    case (rilievo Fable 5): su `raw.githubusercontent.com` branch e percorso sono
+    **case-sensitive**, quindi un confronto case-insensitive maschererebbe un disallineamento
+    **vero** — `main` contro `Main` darebbe 404 a tutti i bridge. Un avviso in più costa una
+    lettura; un avviso in meno costa la propagazione delle revoche, che è il difetto per cui
+    questa funzione esiste.
+    """
+    return str(url or "").strip().rstrip("/")
+
+
 def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     """Avviso se si sta per pubblicare a un indirizzo **diverso** da quello che i bridge leggono,
     altrimenti stringa vuota. Puro: nessuna rete, nessuna scrittura.
@@ -95,8 +108,21 @@ def disallineamento_bridge(repo: str, path: str, branch: str) -> str:
     if revocation_client.is_placeholder_url(atteso):
         return ""
     configurato = raw_url(repo, path, branch)
-    if configurato == str(atteso or "").strip():
+    # Si normalizzano SOLO le differenze che non cambiano il file servito: spazi ai bordi e uno
+    # slash finale. Nient'altro (rilievo Fable 5 sulla #265→#234).
+    a, b = _per_confronto(configurato), _per_confronto(atteso)
+    if a == b:
         return ""
+    if a.lower() == b.lower():
+        # Differenza di SOLE maiuscole/minuscole. Si avvisa comunque — perché su
+        # `raw.githubusercontent.com` branch e percorso SONO case-sensitive, e un `Main` al posto
+        # di `main` darebbe 404 a tutti i bridge — ma dicendo esattamente cos'è, altrimenti chi
+        # legge confronta due URL che «sembrano identici» e conclude che l'avviso è rotto.
+        return (
+            "⚠️ L'indirizzo di pubblicazione e quello che i bridge scaricano differiscono SOLO "
+            f"per maiuscole/minuscole.\nConfigurato:      {configurato}\nAtteso dai bridge: "
+            f"{atteso}\nBranch e percorso su raw.githubusercontent.com sono case-sensitive: "
+            "allinea la grafia esatta. NON allargare il token — non è un problema di permessi.")
     return (
         "⚠️ Stai pubblicando a un indirizzo DIVERSO da quello da cui i bridge scaricano la "
         f"lista.\nConfigurato:      {configurato}\nAtteso dai bridge: {atteso}\n"

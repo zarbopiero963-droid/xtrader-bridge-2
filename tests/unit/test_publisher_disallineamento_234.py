@@ -40,8 +40,10 @@ def test_234_repo_diverso_da_quello_che_i_bridge_leggono_PRODUCE_l_avviso(monkey
     assert "xtrader-revocation" in avviso, avviso
     # e deve dire la conseguenza, non solo che qualcosa non torna
     assert "revoca" in avviso.lower(), avviso
-    # e NON deve suggerire di allargare il token: e' il rimedio che causa il danno
-    assert "token" in avviso.lower(), avviso
+    # e deve VIETARE di allargare il token, non solo nominarlo (rilievo CodeRabbit): un
+    # `"token" in avviso` accetterebbe anche il messaggio che RACCOMANDA di allargarlo, cioe'
+    # proprio il consiglio dannoso che questa PR esiste per togliere.
+    assert "NON allargare il token" in avviso, avviso
 
 
 def test_234_configurazione_allineata_NON_produce_rumore(monkeypatch):
@@ -93,6 +95,9 @@ def test_234_il_403_nomina_ENTRAMBE_le_ipotesi():
     # ipotesi 2: repository sbagliato — quella che l'incidente reale ha dimostrato
     assert "repository" in msg.lower() and (
         "sbagliat" in msg.lower() or "non è quello" in msg.lower()), msg
+    # e nell'ORDINE giusto (rilievo CodeRabbit): il repository PRIMA del token. Chi legge dall'alto
+    # deve incontrare per prima l'ipotesi che, se ignorata, produce il fallimento silenzioso.
+    assert msg.index("1) il REPOSITORY") < msg.index("2) il token"), msg
 
 
 def test_234_il_403_di_RATE_LIMIT_resta_pulito():
@@ -102,3 +107,58 @@ def test_234_il_403_di_RATE_LIMIT_resta_pulito():
                                    {"message": "API rate limit exceeded"})
     assert "limite di frequenza" in msg
     assert "Contents: Read and write" not in msg
+
+
+def test_234_slash_finale_e_spazi_NON_sono_un_disallineamento(monkeypatch):
+    """Rilievo Fable 5: il confronto non deve inciampare su differenze che non cambiano il file.
+
+    Uno slash finale o spazi ai bordi in `REVOCATION_LIST_URL` servono lo stesso identico file,
+    quindi avvisare sarebbe un falso positivo — e un avviso falso su una configurazione giusta
+    insegna a ignorare quello vero.
+    """
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", "  " + _REALE + "/  ")
+    assert publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                            "revocation_list.txt", "main") == ""
+
+
+def test_234_differenza_di_SOLO_CASE_avvisa_ma_lo_DICE(monkeypatch):
+    """Sempre Fable 5, e qui la scelta è delicata: si avvisa **comunque**.
+
+    Su `raw.githubusercontent.com` branch e percorso sono **case-sensitive**: un `Main` al posto
+    di `main` darebbe 404 a **tutti** i bridge, cioè esattamente il fallimento silenzioso che
+    questa funzione esiste per impedire. Tacere sarebbe il difetto opposto e peggiore.
+
+    Ma il messaggio deve dire **cos'è**: chi vede due URL che «sembrano identici» e un avviso di
+    disallineamento conclude che l'avviso è rotto, e la volta dopo non lo legge.
+    """
+    monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL",
+                        "https://raw.githubusercontent.com/tizio/xtrader-revocation/Main/"
+                        "revocation_list.txt")
+    avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                              "revocation_list.txt", "main")
+
+    assert avviso, "un branch con case diverso è un 404 per i bridge: va detto"
+    assert "maiuscole/minuscole" in avviso, avviso        # dice COS'È la differenza
+    assert "case-sensitive" in avviso, avviso             # e perché conta
+    assert "NON allargare il token" in avviso, avviso     # e cosa NON fare
+
+
+def test_234_branch_o_PERCORSO_diverso_producono_l_avviso(monkeypatch):
+    """Rilievo CodeRabbit, ed è un buco vero: negli altri test differisce solo il `repo`.
+
+    Un'implementazione che confrontasse **solo il repository** li passerebbe tutti — e
+    lascerebbe scoperti i due disallineamenti che il proprietario può introdurre con la stessa
+    facilità: il branch e il percorso del file. Entrambi danno 404 ai bridge esattamente come un
+    repository sbagliato, cioè zero revoche propagate.
+    """
+    for descrizione, atteso in (
+        ("branch diverso",
+         "https://raw.githubusercontent.com/tizio/xtrader-revocation/altro/revocation_list.txt"),
+        ("percorso diverso",
+         "https://raw.githubusercontent.com/tizio/xtrader-revocation/main/altra_lista.txt"),
+    ):
+        monkeypatch.setattr(revocation_client, "REVOCATION_LIST_URL", atteso)
+        avviso = publisher.disallineamento_bridge("tizio/xtrader-revocation",
+                                                  "revocation_list.txt", "main")
+        assert avviso, f"{descrizione}: nessun avviso"
+        assert "NON propagherà alcuna revoca" in avviso, descrizione
