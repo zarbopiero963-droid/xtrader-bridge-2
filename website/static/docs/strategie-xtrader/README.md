@@ -39,8 +39,11 @@ descrive solo a parole, senza immagine. Si vedono:
   Sport, Inizio);
 - i filtri **Solo Validi**, Provider, Nome Mercato, Marketid.
 
-È la conferma visiva del contratto CSV: le colonne fra parentesi quadre sono esattamente quelle
-che BetRelay scrive.
+Le colonne fra parentesi quadre corrispondono a quelle che BetRelay scrive — ma la **fonte del
+contratto CSV non è questo screenshot**: è `csv_writer.CSV_HEADER` nel codice, documentato in
+[`docs/xtrader_csv_contract.md`](../../../../docs/xtrader_csv_contract.md) e verificato da un test
+che confronta la tabella della documentazione con l'header reale. Uno screenshot mostra com'era
+un giorno; se un domani divergessero, ha ragione il codice.
 
 ## Naming
 

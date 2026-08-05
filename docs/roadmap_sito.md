@@ -94,8 +94,15 @@ Oggi la card in `/documentazione` rimanda alla demo con la nota «in preparazion
 principali sono già trilingui.
 
 ### S9. Wizard in EN/ES
-Ho solo l'italiano. Generabili subito con
-`tools/screenshots/wizard_shot.py --lang en|es` — nessuna dipendenza esterna.
+Ho solo l'italiano. Generabili subito, un comando per lingua (in shell `|` aprirebbe una
+pipe, non è un'alternativa):
+
+```bash
+python3 tools/screenshots/wizard_shot.py --lang en
+python3 tools/screenshots/wizard_shot.py --lang es
+```
+
+Nessuna dipendenza esterna.
 
 ---
 
@@ -117,7 +124,8 @@ Verificato solo in modalità demo. Da provare: risposte reali sulla knowledge ba
 fuori-tema, rate limit, comportamento in tre lingue.
 
 ### S13. Test end-to-end del sito ✅ fatto
-[`tools/e2e/check_site.py`](../tools/e2e/README.md) guida Chromium contro un URL qualsiasi —
+[`tools/e2e/check_site.py`](../tools/e2e/check_site.py) ([README](../tools/e2e/README.md))
+guida Chromium contro un URL qualsiasi —
 locale o Railway — e verifica rotte, footer nelle tre lingue, errori JavaScript, asset, PDF,
 404, selettore lingua, i flussi completi delle due demo e il chatbot. **57 controlli, exit code
 0/1.** Verificato in locale: 57 PASS.

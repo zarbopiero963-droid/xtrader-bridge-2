@@ -83,7 +83,10 @@ def test_una_scrittura_fallita_non_distrugge_la_config_esistente(tmp_path, monke
 @pytest.mark.parametrize("invariante, motivo", [
     ("trap pulisci EXIT INT TERM",
      "senza trap, un fallimento a metà lascia l'app in esecuzione"),
-    ('cp -p "$RUNDIR/config.orig.json" "$CFG"',
+    ('mv -f "$ripristino" "$CFG"',
+     "il ripristino deve essere atomico come la scrittura: un `cp` diretto su $CFG lo "
+     "troncherebbe, cioè il guasto che il ripristino esiste per evitare"),
+    ('cp -p "$RUNDIR/config.orig.json" "$ripristino"',
      "senza ripristino, la lingua dell'utente resta cambiata per sempre"),
     ('RUNDIR="$(mktemp -d)"',
      "percorsi /tmp prevedibili: pre-creabili come symlink da chiunque sulla macchina"),
@@ -108,7 +111,9 @@ def test_lo_script_non_cancella_il_lock_di_un_altra_istanza():
     """Il lock è la protezione contro due istanze dell'app: cancellarlo alla cieca la
     disarma. Se c'è, lo script si ferma e lo dice."""
     testo = _SCRIPT.read_text(encoding="utf-8")
-    assert not re.search(r"rm\s+-f\s+.*XTraderBridge\.lock", testo), \
+    # sia il path scritto per esteso sia la variabile: `rm -f "$LOCK"` sfuggiva al vecchio
+    # controllo, ed è la forma che lo script userebbe davvero avendo già `LOCK=` in cima
+    assert not re.search(r"^\s*rm\b[^\n]*(?:XTraderBridge\.lock|\$\{?LOCK\}?)", testo, re.M), \
         "lo script cancella di nuovo il lock senza sapere di chi è"
     assert 'if [ -e "$LOCK" ]' in testo, "manca il controllo esplicito sul lock"
 

@@ -45,8 +45,22 @@ APP_PID=""
 pulisci () {
   local esito=$?
   [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true
-  # la config torna com'era: la lingua la cambiamo per lo scatto, non per sempre
-  [ -f "$RUNDIR/config.orig.json" ] && cp -p "$RUNDIR/config.orig.json" "$CFG" || true
+  # La config torna com'era: la lingua la cambiamo per lo scatto, non per sempre. Il
+  # ripristino è atomico esattamente come la scrittura — `cp` diretto su "$CFG" tronca il
+  # file prima di riempirlo, quindi un'interruzione QUI lascerebbe la config a metà: lo
+  # stesso guasto che stiamo cercando di evitare, nel codice che dovrebbe rimediarvi.
+  # E niente `|| true` sul risultato: un ripristino fallito va detto, non ingoiato.
+  if [ -f "$RUNDIR/config.orig.json" ]; then
+    ripristino="$(mktemp "${CFG}.restore.XXXXXX")"
+    if cp -p "$RUNDIR/config.orig.json" "$ripristino" && mv -f "$ripristino" "$CFG"; then
+      :
+    else
+      rm -f "$ripristino"
+      echo "ATTENZIONE: non sono riuscito a ripristinare $CFG" >&2
+      echo "La copia intatta è in: $RUNDIR/config.orig.json (NON cancello la cartella)" >&2
+      return "$esito"
+    fi
+  fi
   rm -rf "$RUNDIR"
   return $esito
 }
