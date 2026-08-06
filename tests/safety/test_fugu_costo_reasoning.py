@@ -29,6 +29,8 @@ intermedi bastano GPT-5.5 e Fable, che insieme costano ~12 centesimi contro i ~5
 import os
 import re
 
+import pytest
+
 _RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _FUGU = os.path.join(_RADICE, ".github", "workflows", "pr-review-openrouter-fugu-ultra.yml")
 
@@ -186,18 +188,16 @@ def test_usage_note_TACE_se_il_modello_non_riporta_reasoning():
     assert "200" in testo, "il resto del report deve funzionare comunque"
 
 
-def test_fugu_chiama_il_modello_SOLO_sulla_label_finale():
-    """Il difetto ②. Il modello si chiama solo quando l'agente arma il gate finale a head
-    stabile — mai su un push intermedio, per quanto tocchi file core.
+def test_fugu_non_spende_su_un_push_senza_label():
+    """Il difetto ②, verificato sul COMPORTAMENTO e non sul testo.
 
-    NB: il workflow **parte** comunque sui push (serve a pubblicare lo stato del check);
-    ciò che qui si pretende è che **esca senza spendere** se l'evento non è `labeled`.
+    La prima stesura cercava `if EVENT_ACTION != "labeled":` nel sorgente — è morta al primo
+    refactor legittimo (l'estrazione della decisione in funzione pura), che è esattamente la
+    fragilità segnalata da GPT-5.5. Qui si esegue la decisione vera.
     """
-    src = _fugu()
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
 
-    assert re.search(r'if\s+EVENT_ACTION\s*!=\s*"labeled"\s*:', src), (
-        "manca lo skip incondizionato sui push: Fugu deve spendere SOLO sulla label finale"
-    )
+    assert decisione_gate("synchronize", ["manual-review-required"], "final-fugu-review") == "salta"
 
 
 def test_fugu_non_ha_piu_il_gate_core_ormai_morto():
@@ -257,22 +257,71 @@ def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
     )
 
 
-def test_una_PR_APERTA_con_la_label_gia_presente_viene_revisionata():
-    """Secondo bloccante trovato da Fugu su questa PR, e fondato.
+def _funzione_dal_workflow(nome):
+    """Estrae una funzione a livello modulo dall'heredoc del workflow e la esegue isolata."""
+    import ast
+    import re as _re
 
-    Restringere il fail-closed a `synchronize` (rilievo GPT-5.5, giusto: su `reopened` il
-    commit non è cambiato) ha aperto il caso opposto: una PR **aperta** con la label finale
-    già applicata riceve `opened`, non `labeled` — GitHub non garantisce l'evento `labeled`
-    alla creazione. Con lo skip silenzioso il check resterebbe **verde senza alcuna review**.
-
-    La regola giusta non è sull'evento ma sullo stato: **se la label finale è presente, il
-    gate va eseguito**, a meno che il head non sia cambiato dopo (quello è `synchronize`, ed
-    è l'unico caso in cui si dichiara stantio invece di rieseguire).
-    """
-    src = _fugu()
-
-    assert re.search(r'EVENT_ACTION\s+in\s*\(\s*"opened"\s*,\s*"reopened"', src) or \
-           re.search(r'EVENT_ACTION\s*==\s*"synchronize"[^\n]*\n(?:[^\n]*\n)*?.*?gate_armato', src), (
-        "una PR aperta/riaperta con la label finale già presente deve essere REVISIONATA, "
-        "non saltata: altrimenti il check è verde e nessuno ha guardato quel head"
+    righe = _fugu().splitlines()
+    corpo, dentro, indent = [], False, ""
+    for r in righe:
+        m = _re.match(r"^(\s*)python3 <<'PY'\s*$", r)
+        if m and not dentro:
+            dentro, indent = True, m.group(1)
+            continue
+        if dentro:
+            if r.strip() == "PY":
+                break
+            corpo.append(r[len(indent):] if r.startswith(indent) else r)
+    albero = ast.parse("\n".join(corpo))
+    voluti = [n for n in albero.body if isinstance(n, ast.FunctionDef) and n.name == nome]
+    assert len(voluti) == 1, (
+        f"attesa una sola `{nome}` a livello modulo, trovate {len(voluti)} — la struttura "
+        "dello script è cambiata, aggiorna questo test"
     )
+    ns = {"os": __import__("os")}
+    exec(compile(ast.Module(body=voluti, type_ignores=[]), f"fugu#{nome}", "exec"), ns)  # noqa: S102
+    return ns[nome]
+
+
+@pytest.mark.parametrize("evento,armato,atteso", [
+    # Il gate è armato dalla label: si revisiona a prescindere dall'evento…
+    ("labeled",          True,  "revisiona"),
+    ("opened",           True,  "revisiona"),   # ← il buco trovato da Fugu
+    ("reopened",         True,  "revisiona"),
+    ("ready_for_review", True,  "revisiona"),
+    # …tranne quando il head si è mosso DOPO l'armamento: lì è stantio, non verde.
+    ("synchronize",      True,  "stantio"),
+    # Senza label non si spende mai, qualunque sia l'evento.
+    ("synchronize",      False, "salta"),
+    ("opened",           False, "salta"),
+    ("reopened",         False, "salta"),
+])
+def test_decisione_gate_su_ogni_evento(evento, armato, atteso):
+    """Il test che GPT-5.5 e CodeRabbit hanno chiesto **due volte** su questa PR, e avevano
+    ragione entrambe le volte: le prime stesure asserivano pattern testuali nel workflow —
+    fragili ai refactor e, soprattutto, incapaci di dimostrare il comportamento.
+
+    Ora la decisione è una funzione pura nello script, estratta ed **eseguita** qui su tutti
+    gli eventi che GitHub può emettere su una PR. Il caso `opened + armato` è il buco che
+    Fugu aveva trovato: una PR aperta con la label già applicata non riceve `labeled`, e con
+    lo skip silenzioso il check restava verde senza che nessuno avesse guardato.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    etichette = ["manual-review-required"] + (["final-fugu-review"] if armato else [])
+
+    assert decisione_gate(evento, etichette, "final-fugu-review") == atteso
+
+
+def test_decisione_gate_e_pura():
+    """Contro-guardia: la decisione non deve dipendere dall'ambiente o da stato globale,
+    altrimenti il test sopra proverebbe qualcosa di diverso da ciò che gira in CI."""
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    prima = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
+    os.environ["LABELS_PRESENTI"] = "niente"
+    os.environ["EVENT_ACTION"] = "labeled"
+    dopo = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
+
+    assert prima == dopo == "stantio", "la decisione legge l'ambiente invece dei suoi argomenti"

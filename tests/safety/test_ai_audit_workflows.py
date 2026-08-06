@@ -763,8 +763,13 @@ def test_pr_review_trigger_split():
                 # `core_gate: False` → spende SOLO sulla label: lo skip dev'essere
                 # incondizionato, e il gate core non deve restare come codice morto che
                 # suggerisce un comportamento che non esiste piu'.
-                assert re.search(r'if\s+EVENT_ACTION\s*!=\s*"labeled"\s*:', text), (
-                    f"{name}: dichiarato core_gate=False ma manca lo skip incondizionato"
+                # La decisione vive in una funzione PURA (`decisione_gate`) proprio per
+                # essere eseguibile dai test invece che asserita per pattern: qui basta
+                # verificare che esista: il COMPORTAMENTO è coperto, evento per evento, da
+                # `test_fugu_costo_reasoning.py::test_decisione_gate_su_ogni_evento`.
+                assert "def decisione_gate(" in text, (
+                    f"{name}: dichiarato core_gate=False ma manca la funzione di decisione "
+                    "del gate (che i test eseguono per verificarne il comportamento)"
                 )
                 assert "CORE_TRIGGER_PATTERNS" not in text and "touches_core" not in text, (
                     f"{name}: core_gate=False ma il gate core e' ancora nel file (inerte)"
