@@ -16,6 +16,7 @@ Copre le tre cose che possono andare storte:
 """
 
 import json
+import sys
 
 import pytest
 
@@ -104,7 +105,8 @@ def test_premessa_regge_non_solleva_su_input_non_stringa():
     assert jp.premessa_regge(123) is False           # type: ignore[arg-type]
 
 
-def test_il_consumo_di_stack_non_dipende_dal_recursion_limit():
+@pytest.mark.parametrize("limite_finto", [1000, 6000, 30000, 100000])
+def test_il_consumo_di_stack_non_dipende_dal_recursion_limit(monkeypatch, limite_finto):
     """Il cuore del rilievo GPT-5.5 sulla #296, pinnato come invariante.
 
     I frame C consumati dallo scanner sono `min(profondità, limite)`. Con profondità FISSA
@@ -112,17 +114,20 @@ def test_il_consumo_di_stack_non_dipende_dal_recursion_limit():
     crescerebbero senza tetto — su Windows (stack ~1 MB) un segfault del runner, non un
     `RecursionError` gestito.
 
-    Il test lo pretende alla radice: la profondità non deve essere funzione del limite.
+    **Il limite viene FINTO, non alzato davvero** (secondo rilievo GPT-5.5, e aveva ragione
+    due volte di fila sullo stesso tema). La prima stesura chiamava
+    `sys.setrecursionlimit(limite * 4)` con un `finally` a ripristinare: funziona, ma è un
+    test contro la fragilità di CI che, per dimostrarla, muta lo stato globale
+    dell'interprete — proprio la cosa che questa PR ha appena smesso di fare. Con
+    `monkeypatch` sulla *lettura* si verifica lo stesso invariante senza che il limite reale
+    cambi mai di un'unità, quindi nessun altro test può risentirne e nessuno stack può
+    saltare, nemmeno a 100000.
     """
-    limite_originale = jp.limite_ricorsione()
-    assert jp.profondita_patologica() == jp.PROFONDITA
+    monkeypatch.setattr(sys, "getrecursionlimit", lambda: limite_finto)
 
-    import sys
-    try:
-        sys.setrecursionlimit(limite_originale * 4)
-        assert jp.profondita_patologica() == jp.PROFONDITA, (
-            "la profondità è cambiata col recursion limit: è tornata a essere funzione del "
-            "limite, e con essa il consumo di stack C senza tetto"
-        )
-    finally:
-        sys.setrecursionlimit(limite_originale)
+    assert jp.limite_ricorsione() == limite_finto, "il finto limite non è arrivato al modulo"
+    assert jp.profondita_patologica() == jp.PROFONDITA, (
+        f"con limite {limite_finto} la profondità è {jp.profondita_patologica()} invece di "
+        f"{jp.PROFONDITA}: è tornata a essere funzione del recursion limit, e con essa il "
+        f"consumo di stack C senza tetto"
+    )
