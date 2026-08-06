@@ -39,6 +39,7 @@ import os
 
 import pytest
 
+from tests.unit import json_patologico
 from xtrader_bridge import (confirmation_reader, journal_view, safety_guard,
                             settings_controller, signal_dedupe, signal_queue)
 
@@ -50,9 +51,15 @@ ENORME = int("9" * 400)
 FUORI_TUPLA = (OverflowError, RecursionError)
 
 
-def _json_annidato(livelli: int = 3000) -> str:
-    """Un JSON valido ma annidato: `json` decodifica ricorsivamente → `RecursionError`."""
-    return '{"entries": ' + "[" * livelli + "]" * livelli + "}"
+def _json_annidato(livelli: int | None = None) -> str:
+    """Un JSON valido ma annidato: `json` decodifica ricorsivamente → `RecursionError`.
+
+    R5 della #211: la profondità era la costante `3000`, cioè una scommessa su
+    `sys.getrecursionlimit()` (default 1000). Col limite alzato a 6000 quei livelli non
+    erano più patologici e due test di questo file andavano rossi senza alcun bug. Ora la
+    profondità arriva dalla fonte unica ed è relativa all'interprete che sta girando.
+    """
+    return json_patologico.json_annidato_liste("entries", livelli)
 
 
 # ── ① la coda segnali: timeout letto dal config allo START ───────────────────
@@ -161,14 +168,24 @@ def test_load_state_dedupe_su_file_annidato_non_crasha_lo_start(tmp_path):
     Il commento sopra quella riga promette: «Avvisa solo se lo stato ESISTE ma non è
     caricabile». Con un file ostile l'avviso non veniva mai raggiunto — l'eccezione
     risaliva e lo START falliva. Il contratto è un `bool`, non un'eccezione.
+
+    R5 della #211 — l'invariante è separato dal meccanismo. Ciò che lo START pretende è che
+    `load_state` **non sollevi**: quello vale sempre, in ogni ambiente. Il `False` è il
+    *come* — «illeggibile» — e ha senso pretenderlo solo se il file è davvero illeggibile
+    qui. Confonderli mandava questo test rosso col recursion limit alzato, mentre il gemello
+    `..._daily_...` qui sotto, che asserisce solo «non solleva», restava verde.
     """
+    documento = _json_annidato()
     percorso = tmp_path / "dedupe_state.json"
-    percorso.write_text(_json_annidato(), encoding="utf-8")
+    percorso.write_text(documento, encoding="utf-8")
     tracker = signal_dedupe.SignalTracker(60)
 
-    esito = signal_dedupe.load_state(tracker, str(percorso))
+    esito = signal_dedupe.load_state(tracker, str(percorso))   # l'INVARIANTE: non solleva
 
-    assert esito is False, "un file illeggibile deve dare False, non sollevare"
+    assert isinstance(esito, bool), "il contratto è un bool, non un'eccezione"
+
+    if json_patologico.premessa_regge(documento):
+        assert esito is False, "un file illeggibile deve dare False, non sollevare"
 
 
 def test_load_state_daily_su_file_annidato_non_crasha_lo_start(tmp_path):
