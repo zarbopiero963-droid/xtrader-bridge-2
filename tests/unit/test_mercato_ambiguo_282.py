@@ -256,6 +256,92 @@ def test_una_frase_non_contesa_non_ha_contendenti():
     assert nessuna == [], nessuna
 
 
+# ── ⑤ l'invariante al livello che conta davvero: il CSV ───────────────────────────────
+
+def test_dal_mercato_ambiguo_non_esce_nessuna_riga_nel_CSV(tmp_path):
+    """Rilievo GPT-5.5 sulla #301, ed è il livello giusto a cui chiudere questa PR.
+
+    Tutto il resto verifica codici e testi; questo verifica **la cosa che può costare soldi**:
+    che da un mercato ambiguo non arrivi una riga al file che XTrader legge. Il legame
+    «`placeable is False` → nessuna riga» è quello su cui poggia l'intero fail-closed, e finora
+    in questo file era assunto invece che misurato.
+
+    Scrive davvero il CSV con `csv_writer`, poi lo rilegge: se una riga passasse, il file
+    avrebbe due righe invece del solo header.
+    """
+    from xtrader_bridge import csv_writer
+
+    percorso = str(tmp_path / "segnali.csv")
+    csv_writer.init_csv(percorso)
+
+    res = _esito(_VOCI_AMBIGUE)
+    assert res.status == pipe.MARKET_MAPPING_AMBIGUOUS
+
+    # Misurato scrivendo questo test: il fail-closed è più forte di «non piazzabile». Su un
+    # mercato ambiguo l'instradamento non produce proprio una riga — `row` è `None`, quindi non
+    # c'è nulla da scrivere nemmeno per un chiamante che ignorasse il gate.
+    assert res.row is None, f"esiste una riga scrivibile per un mercato ambiguo: {res.row!r}"
+
+    # Lo stesso gate dell'instradamento: si scrive SOLO ciò che è piazzabile.
+    if res.placeable:
+        csv_writer.write_csv(res.row, percorso)
+
+    def _righe():
+        return [r for r in open(percorso, encoding="utf-8-sig").read().splitlines() if r.strip()]
+
+    assert len(_righe()) == 1, (
+        f"un mercato AMBIGUO ha prodotto una riga nel CSV che XTrader legge: {_righe()[1:]}"
+    )
+
+    # Anti-vacuità: il file DEVE poter crescere. Senza questa metà, un `write_csv` rotto o un
+    # path sbagliato farebbero passare il test per la ragione sbagliata — «nessuna riga» perché
+    # nulla viene mai scritto, non perché il fail-closed ha funzionato.
+    #
+    # La riga la fornisce lo STESSO percorso con UNA sola voce, cioè senza conflitto: è la
+    # differenza fra i due scenari ridotta a una voce di dizionario in più.
+    buono = _esito([_voce("", "Entrambe le squadre a segno", "Sì")])
+    assert buono.placeable, "il caso di controllo non è piazzabile: scenario mal costruito"
+    csv_writer.write_csv(buono.row, percorso)
+    assert len(_righe()) == 2, "il CSV non cresce nemmeno scrivendo: il test sopra era vacuo"
+
+
+def test_i_nomi_del_dizionario_sono_sanificati_nel_verdetto():
+    """Rilievo GPT-5.5 sulla #301: la sanificazione è **documentata**, ma va misurata.
+
+    **Esercita `_motivo_stato` con un `detail` velenoso**, non una config velenosa. La prima
+    stesura passava una voce col nome ostile al percorso completo ed era **vacua**: misurato,
+    `status` tornava `VALID`. Un nome che non sta nel Catalogo Betfair non è canonico, quindi
+    `_canonical_market` scarta la voce, l'ambiguità non si verifica e il carattere ostile non
+    arriva mai al motivo. Il test passava senza aver visto ciò che doveva controllare.
+
+    Qui si entra dal punto in cui il dettaglio esiste già — che è dove la sanificazione vive —
+    e si prova la difesa per quello che è: uno strato che non deve dipendere dal fatto che il
+    catalogo, a monte, filtri i nomi strani.
+
+    I due rischi coperti, gli stessi che `_leggibile` neutralizza per le condizioni di gate:
+
+    - un `«` o `»` nel nome **chiude la citazione** e fa sembrare «testo del bridge» ciò che ha
+      scritto l'utente;
+    - un **bidi override** (U+202E) ribalta visivamente tutto il testo a valle, quindi anche la
+      parte scritta dal bridge.
+    """
+    #: `\u202e` scritto come ESCAPE, non come carattere: un bidi override letterale nel
+    #: sorgente è l'attacco Trojan Source, cioè esattamente ciò che questo test difende
+    #: (e ruff lo segnala, a ragione — PLE2502).
+    BIDI = "\u202e"
+    detail = [("", f"Mercato «finto» {BIDI}chiuso", "Sì"),
+              ("", "1º tempo - Totale goal 0,5", "Over 0,5 goal")]
+    motivo = pdiag._motivo_stato(pipe.MARKET_MAPPING_AMBIGUOUS, None, detail)
+
+    # Non-vacuo: il nome velenoso è arrivato fin qui.
+    assert "finto" in motivo, f"il dettaglio non ha raggiunto il motivo: {motivo!r}"
+    assert BIDI not in motivo, "bidi override non neutralizzato nel verdetto"
+    # Le uniche « » restano i delimitatori messi dal bridge: due per coppia in conflitto.
+    assert motivo.count("«") == motivo.count("»") == 2, (
+        f"citazioni sbilanciate: il nome utente ha chiuso una citazione del bridge — {motivo!r}"
+    )
+
+
 @pytest.mark.parametrize("testo", ["", "   ", "nessun mercato qui"])
 def test_la_fonte_unica_e_fail_safe(testo):
     """Non deve sollevare su testo vuoto o senza match: è chiamata sul percorso di
