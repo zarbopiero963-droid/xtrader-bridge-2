@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import _testo_js, dizionari_i18n_sito
+from tests.conftest import _maschera_codice, _testo_js, dizionari_i18n_sito
 
 _ROOT = Path(__file__).resolve().parents[2]
 _STATIC = _ROOT / "website" / "static"
@@ -254,12 +254,16 @@ def test_i18n_non_usa_i_costrutti_che_il_lettore_non_sa_leggere():
     è rosso **qui**, con scritto perché — invece che rosso in un test di traduzione qualsiasi,
     dove nessuno penserebbe di guardare il parser.
     """
-    testo = _I18N.read_text(encoding="utf-8")
-    assert "`" not in testo, (
+    # Il controllo gira sulla MASCHERA, non sul sorgente: dentro le stringhe tradotte un
+    # backtick o qualcosa che somiglia a una regex è **testo dell'utente**, innocuo, e
+    # bloccare la CI per quello sarebbe un gate che fa danni invece di prevenirli (rilievo
+    # GPT-5.5 sulla #289). Sulla maschera resta solo il codice vero.
+    codice = _maschera_codice(_I18N.read_text(encoding="utf-8"))
+    assert "`" not in codice, (
         "i18n.js ora usa i template literal: il lettore in tests/conftest.py li tratta come "
         "stringhe semplici e non valuta `${...}` — vanno gestiti prima di usarli qui")
     # una regex literal si riconosce da un `/` che apre dopo `=`, `(` o `,` e non è un commento
-    sospette = re.findall(r"[=(,]\s*/(?![/*])[^\n]*?/[gimsuy]*", testo)
+    sospette = re.findall(r"[=(,]\s*/(?![/*])[^\n]*?/[gimsuy]*", codice)
     assert not sospette, (
         "i18n.js ora contiene quelle che sembrano regex literal: %r — il lettore non le "
         "riconosce e potrebbe scambiarne il contenuto per un commento (limite dichiarato in "
