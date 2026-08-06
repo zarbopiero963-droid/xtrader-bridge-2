@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import bridge_mode, csv_writer, health_check
+from . import bridge_mode, csv_writer, health_check, source_manager
 
 _API = "https://api.telegram.org"
 _TIMEOUT = 10   # secondi per sonda: il wizard non deve mai sembrare bloccato
@@ -99,7 +99,12 @@ def check_chat(token, chat_id, probe=probe_get_updates) -> StepResult:
     cid = str(chat_id or "").strip()
     if not cid:
         return StepResult(False, "Inserisci il Chat ID della chat/canale sorgente.")
-    if not (cid.lstrip("-").isdigit()):
+    # Delega alla regola CANONICA (`-?[0-9]+`) invece di riscriverla: qui c'era
+    # `cid.lstrip("-").isdigit()`, che essendo Unicode-aware accettava «١٢٣», «１２３», «१२३» —
+    # cioè il Wizard diceva «valido» e poi `validate_sources` bloccava la stessa sorgente con
+    # «chat_id non numerico». Due diagnostiche opposte sullo stesso valore, dallo stesso
+    # programma. La regola è una sola e vive in `source_manager` (Regola 3).
+    if not source_manager.is_valid_chat_id(cid):
         return StepResult(False, "Il Chat ID deve essere numerico (es. -1001234567890).")
     try:
         resp = probe(str(token or "").strip())
