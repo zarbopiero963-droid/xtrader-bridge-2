@@ -217,6 +217,20 @@ Conseguenza pratica per l'agente: **aggiungere `manual-review-required` a una PR
 ha già le label finali non rilancia i due reviewer forti**. Per rieseguirli su un
 head nuovo va rimossa e riaggiunta la label finale, come già prescritto sopra.
 
+**Un push dopo l'armamento rende il gate STANTIO — su entrambi** (#292). Se la label
+finale è sulla PR e arriva un nuovo commit, la review precedente si riferisce a un
+altro head: i due job escono **rossi** senza chiamare il modello (costo zero), con il
+messaggio che dice di rimuovere e riaggiungere la label. Prima valeva solo per Fugu;
+Fable in quel caso usciva **verde** quando il push non toccava file core — cioè un
+check «gate finale» su un head che nessun reviewer forte aveva letto, la stessa classe
+di difetto della #274. Se ne è accorto **Fable stesso**, revisionando la PR che lo
+modificava.
+
+Quindi: quel rosso **non è un guasto**, è il gate che funziona. Si risolve riarmando
+la label a head stabile — e il riarmo produce una review dell'**intera PR**, cioè più
+copertura di quella del solo push-range. Nel frattempo il push resta comunque coperto
+da GPT-5.5, che gira su ogni commit.
+
 La label resta il **gate finale pre-merge obbligatorio**: anche se una PR non ha
 toccato file core (quindi i due forti non sono mai partiti da soli), prima di
 dichiararla pronta l'agente **deve** far partire le review finali via label.

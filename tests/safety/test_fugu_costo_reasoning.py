@@ -368,42 +368,6 @@ def _funzione_da_fable(nome):
     return extract_func(blocchi[0], nome, {"os": os})
 
 
-@pytest.mark.parametrize("evento,etichette,atteso", [
-    # La label finale, e solo quella, arma il gate…
-    ("labeled", ["final-fable-review"], True),
-    ("labeled", ["manual-review-required", "final-fable-review"], True),
-    # …una label qualsiasi no: si torna al controllo sui file core, che è ciò che decide
-    # se spendere su un push.
-    ("labeled", ["manual-review-required"], False),
-    ("labeled", [], False),
-    # `synchronize` NON arma mai: un push non è un armamento, e trattarlo come tale
-    # scavalcherebbe il gate sui file core a ogni commit finché la label resta sulla PR —
-    # cioè spendere su ogni push, l'opposto di ciò che la #292 corregge.
-    ("synchronize", ["final-fable-review"], False),
-    # `opened`/`reopened` invece SÌ, se la label c'è già: GitHub non emette `labeled` per una
-    # PR aperta con la label applicata, e senza questo la review finale non partirebbe mai —
-    # il check resterebbe verde senza che nessuno abbia guardato (difetto #274).
-    ("opened", ["final-fable-review"], True),
-    ("reopened", ["final-fable-review"], True),
-    ("opened", ["manual-review-required"], False),
-])
-def test_fable_arma_il_gate_solo_con_la_SUA_label(evento, etichette, atteso):
-    """Stesso rilievo di `test_una_label_QUALSIASI_non_fa_spendere`, applicato al sibling.
-
-    Fable è il reviewer forte che resta anche sui push core: se una label qualsiasi gli
-    facesse saltare il controllo core, spenderebbe su PR di soli docs/test — il costo che
-    questa PR sta cercando di togliere.
-    """
-    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
-
-    # Su `labeled` la label dell'evento è quella che l'ha scatenato: nel caso «armato» è
-    # la finale. Il caso «label diversa su PR già etichettata» ha il suo test dedicato.
-    label_evento = "final-fable-review" if (evento == "labeled" and atteso) else ""
-
-    assert gate_finale_armato(
-        evento, etichette, "final-fable-review", label_evento) is atteso
-
-
 @pytest.mark.parametrize("workflow,leggi", [
     ("fugu", _fugu),
     ("fable", _fable),
@@ -420,8 +384,8 @@ def test_le_etichette_arrivano_DAVVERO_dall_env_del_job(workflow, leggi):
     testo = leggi()
 
     assert re.search(
-        r"^      LABELS_PRESENTI: \$\{\{ join\(github\.event\.pull_request\.labels\.\*\.name,"
-        r" ','\) \}\}$", testo, re.M), (
+        r"^      LABELS_PRESENTI: \$\{\{ toJSON\(github\.event\.pull_request\.labels"
+        r"\.\*\.name\) \}\}$", testo, re.M), (
         f"{workflow}: manca l'env LABELS_PRESENTI — il gate non vede le label della PR"
     )
     assert re.search(rf"^      FINAL_LABEL: final-{workflow}-review$", testo, re.M), (
@@ -467,12 +431,13 @@ def test_fugu_una_label_diversa_su_una_PR_gia_etichettata_non_fa_spendere(etiche
 def test_fable_una_label_diversa_su_una_PR_gia_etichettata_non_arma(etichette):
     """Stesso caso sul gemello: qui armare il gate significa SALTARE il controllo sui file
     core, quindi una label qualsiasi farebbe spendere su una PR di soli docs/test."""
-    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
+    decisione_gate = _funzione_da_fable("decisione_gate")
 
-    assert gate_finale_armato(
-        "labeled", etichette, "final-fable-review", "manual-review-required") is False
-    assert gate_finale_armato(
-        "labeled", etichette, "final-fable-review", "final-fable-review") is True
+    # Nessun file core: se la label diversa armasse, spenderebbe su una PR di soli docs/test.
+    assert decisione_gate("labeled", etichette, "final-fable-review",
+                          "manual-review-required", False, False) == "salta"
+    assert decisione_gate("labeled", etichette, "final-fable-review",
+                          "final-fable-review", False, False) == "revisiona"
 
 
 @pytest.mark.parametrize("evento", ["opened", "reopened", "ready_for_review"])
@@ -487,7 +452,7 @@ def test_la_label_dell_evento_conta_SOLO_sugli_eventi_labeled(evento):
 
 def test_fable_dice_ad_alta_voce_quando_una_label_non_arma():
     """Un gate che salta in silenzio è indistinguibile da uno che ha approvato (difetto
-    #274): l'evento `labeled` non armato deve lasciare traccia.
+    #274): l'evento `labeled` che non arma deve lasciare traccia.
 
     Ancorato al ramo via **AST**, non a una finestra di caratteri: la prima stesura leggeva
     `src[inizio:inizio + 1600]` e GPT-5.5 ha giustamente osservato che un refactor o qualche
@@ -497,59 +462,47 @@ def test_fable_dice_ad_alta_voce_quando_una_label_non_arma():
 
     albero = ast.parse(extract_heredocs(_fable())[0])
     rami = [n for n in ast.walk(albero)
+            # `ast.unparse` normalizza le virgolette a singole: si confronta senza.
             if isinstance(n, ast.If)
-            and "not ARMATO" in ast.unparse(n.test)
-            and "labeled" in ast.unparse(n.test)]
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'salta'"]
 
     assert len(rami) == 1, (
-        f"atteso un solo ramo «evento labeled ma gate non armato», trovati {len(rami)}"
+        f"atteso un solo ramo «gate non armato, si salta», trovati {len(rami)}"
     )
     corpo = ast.unparse(rami[0])
-    assert "::notice::" in corpo, (
-        "l'aggiunta di una label diversa non deve passare in silenzio"
+    assert corpo.count("::notice::") == 2, (
+        "servono due messaggi distinti: label non finale, e push senza file core — "
+        "un solo testo generico non fa capire PERCHÉ il gate ha saltato"
     )
     assert "::warning::" not in corpo and "::error::" not in corpo, (
-        "è il caso ORDINARIO (si aggiunge manual-review-required): gridare qui è rumore "
-        "che poi nessuno legge"
+        "saltare senza label finale e senza file core è il caso ORDINARIO: gridare qui è "
+        "rumore che poi nessuno legge. Il caso grave è lo STANTIO, che ha il suo ramo."
     )
 
 
-# ── Il conjunct di troppo, trovato da GPT-5.5 al terzo giro ────────────────────────────────
-#
-# Pretendere ANCHE `label_finale in etichette` su un evento `labeled` è belt-and-braces nella
-# direzione sbagliata: l'evento ha già detto QUALE label è stata aggiunta, quindi il controllo
-# in più non può impedire una spesa illegittima — può solo produrre un falso negativo, cioè
-# SALTARE un gate finale se l'elenco delle label del payload è stantio. E un gate finale che
-# salta in silenzio è un verde indistinguibile da un'approvazione: il difetto della #274.
-#
-# Regola: su `labeled` decide la label DELL'EVENTO; su tutti gli altri eventi decide lo STATO
-# (l'elenco), che è ciò che copre la PR aperta con la label già applicata.
+def test_fable_lo_stantio_e_fail_closed():
+    """Il ramo stantio deve far fallire il job: un `::warning::` lascerebbe il check verde,
+    cioè esattamente il difetto che Fable 5 ha segnalato come bloccante."""
+    import ast
 
-@pytest.mark.parametrize("etichette", [[], ["manual-review-required"]])
-def test_fugu_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette):
-    decisione_gate = _funzione_dal_workflow("decisione_gate")
+    albero = ast.parse(extract_heredocs(_fable())[0])
+    rami = [n for n in ast.walk(albero)
+            if isinstance(n, ast.If)
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'stantio'"]
 
-    assert decisione_gate(
-        "labeled", etichette, "final-fugu-review", "final-fugu-review") == "revisiona", (
-        "l'evento dice che la label finale è stata appena aggiunta: se l'elenco del payload "
-        "è stantio il gate DEVE comunque eseguire, non risultare verde senza review"
+    assert len(rami) == 1, f"atteso un solo ramo stantio, trovati {len(rami)}"
+    corpo = ast.unparse(rami[0])
+    assert "::error::" in corpo and "sys.exit(1)" in corpo, (
+        "il gate stantio dev'essere ROSSO: un avviso su un check verde non lo legge nessuno"
     )
-
-
-@pytest.mark.parametrize("etichette", [[], ["manual-review-required"]])
-def test_fable_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette):
-    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
-
-    assert gate_finale_armato(
-        "labeled", etichette, "final-fable-review", "final-fable-review") is True
 
 
 # ── Quali eventi possono arrivare: l'assunzione su cui poggia tutto il gate ────────────────
 
 #: Gli eventi PR ammessi dai due workflow. La logica di armamento è coerente **solo** con
-#: questo elenco: `labeled` è deciso dalla label dell'evento, `synchronize` non arma mai
-#: (Fable) o dichiara stantio (Fugu), e tutto il resto arma se la label finale c'è già.
-#: Aggiungerne altri cambia il significato di quel «tutto il resto» — per esempio `edited`
+#: questo elenco: `labeled` è deciso dalla label dell'evento, `synchronize` con la label
+#: presente è STANTIO, e gli eventi di apertura armano se la label finale c'è già.
+#: Aggiungerne altri cambia il significato di quel «resto» — per esempio `edited`
 #: (titolo/corpo modificati) o `unlabeled` (label RIMOSSA) farebbero partire una review
 #: finale che nessuno ha chiesto. Rilievo GPT-5.5 sulla #292.
 EVENTI_AMMESSI = ["opened", "synchronize", "reopened", "ready_for_review", "labeled"]
@@ -577,7 +530,6 @@ def eventi_del_trigger(testo_workflow):
     def rientro(riga):
         return len(riga) - len(riga.lstrip())
 
-    # 1. il blocco `pull_request:` (a qualunque profondità sotto `on:`)
     inizio = fine = None
     for n, riga in enumerate(righe):
         if re.match(r"^\s*pull_request:\s*$", riga):
@@ -594,7 +546,6 @@ def eventi_del_trigger(testo_workflow):
 
     blocco = righe[inizio + 1:fine]
 
-    # 2. `types:` dentro quel blocco
     for n, riga in enumerate(blocco):
         m = re.match(r"^([^\S\n]*)types:[^\S\n]*(.*)$", riga)
         if not m:
@@ -602,7 +553,6 @@ def eventi_del_trigger(testo_workflow):
         indent_chiave, resto = len(m.group(1)), m.group(2).strip()
         if resto.startswith("["):
             return {x.strip() for x in resto.strip("[]").split(",") if x.strip()}
-        # Forma multilinea: solo le voci PIÙ rientrate di `types:`.
         eventi = set()
         for voce in blocco[n + 1:]:
             if not voce.strip():
@@ -697,4 +647,76 @@ def test_il_parser_multilinea_non_inghiotte_una_lista_sorella():
 
     assert eventi_del_trigger(yaml_finto) == {"opened", "labeled"}, (
         "la lista `branches` è stata inghiottita fra gli eventi del trigger"
+    )
+
+
+# ── Il verde stantio che avevo chiuso su Fugu e lasciato aperto su Fable ───────────────────
+#
+# Bloccante di Claude Fable 5 sulla propria review finale, e fondato: con la label finale già
+# presente, un push che non tocca file core usciva VERDE — un check «gate finale» che si
+# riferisce a un head che nessun reviewer forte ha letto. È la stessa classe della #274 che
+# questa PR chiude per Fugu, lasciata aperta sul gemello.
+#
+# Regola ora simmetrica: se la label finale è sulla PR e arriva un push, il gate è STANTIO
+# (rosso, nessuna spesa) finché la label non viene rimossa e riaggiunta. Costa zero e dice la
+# verità; il push in sé resta coperto da GPT-5.5, e il riarmo produce una review dell'INTERA
+# PR, cioè più copertura di quella del solo push-range.
+
+def _decisione_fable():
+    return _funzione_da_fable("decisione_gate")
+
+
+@pytest.mark.parametrize("tocca_core", [False, True])
+def test_fable_un_push_dopo_la_label_e_STANTIO_non_verde(tocca_core):
+    decisione_gate = _decisione_fable()
+
+    esito = decisione_gate("synchronize", ["final-fable-review"], "final-fable-review",
+                           "", tocca_core, False)
+
+    assert esito == "stantio", (
+        "push con la label finale già presente: il gate si riferisce a un altro commit. "
+        f"Atteso «stantio» (rosso, zero spesa), ottenuto {esito!r}"
+    )
+
+
+@pytest.mark.parametrize("evento,etichette,label_evento,core,troncata,atteso", [
+    # Armamento vero → review dell'intera PR.
+    ("labeled", ["final-fable-review"], "final-fable-review", False, False, "revisiona"),
+    ("opened", ["final-fable-review"], "", False, False, "revisiona"),
+    ("reopened", ["final-fable-review"], "", False, False, "revisiona"),
+    # Label diversa: si torna a decidere sui file core, come sempre.
+    ("labeled", ["manual-review-required"], "manual-review-required", True, False, "core"),
+    ("labeled", ["manual-review-required"], "manual-review-required", False, False, "salta"),
+    # Senza label finale, il comportamento storico resta intatto.
+    ("synchronize", [], "", True, False, "core"),
+    ("synchronize", [], "", False, False, "salta"),
+    # Fail-safe Compare troncata: non si salta mai al buio.
+    ("synchronize", [], "", False, True, "core"),
+])
+def test_fable_decide_su_ogni_combinazione(evento, etichette, label_evento, core, troncata, atteso):
+    """Il gate di Fable diventa una funzione pura come quello di Fugu, così è **eseguibile**
+    dai test invece che asserito per pattern — la lezione che CodeRabbit e GPT-5.5 hanno
+    dovuto ripetere tre volte su questa PR."""
+    decisione_gate = _decisione_fable()
+
+    assert decisione_gate(evento, etichette, "final-fable-review",
+                          label_evento, core, troncata) == atteso
+
+
+@pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
+def test_le_label_arrivano_come_JSON_non_come_stringa_con_virgole(workflow, leggi):
+    """Secondo rilievo di Fable 5: `join(..., ',')` + `split(',')` si corrompe se una label
+    del repo contiene una virgola — e su quell'elenco poggia una decisione di spesa.
+
+    Oggi le label finali non hanno virgole, quindi è innocuo; ma un formato non escapato che
+    governa il costo è debito che si paga quando meno serve. `toJSON` non ha questo problema.
+    """
+    testo = leggi()
+
+    assert "toJSON(github.event.pull_request.labels.*.name)" in testo, (
+        f"{workflow}: le label devono arrivare come JSON, non come stringa join-ata: una "
+        "label con la virgola spezzerebbe l'elenco su cui si decide se spendere"
+    )
+    assert "join(github.event.pull_request.labels" not in testo, (
+        f"{workflow}: rimasto il vecchio join non escapato"
     )

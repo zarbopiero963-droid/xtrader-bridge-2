@@ -712,25 +712,35 @@ def test_pr_review_trigger_split():
                 assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
                     f"{name}: manca il gate costo (modello solo su file core o label)"
                 )
-                # Lo skip vive su una funzione PURA (`gate_finale_armato`) invece che sul
+                # Lo skip vive su una funzione PURA (`decisione_gate`) invece che sul
                 # confronto testuale `EVENT_ACTION != "labeled"` che stava qui: quello si
                 # accontentava dell'evento e scavalcava il controllo core su QUALSIASI
-                # label, fidandosi del filtro YAML del job. Il COMPORTAMENTO, label per
-                # label, è coperto da
-                # `test_fugu_costo_reasoning.py::test_fable_arma_il_gate_solo_con_la_SUA_label`.
-                assert ("def gate_finale_armato(" in text
-                        and "not ARMATO" in text
-                        and "not touches_core(files)" in text), (
+                # label, fidandosi del filtro YAML del job. Il COMPORTAMENTO, combinazione
+                # per combinazione, è coperto da
+                # `test_fugu_costo_reasoning.py::test_fable_decide_su_ogni_combinazione`.
+                assert ("def decisione_gate(" in text
+                        and 'esito_gate == "salta"' in text
+                        and "tocca_core = touches_core(files)" in text), (
                     f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
+                )
+                # Il gate stantio vale ANCHE per chi ha il gate core: con la label finale
+                # presente, un push che non tocca file core usciva verde — un check «gate
+                # finale» su un head mai revisionato (bloccante di Fable 5 sulla #292).
+                assert 'esito_gate == "stantio"' in text and "sys.exit(1)" in text, (
+                    f"{name}: un push dopo l'armamento deve risultare STANTIO (rosso), non "
+                    f"verde su un head che nessun reviewer forte ha letto"
                 )
                 # Ancorato alla DICHIARAZIONE nell'`env:` del job, non alla presenza della
                 # stringa nel file: `LABELS_PRESENTI` compare comunque nello script che la
                 # legge, quindi un `in text` resterebbe verde anche cancellando l'env — e il
                 # gate non si armerebbe più. (Verificato per sabotaggio: la prima stesura di
                 # questa riga NON si accorgeva della rimozione.)
+                # `toJSON` e non `join(..., ',')`: una label che contiene una virgola
+                # spezzerebbe l'elenco su cui si decide se spendere — e una label chiamata
+                # `x,final-fable-review` armerebbe il gate (rilievo di Fugu Ultra sulla #292).
                 assert re.search(
-                    r"^      LABELS_PRESENTI: \$\{\{ join\(github\.event\.pull_request"
-                    r"\.labels\.\*\.name, ','\) \}\}$", text, re.M), (
+                    r"^      LABELS_PRESENTI: \$\{\{ toJSON\(github\.event\.pull_request"
+                    r"\.labels\.\*\.name\) \}\}$", text, re.M), (
                     f"{name}: il gate non può verificare QUALE label è presente senza "
                     f"riceverle dall'env del job"
                 )
