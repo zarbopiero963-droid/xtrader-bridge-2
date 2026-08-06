@@ -516,8 +516,8 @@ jobs:
               return False
 
           def gate_finale_armato(event_action, etichette, label_finale, label_evento="") -> bool:
-              """Il gate finale è ARMATO solo se l'evento è `labeled`, la label **di quel
-              evento** è quella finale, e la finale risulta fra le label della PR.
+              """Il gate finale è ARMATO se la label finale è stata appena aggiunta, oppure
+              (sugli eventi senza label) se risulta fra quelle della PR.
 
               Prima bastava `event_action == "labeled"`: la condizione YAML del job filtra
               già le altre label (`github.event.label.name == 'final-fable-review'`), quindi
@@ -526,40 +526,42 @@ jobs:
               esempio per reagire a `manual-review-required`) e il controllo sui file core
               viene scavalcato senza che nulla lo fermi.
 
-              E non basta guardare l'ELENCO delle label (secondo rilievo di GPT-5.5 sulla
-              #292): su una PR che ha già `final-fable-review`, aggiungerne una qualsiasi
-              lascerebbe lo stato «armato» e farebbe saltare di nuovo il gate core.
+              Su `labeled` decide dunque la label DELL'EVENTO, e solo quella: pretendere
+              ANCHE la presenza nell'elenco non impedirebbe nessuna spesa illegittima
+              (l'evento ha già detto quale label è arrivata) e potrebbe solo far saltare un
+              gate finale con un payload stantio — un verde senza review, difetto #274.
+              Sugli eventi di apertura non esiste label, quindi decide l'elenco: è ciò che
+              copre la PR **aperta** con la label già applicata, che riceve `opened` e non
+              `labeled` — il buco che Fugu aveva trovato su se stesso nella #292.
+
+              `synchronize` è l'eccezione e resta NON armato: un push non è un armamento, e
+              trattarlo come tale farebbe scavalcare il gate sui file core a ogni commit
+              finché la label resta sulla PR — cioè spendere su ogni push, l'esatto contrario
+              di ciò che la #292 sta correggendo. Lì decidono i file core, come sempre.
+              (Il gemello Fugu, che non ha gate core, dichiara invece il gate STANTIO.)
               """
-              return (event_action == "labeled"
-                      and label_evento == label_finale
-                      and label_finale in etichette)
+              if event_action == "labeled":
+                  return label_evento == label_finale
+              if event_action == "synchronize":
+                  return False
+              return label_finale in etichette
 
           FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fable-review")
           etichette_pr = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
           ARMATO = gate_finale_armato(EVENT_ACTION, etichette_pr, FINAL_LABEL,
                                       os.environ.get("LABEL_EVENTO", ""))
 
-          # Evento `labeled` che NON arma il gate. Due casi ben diversi, e vanno detti a
-          # voce diversa (rilievo GPT-5.5 sulla #292): un gate finale che salta in silenzio
-          # è indistinguibile da uno che ha approvato (difetto della #274), ma gridare sul
-          # caso ordinario è rumore che poi nessuno legge.
+          # Evento `labeled` che non arma il gate: è stata aggiunta un'altra label (tipicamente
+          # `manual-review-required`). Caso ordinario, quindi `notice` e non `warning` — ma va
+          # comunque detto, perché un gate che salta in silenzio è indistinguibile da uno che
+          # ha approvato (difetto della #274). Il caso «label finale con elenco stantio» non
+          # esiste più: su `labeled` decide la label dell'evento, non l'elenco.
           if EVENT_ACTION == "labeled" and not ARMATO:
-              etichetta = os.environ.get("LABEL_EVENTO", "")
-              if etichetta == FINAL_LABEL:
-                  # Non dovrebbe mai capitare: la label dell'evento È la finale, ma fra
-                  # quelle della PR non c'è. Payload incoerente, o la PR è stata modificata
-                  # nel frattempo: il gate finale sta per essere trattato come un push.
-                  print(
-                      f"::warning::{REVIEW_ID}: evento `labeled` per «{FINAL_LABEL}» ma quella "
-                      "label non risulta fra quelle della PR: il gate finale NON è armato, "
-                      "si decide sui file core."
-                  )
-              else:
-                  # Caso ordinario: è stata aggiunta un'altra label (es. manual-review-required).
-                  print(
-                      f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta or '(vuota)'}», che "
-                      f"non è quella finale («{FINAL_LABEL}»): si decide sui file core."
-                  )
+              etichetta = os.environ.get("LABEL_EVENTO", "") or "(vuota)"
+              print(
+                  f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta}», che non è quella "
+                  f"finale («{FINAL_LABEL}»): si decide sui file core."
+              )
 
           # Fail-safe: se la Compare API ha troncato la lista (>= 300 file) non
           # possiamo escludere che un file core sia oltre il limite → NON saltare

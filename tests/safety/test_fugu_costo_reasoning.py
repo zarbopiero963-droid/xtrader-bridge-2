@@ -376,10 +376,16 @@ def _funzione_da_fable(nome):
     # se spendere su un push.
     ("labeled", ["manual-review-required"], False),
     ("labeled", [], False),
-    # E nessun altro evento arma il gate: su `synchronize`/`opened` la spesa dipende dai
-    # file core, non dalla label già presente da un giro precedente.
+    # `synchronize` NON arma mai: un push non è un armamento, e trattarlo come tale
+    # scavalcherebbe il gate sui file core a ogni commit finché la label resta sulla PR —
+    # cioè spendere su ogni push, l'opposto di ciò che la #292 corregge.
     ("synchronize", ["final-fable-review"], False),
-    ("opened", ["final-fable-review"], False),
+    # `opened`/`reopened` invece SÌ, se la label c'è già: GitHub non emette `labeled` per una
+    # PR aperta con la label applicata, e senza questo la review finale non partirebbe mai —
+    # il check resterebbe verde senza che nessuno abbia guardato (difetto #274).
+    ("opened", ["final-fable-review"], True),
+    ("reopened", ["final-fable-review"], True),
+    ("opened", ["manual-review-required"], False),
 ])
 def test_fable_arma_il_gate_solo_con_la_SUA_label(evento, etichette, atteso):
     """Stesso rilievo di `test_una_label_QUALSIASI_non_fa_spendere`, applicato al sibling.
@@ -479,26 +485,60 @@ def test_la_label_dell_evento_conta_SOLO_sugli_eventi_labeled(evento):
     assert decisione_gate(evento, ["final-fugu-review"], "final-fugu-review", "") == "revisiona"
 
 
-def test_fable_distingue_la_label_NORMALE_dal_payload_ANOMALO():
-    """Rilievo GPT-5.5 (secondo giro): declassare a `notice` l'evento `labeled` non armato
-    riduce il rumore in CI — è il caso normale, si aggiunge `manual-review-required` — ma
-    perde di vista il caso che non dovrebbe mai capitare: la label dell'evento **è** quella
-    finale, eppure fra le label della PR non c'è. Lì il payload è incoerente e il gate finale
-    sta per essere trattato come un push qualsiasi: va detto ad alta voce.
+def test_fable_dice_ad_alta_voce_quando_una_label_non_arma():
+    """Un gate che salta in silenzio è indistinguibile da uno che ha approvato (difetto
+    #274): l'evento `labeled` non armato deve lasciare traccia.
 
-    Il test guarda il sorgente perché il livello del messaggio è una direttiva
-    `::notice::`/`::warning::` di Actions, non un valore di ritorno: non c'è funzione pura da
-    eseguire. Ancorato ai due rami, non a un conteggio.
+    Ancorato al ramo via **AST**, non a una finestra di caratteri: la prima stesura leggeva
+    `src[inizio:inizio + 1600]` e GPT-5.5 ha giustamente osservato che un refactor o qualche
+    riga di commento in più l'avrebbe fatta fallire senza nessuna regressione reale.
     """
-    src = extract_heredocs(_fable())[0]
+    import ast
 
-    inizio = src.index("ARMATO = gate_finale_armato(")
-    blocco = src[inizio:inizio + 1600]
+    albero = ast.parse(extract_heredocs(_fable())[0])
+    rami = [n for n in ast.walk(albero)
+            if isinstance(n, ast.If)
+            and "not ARMATO" in ast.unparse(n.test)
+            and "labeled" in ast.unparse(n.test)]
 
-    assert "::notice::" in blocco, (
-        "l'aggiunta di una label diversa è ordinaria: deve restare un notice, non gridare"
+    assert len(rami) == 1, (
+        f"atteso un solo ramo «evento labeled ma gate non armato», trovati {len(rami)}"
     )
-    assert "::warning::" in blocco, (
-        "la label dell'evento È quella finale ma non risulta fra quelle della PR: payload "
-        "incoerente o condizione YAML allargata → serve un warning, non un notice"
+    corpo = ast.unparse(rami[0])
+    assert "::notice::" in corpo, (
+        "l'aggiunta di una label diversa non deve passare in silenzio"
     )
+    assert "::warning::" not in corpo and "::error::" not in corpo, (
+        "è il caso ORDINARIO (si aggiunge manual-review-required): gridare qui è rumore "
+        "che poi nessuno legge"
+    )
+
+
+# ── Il conjunct di troppo, trovato da GPT-5.5 al terzo giro ────────────────────────────────
+#
+# Pretendere ANCHE `label_finale in etichette` su un evento `labeled` è belt-and-braces nella
+# direzione sbagliata: l'evento ha già detto QUALE label è stata aggiunta, quindi il controllo
+# in più non può impedire una spesa illegittima — può solo produrre un falso negativo, cioè
+# SALTARE un gate finale se l'elenco delle label del payload è stantio. E un gate finale che
+# salta in silenzio è un verde indistinguibile da un'approvazione: il difetto della #274.
+#
+# Regola: su `labeled` decide la label DELL'EVENTO; su tutti gli altri eventi decide lo STATO
+# (l'elenco), che è ciò che copre la PR aperta con la label già applicata.
+
+@pytest.mark.parametrize("etichette", [[], ["manual-review-required"]])
+def test_fugu_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette):
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate(
+        "labeled", etichette, "final-fugu-review", "final-fugu-review") == "revisiona", (
+        "l'evento dice che la label finale è stata appena aggiunta: se l'elenco del payload "
+        "è stantio il gate DEVE comunque eseguire, non risultare verde senza review"
+    )
+
+
+@pytest.mark.parametrize("etichette", [[], ["manual-review-required"]])
+def test_fable_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette):
+    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
+
+    assert gate_finale_armato(
+        "labeled", etichette, "final-fable-review", "final-fable-review") is True

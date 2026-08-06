@@ -531,21 +531,23 @@ jobs:
               lì la review precedente si riferisce a un altro commit, quindi il gate è
               STANTIO e va dichiarato invece di lasciare un verde bugiardo.
 
-              `labeled` NON è una scorciatoia: anche lì serve che il gate sia armato, e serve
-              che la label DELL'EVENTO sia proprio quella finale. La condizione YAML del job
-              filtra già le altre label, ma una decisione di SPESA non deve dipendere da un
-              altro strato — se quella condizione cambiasse, una label qualsiasi farebbe
-              partire il modello. E guardare solo l'ELENCO non basta (secondo rilievo di
-              GPT-5.5 sulla #292): se la label finale è già sulla PR, aggiungerne un'altra
-              qualsiasi lascerebbe lo stato «armato» e farebbe rieseguire la review su un
-              head già revisionato.
+              Su un evento `labeled` decide la label DELL'EVENTO, e SOLO quella. Non l'evento
+              da solo: la condizione YAML del job filtra già le altre label, ma una decisione
+              di SPESA non deve dipendere da un altro strato — se quella condizione cambiasse,
+              una label qualsiasi farebbe partire il modello. E non l'elenco: se la finale è
+              già sulla PR, aggiungerne un'altra lascerebbe lo stato «armato» e farebbe
+              rieseguire la review su un head già revisionato.
 
-              `label_evento` conta solo su `labeled`: su `opened`/`reopened` non esiste, e
-              pretenderla richiuderebbe il buco descritto sopra.
+              Pretendere ENTRAMBI (label dell'evento **e** presenza nell'elenco) sembrava
+              prudente ed era invece un difetto: il controllo in più non può impedire una
+              spesa illegittima — l'evento ha già detto quale label è stata aggiunta — e può
+              solo far SALTARE un gate finale se l'elenco del payload è stantio. Cioè un
+              verde senza review, il difetto della #274. Terzo rilievo di GPT-5.5 sulla #292.
               """
-              if event_action == "labeled" and label_evento != label_finale:
-                  return "salta"
-              armato = label_finale in etichette
+              if event_action == "labeled":
+                  armato = label_evento == label_finale
+              else:
+                  armato = label_finale in etichette
               if not armato:
                   return "salta"
               return "stantio" if event_action == "synchronize" else "revisiona"
