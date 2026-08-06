@@ -14,7 +14,7 @@
 
 ## 1. Obiettivo
 
-Tradurre una **frase-mercato del provider** nel **Mercato + Selezione XTrader** canonici,
+Tradurre una **frase-mercato del provider** nel **Mercato + Selezione Betfair** canonici,
 scelti dal **Catalogo Betfair** (gli stessi menù a tendina `Mercato → Selezione` già usati
 nel Parser Personalizzato, `parser_builder.market_options()/selection_options()`).
 

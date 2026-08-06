@@ -533,7 +533,7 @@ elenchi condividono la stessa implementazione, quindi restano allineati per cost
 
 I **profili di mappatura mercati** (`market_mapping_store`, config
 `market_mappings`) leggono il mercato **da una posizione precisa** del messaggio e lo
-traducono nel **Mercato + Selezione XTrader** canonici (gli stessi del Catalogo del builder):
+traducono nel **Mercato + Selezione Betfair** canonici (gli stessi del Catalogo del builder):
 
 - ogni **voce** è `(Inizia dopo, Finisce prima, Testo mercato) → (MarketType, MarketName,
   SelectionName)`. I delimitatori **Inizia dopo / Finisce prima** funzionano **come nel

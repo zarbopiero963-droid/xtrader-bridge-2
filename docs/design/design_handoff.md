@@ -1569,7 +1569,7 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
 
   Sotto la colonna: tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo) · Lingua**. Legge il mercato da una
-  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader. La tendina
+  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo Betfair. La tendina
   **«Lingua»** (epica multilingua **#3 slice 5c**, speculare alla colonna Lingua del Dizionario
   nomi) tagga la voce con la **lingua della fonte** (`IT`/`EN`/`ES`) oppure **«(tutte le lingue)»**
   = agnostica (default): quando la lingua-fonte è impostata, le voci della lingua ESATTA hanno
@@ -2242,7 +2242,7 @@ Il design può cambiare **aspetto e disposizione**, ma NON deve indebolire quest
 8. **Errori parlanti** sul perché non parte / perché non scrive.
 9. **Nessuna automazione "di puntata diretta"** verso Betfair/XTrader dalla UI: l'app scrive
    solo il CSV.
-   <!-- #285: questo «Betfair/XTrader» NON è la colonna rinominata — qui significa «verso
+   <!-- #285-ok: questo «Betfair/XTrader» NON è la colonna rinominata — qui significa «verso
         Betfair O XTrader», cioè i due sistemi esterni, ed è un'invariante di sicurezza.
         Va lasciato così: una rinomina generica lo mutilerebbe, togliendo XTrader
         dall'elenco di ciò verso cui la UI non automatizza nulla. -->

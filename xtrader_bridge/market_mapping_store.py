@@ -1,4 +1,4 @@
-"""Dizionario di mappatura mercati: frase del provider → Mercato/Selezione XTrader.
+"""Dizionario di mappatura mercati: frase del provider → Mercato/Selezione Betfair.
 
 Alcuni provider (canali Telegram) scrivono il mercato **a parole** ("0,5 HT") dentro il
 messaggio. Questo modulo tiene **profili** di regole che leggono il mercato **da una

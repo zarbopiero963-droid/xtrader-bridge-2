@@ -183,6 +183,64 @@ def test_gli_xtrader_veri_non_sono_stati_rinominati(resta):
     assert trovato, f"«{resta}» è sparito: parla del software XTrader e NON va rinominato"
 
 
+#: La CLASSE, non le due stringhe. Ogni modo di dire «il catalogo / il mercato / la selezione
+#: sono di XTrader» — che è falso: sono di Betfair.
+FAMIGLIA_DA_RINOMINARE = (
+    "Catalogo XTrader", "catalogo XTrader",
+    "Betfair/XTrader", "Betfair / XTrader",
+    "Selezione XTrader", "Mercato XTrader", "Mercato/Selezione XTrader",
+)
+
+#: Documenti STORICI: istantanee e piani già eseguiti. Aggiornarli cancellerebbe il loro
+#: unico scopo, che è dire com'era.
+STORICI = ("docs/design/prototype/", "docs/audit/archive/", "piano_chiusura_")
+
+#: Valvola per le occorrenze LEGITTIME, sul modello del `# b17-ok:` della #294: «Betfair/XTrader»
+#: a volte significa davvero «Betfair *o* XTrader», i due sistemi esterni. Chi la usa deve
+#: scrivere accanto il motivo — l'esenzione vale per riga, non per file.
+MARCATORE_OK = "#285-ok:"
+
+
+def test_nessuna_variante_della_famiglia_e_rimasta_viva():
+    """**Questa guardia esiste perché il grep di questa PR aveva mancato mezza classe.**
+
+    La prima stesura aveva cercato le due stringhe esatte dell'issue — «Catalogo XTrader» e
+    «Betfair/XTrader» — ereditando il pattern dal piano invece di cercare la classe. Fuori
+    restavano `Mercato + Selezione XTrader`, `Mercato/Selezione XTrader` e il `catalogo
+    XTrader` minuscolo: **10 occorrenze in 6 file**, fra cui un intero modulo mai toccato
+    (`parser_builder.py`) e un messaggio d'errore che l'utente legge davvero —
+    «Mercato non nel catalogo XTrader».
+
+    L'ha trovato Claude Fable 5 in review. Questo test fa in modo che la prossima volta lo
+    trovi il grep, che è il posto giusto: cerca il **pattern**, non i due siti noti.
+    """
+    radice = pathlib.Path(i18n.__file__).parent.parent
+    rimasti = []
+    for cartella in ("xtrader_bridge", "docs"):
+        for percorso in (radice / cartella).rglob("*"):
+            if not percorso.is_file() or percorso.suffix not in (".py", ".md"):
+                continue
+            relativo = percorso.relative_to(radice).as_posix()
+            if any(marcatore in relativo for marcatore in STORICI):
+                continue
+            righe = percorso.read_text(encoding="utf-8", errors="ignore").splitlines()
+            for i, riga in enumerate(righe):
+                for variante in FAMIGLIA_DA_RINOMINARE:
+                    if variante not in riga:
+                        continue
+                    # Valvola esplicita, come il `# b17-ok:` della #294: un'occorrenza è
+                    # esente solo se ACCANTO c'è la motivazione scritta. Un'esenzione per
+                    # file nasconderebbe le altre occorrenze dello stesso file.
+                    if any(MARCATORE_OK in r for r in righe[i:i + 8]):
+                        continue
+                    rimasti.append(f"{relativo}:{i + 1}: «{variante}»")
+
+    assert not rimasti, (
+        "varianti della famiglia rimaste vive (il catalogo è di Betfair, non di XTrader):\n  "
+        + "\n  ".join(sorted(set(rimasti)))
+    )
+
+
 def test_l_invariante_di_sicurezza_del_handoff_nomina_ancora_entrambi_i_sistemi():
     """La stessa trappola, ma nelle DOCS — e non è teorica: **è successa in questa PR**.
 

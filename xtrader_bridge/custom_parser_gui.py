@@ -799,7 +799,7 @@ class CustomParserPanel(ctk.CTkFrame):
             wraplength=680, justify="left").pack(anchor="w", padx=14, pady=(0, 2))
 
         # Mappatura mercati a frase: profili (checkbox multi-selezione) che traducono una
-        # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
+        # frase-mercato del messaggio nel Mercato/Selezione Betfair (market_mapping_store).
         mm = ctk.CTkFrame(trad, fg_color="transparent")
         mm.pack(fill="x", padx=6, pady=(0, 6))
         ctk.CTkLabel(mm, text=i18n.tr("Mercati:")).pack(side="left", padx=6)
@@ -1596,7 +1596,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._result.configure(text=gui_utils.with_running_notice(
             i18n.tr("💾 Salvato in {path}").format(path=path), self._is_running))
 
-    # ── catalogo XTrader (B2) ───────────────────────────────────────────────
+    # ── catalogo Betfair (B2) ───────────────────────────────────────────────
     def _on_market_change(self, _value=None):
         """Cambiato il mercato → rinfresca la tendina delle selezioni (solo fisse)."""
         self._refresh_selection_menu()
