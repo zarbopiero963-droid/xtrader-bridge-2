@@ -85,7 +85,7 @@ Senza `ANTHROPIC_API_KEY` il sito funziona comunque, col chatbot in modalità de
 
 ## Struttura
 
-```
+```text
 main.py                  FastAPI: pagine statiche + POST /api/chat + /api/health
 knowledge/bridge_kb.md   knowledge base del chatbot (dalle docs reali del bridge)
 static/                  index.html · demo.html · documentazione.html · faq.html ·

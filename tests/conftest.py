@@ -214,3 +214,124 @@ def chiave_pubblica_di_test(monkeypatch):
     monkeypatch.setattr(_lic, "LICENSE_PUBLIC_KEY_HEX", pub)
     monkeypatch.setattr(_rev, "LICENSE_PUBLIC_KEY_HEX", pub)   # copia by-value: va patchata a parte
     return pub
+
+
+# ── i18n del sito: UN solo lettore, non tre ────────────────────────────────────────────────────
+#
+# `website/static/i18n.js` è un file JavaScript, e i test che lo controllano devono leggerlo da
+# Python. Fin qui ogni test si era scritto il suo parser a regex — tre copie, tutte ancorate a
+# «quattro spazi di indentazione», tutte destinate a rompersi insieme il giorno che qualcuno
+# riformatta il file (rilievo GPT-5.5 sulla #289: «regex molto dipendenti da indentazione: se il
+# file JS viene riformattato, il test può fallire pur con traduzioni valide»).
+#
+# Regola 3 di CLAUDE.md: se la stessa cosa va scritta in due posti, il posto giusto è **zero**.
+# Qui sta la fonte unica, e non guarda l'indentazione: trova l'inizio di ogni blocco di lingua e
+# conta le graffe. Un blocco riformattato su una riga sola verrebbe letto lo stesso.
+#
+# Il punto delicato è che **dentro le stringhe e dentro i commenti c'è di tutto**: `{` compare nel
+# testo tradotto, e una frase come «scrivi `es: {` nel file» o un commento di esempio farebbero
+# partire un blocco che non esiste (rilievo Claude Fable 5 sulla #289). Perciò si lavora su una
+# **maschera**: una copia del sorgente in cui stringhe e commenti sono sostituiti da spazi, stessa
+# lunghezza quindi stessi indici. Le posizioni si cercano sulla maschera, il testo si legge
+# dall'originale.
+def _maschera_codice(testo: str) -> str:
+    """Il sorgente con stringhe e commenti resi spazi: stessa lunghezza, solo codice visibile.
+
+    **Limite dichiarato** (rilievo Claude Fable 5 sulla #289): non riconosce i *regex literal*
+    JS. Un pattern come `/a\\/\\/b/` contiene `//`, e da lì in poi la riga verrebbe scambiata per
+    un commento. Non è un problema per `i18n.js`, che è un unico oggetto di stringhe doppie
+    (zero backtick, zero regex — verificato), ma questo lettore è «robusto a una
+    riformattazione», **non** un parser JavaScript: se un domani gli si desse un file con
+    espressioni regolari, il posto da sistemare è questo.
+    """
+    fuori, i, n = [], 0, len(testo)
+    while i < n:
+        c = testo[i]
+        if c in "\"'`":                                   # stringa (anche template literal)
+            apice = c
+            j = i + 1
+            while j < n:
+                if testo[j] == "\\":
+                    j += 2
+                    continue
+                if testo[j] == apice:
+                    j += 1
+                    break
+                j += 1
+            fuori.append(" " * (j - i))
+            i = j
+        elif c == "/" and i + 1 < n and testo[i + 1] == "/":   # commento di riga
+            j = testo.find("\n", i)
+            j = n if j == -1 else j
+            fuori.append(" " * (j - i))
+            i = j
+        elif c == "/" and i + 1 < n and testo[i + 1] == "*":   # commento a blocco
+            j = testo.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            fuori.append(" " * (j - i))
+            i = j
+        else:
+            fuori.append(c)
+            i += 1
+    return "".join(fuori)
+
+
+def _fine_blocco(maschera: str, inizio: int) -> int:
+    """L'indice della graffa che chiude quella aperta in `inizio`, contata sulla maschera."""
+    profondita = 0
+    for i in range(inizio, len(maschera)):
+        if maschera[i] == "{":
+            profondita += 1
+        elif maschera[i] == "}":
+            profondita -= 1
+            if profondita == 0:
+                return i
+    raise AssertionError("graffa non chiusa in i18n.js a partire dall'indice %d" % inizio)
+
+
+def _testo_js(grezzo: str) -> str:
+    """Il testo che l'utente vede, sciolte le sequenze di escape del sorgente.
+
+    `\\"` a schermo è `"`; senza questo, un test che cerca `class="num"` non lo troverebbe mai.
+    Le fa sciogliere a `json.loads`, che copre anche `\\uXXXX`, `\\t` e `\\/` — a mano se ne
+    dimenticano sempre un paio (rilievo GPT-5.5 sulla #289: gestivo solo `\\"`, `\\n`, `\\\\`).
+    Restano fuori gli escape che JSON non conosce ma JS sì, tipo `\\'`: in quel caso si torna
+    alla sostituzione manuale invece di far esplodere il test.
+    """
+    import json as _json
+
+    try:
+        return _json.loads('"%s"' % grezzo)
+    except ValueError:
+        return (grezzo.replace('\\"', '"').replace("\\'", "'")
+                .replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\"))
+
+
+def dizionari_i18n_sito(percorso=None) -> dict:
+    """`{lingua: {chiave: valore}}` letto da `website/static/i18n.js`.
+
+    L'italiano **non** c'è ed è corretto: è il default scritto nel markup delle pagine, non una
+    voce del dizionario (vedi `apply()` in `i18n.js`, che per `it` ripristina `data-i18n-orig`).
+    """
+    import re as _re
+
+    if percorso is None:
+        percorso = os.path.join(_REPO_ROOT, "website", "static", "i18n.js")
+    with open(percorso, encoding="utf-8") as f:
+        testo = f.read()
+
+    maschera = _maschera_codice(testo)
+    fuori = {}
+    # le POSIZIONI si cercano sulla maschera (niente stringhe, niente commenti); il TESTO si
+    # legge dall'originale, agli stessi indici.
+    for m in _re.finditer(r"\b([a-z]{2})\s*:\s*\{", maschera):
+        apertura = maschera.index("{", m.start())
+        blocco = testo[apertura:_fine_blocco(maschera, apertura) + 1]
+        coppie = _re.findall(r'"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"', blocco)
+        if coppie:                       # scarta i `xx: {` che non sono dizionari di lingua
+            # gli escape si sciolgono anche nelle CHIAVI: una chiave scritta `"a.b"` è la
+            # stessa cosa di `"a.b"` per il browser, e se la lasciassi grezza non combacerebbe
+            # col `data-i18n` dell'HTML (rilievo Claude Fable 5 sulla #289).
+            fuori[m.group(1)] = {_testo_js(k): _testo_js(v) for k, v in coppie}
+    assert fuori, "nessun dizionario di lingua trovato in i18n.js"
+    return fuori

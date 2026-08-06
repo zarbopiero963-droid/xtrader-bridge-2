@@ -20,7 +20,7 @@ nel Parser Personalizzato, `parser_builder.market_options()/selection_options()`
 
 Esempio (richiesto dal proprietario):
 
-```
+```text
 frase provider:  "goal prima di 70"
 ⇒  Mercato:   Over/Under 2.5
    Selezione: Over 2.5
@@ -252,7 +252,7 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
 Nell'area **🎯 Mercati** (oggi placeholder): selettore profilo (nuovo/rinomina/elimina,
 come ⚽ Calcio) + tabella righe:
 
-```
+```text
 Frase provider           | Mercato (catalogo)   | Selezione (catalogo)  | 🗑
 [ goal prima di 70     ] | [ Over/Under 2.5  ▾] | [ Over 2.5         ▾] | ✕
 ```

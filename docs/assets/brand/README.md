@@ -15,7 +15,7 @@ barra ricevente). Stessa grafica per **icona dell'app** e **logo**, come richies
 
 ## File
 
-```
+```text
 svg/
   betrelay-icon.svg          icona completa (arte piena) — sorgente principale
   betrelay-icon-32.svg       arte semplificata per 32 px (una sola onda)

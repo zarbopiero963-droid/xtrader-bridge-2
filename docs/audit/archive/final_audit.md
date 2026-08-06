@@ -134,7 +134,7 @@ manuali su Windows/XTrader e l'attivazione esplicita della modalità reale.
 ### Test / coverage
 - Vedi sotto — 628 passed, 3 skipped (offline). I test live/manuali sono marcati `manual`.
 
-```
+```text
 unit         553 test
 integration   21 test
 safety        22 test

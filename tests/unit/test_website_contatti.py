@@ -8,6 +8,8 @@ si apre normalmente e il messaggio "parte". È un guasto silenzioso, quindi va t
 import re
 from pathlib import Path
 
+from tests.conftest import dizionari_i18n_sito
+
 _ROOT = Path(__file__).resolve().parents[2]
 _PAGINA = _ROOT / "website" / "static" / "contatti.html"
 
@@ -20,22 +22,15 @@ def _html() -> str:
 
 
 def _dizionari() -> dict:
-    """I dizionari di traduzione di `i18n.js`, uno per lingua, come testo.
+    """I dizionari di traduzione di `i18n.js`, uno per lingua.
 
-    Si individuano dalla struttura (`var T = { en: { … }, es: { … } }`) invece di contare le
-    occorrenze di una chiave: contarle significherebbe fissare il NUMERO delle lingue, e la
-    policy del sito ne prevede altre (francese, rumeno…). Il giorno che se ne aggiunge una,
-    un test che si aspetta «esattamente 2» diventa rosso senza che nulla sia rotto — e la
-    reazione naturale a un test così è alzare il numero, cioè disattivarlo.
+    Il lettore sta in `tests/conftest.py`: era scritto tre volte, in tre test, tutte e tre
+    ancorate all'indentazione del file JS (Regola 3 — fonte unica). Si individuano le lingue
+    dalla struttura invece di contarle: la policy del sito ne prevede altre (francese,
+    rumeno…), e un test che si aspetta «esattamente 2» diventerebbe rosso senza che nulla sia
+    rotto — e la reazione naturale a un test così è alzare il numero, cioè disattivarlo.
     """
-    testo = _I18N.read_text(encoding="utf-8")
-    # ogni dizionario va da `    xx: {` alla prima riga `    }` o `    },` allo stesso livello:
-    # l'ULTIMO non ha la virgola (chiude l'oggetto), e cercare solo `},` ne perderebbe uno.
-    fuori = {}
-    for match in re.finditer(r"^    ([a-z]{2}): \{$(.*?)^    \},?$", testo, re.M | re.S):
-        fuori[match.group(1)] = match.group(2)
-    assert fuori, "nessun dizionario di lingua trovato in i18n.js"
-    return fuori
+    return dizionari_i18n_sito(_I18N)
 
 
 def test_nessun_indirizzo_placeholder():
@@ -79,7 +74,7 @@ def test_c_e_un_ripiego_se_il_client_email_non_si_apre():
 
     # e deve esistere in OGNI dizionario di lingua, non solo in italiano
     for lingua, dizionario in _dizionari().items():
-        assert '"contact.fallback"' in dizionario, \
+        assert "contact.fallback" in dizionario, \
             "il ripiego non è tradotto in «%s» (l'italiano è il default nel markup)" % lingua
 
 
