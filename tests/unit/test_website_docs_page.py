@@ -1,19 +1,24 @@
-"""Pagina /documentazione del sito + manuale XTrader ospitato (W9.6, issue #229).
+"""Pagina /documentazione del sito (W9.6, issue #229).
 
 Due gruppi di verifiche, deliberatamente separati:
 
 * **Verifiche su file** — girano SEMPRE, in qualunque ambiente, perché leggono solo
-  i sorgenti del sito: esistenza e integrità del PDF, copertura delle traduzioni
+  i sorgenti del sito: assenza del manuale di terzi, copertura delle traduzioni
   EN/ES, presenza del disclaimer di non-affiliazione su ogni pagina, coerenza fra
   la tabella delle colonne CSV mostrata sul sito e `csv_writer.CSV_HEADER`.
 * **Verifiche HTTP** — richiedono FastAPI, che sta in `website/requirements.txt` e
   NON fra le dipendenze del bridge: se manca vengono saltate con motivo esplicito
   (`importorskip`), mentre il gruppo sopra continua a coprire il contenuto.
 
-Perché contano: il PDF è materiale di terzi ospitato su autorizzazione, quindi il
-disclaimer e l'attribuzione non sono decorazione — se sparissero nessuno se ne
-accorgerebbe fino a una segnalazione. E una pagina nuova con chiavi `data-i18n`
-senza traduzione resterebbe muta in EN/ES senza errori a schermo.
+Perché contano: fino al 6 agosto 2026 il sito **ospitava** il manuale di XTrader
+(opera di TradingSportivo, su autorizzazione). Il proprietario ha deciso di non
+ospitarlo più, quindi i test qui sotto sono girati: pretendono che quel PDF **non**
+torni e che nessuna pagina lo linki — un file ricopiato o un `<a href>` rimesso per
+distrazione darebbero un 404 in faccia all'utente, o peggio rimetterebbero online
+l'opera di qualcun altro. L'attribuzione a TradingSportivo invece resta, perché il
+manuale è comunque opera loro e la pagina continua a nominarlo. E una pagina nuova
+con chiavi `data-i18n` senza traduzione resterebbe muta in EN/ES senza errori a
+schermo.
 """
 
 import re
@@ -23,7 +28,6 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _STATIC = _REPO / "website" / "static"
-_PDF = _STATIC / "docs" / "guida-xtrader.pdf"
 _I18N = _STATIC / "i18n.js"
 _DOCS_PAGE = _STATIC / "documentazione.html"
 
@@ -46,27 +50,46 @@ def _i18n_keys(lang: str) -> set:
     return set(re.findall(r'"([A-Za-z0-9._]+)":', src[start:end]))
 
 
-# ─────────────────────────── PDF ospitato ───────────────────────────
+# ───────────────── manuale XTrader: NON ospitato (dal 6 agosto 2026) ─────────────────
 
-def test_pdf_manuale_presente_e_valido():
-    """Il PDF deve esserci ed essere un vero PDF: un file troncato dal commit o
-    sostituito da un placeholder darebbe un link rotto sul sito."""
-    assert _PDF.is_file(), "manuale XTrader mancante in website/static/docs/"
-    head = _PDF.read_bytes()[:5]
-    assert head == b"%PDF-", "il file non ha la firma PDF: %r" % head
-    # Il manuale reale pesa ~3,8 MB: sotto 1 MB è quasi certamente un troncamento.
-    assert _PDF.stat().st_size > 1_000_000, "PDF sospettosamente piccolo"
+def test_il_manuale_xtrader_non_e_piu_ospitato_ne_linkato():
+    """Il PDF del manuale XTrader è stato **rimosso dal sito** (decisione del proprietario,
+    6 agosto 2026): non lo ospitiamo più e nessuna pagina lo linka.
+
+    Era materiale di terzi (TradingSportivo) servito da noi: 358 pagine, 3,8 MB. Ospitare
+    l'opera di qualcun altro è una responsabilità che si sceglie di avere, e il proprietario
+    ha scelto di non averla più. Questo test impedisce che rientri per distrazione — un
+    `<a href>` rimesso in una pagina, o il file ricopiato nella cartella statica.
+
+    Resta legittimo **nominare** il manuale e dire che sta sul sito del produttore: è quello
+    che la pagina fa ora, senza link e senza copia.
+    """
+    pdf = _STATIC / "docs" / "guida-xtrader.pdf"
+    assert not pdf.exists(), (
+        "il manuale XTrader è tornato in website/static/docs/: era stato rimosso dal sito "
+        "di proposito. È opera di TradingSportivo, non nostra.")
+
+    for pagina in sorted(_STATIC.glob("*.html")):
+        testo = pagina.read_text(encoding="utf-8")
+        assert "guida-xtrader.pdf" not in testo, (
+            "%s linka di nuovo il manuale XTrader, che non è più ospitato: "
+            "il link darebbe 404" % pagina.name)
+
+    # e nemmeno i dizionari devono contenere una CTA verso un file che non c'è
+    testo_i18n = _I18N.read_text(encoding="utf-8")
+    assert "guida-xtrader.pdf" not in testo_i18n, (
+        "i18n.js nomina ancora il PDF rimosso")
 
 
-def test_pagina_documentazione_cita_pdf_versione_e_diritti():
-    """Ospitiamo materiale di terzi: link, data della versione e attribuzione devono
-    stare TUTTI sulla pagina. La data serve perché il manuale online viene aggiornato
-    e la nostra copia no."""
+def test_pagina_documentazione_rimanda_al_manuale_del_produttore():
+    """Tolto il PDF, la pagina deve comunque dire **dove** sta il manuale.
+
+    Senza, un utente che cerca «come si usa XTrader» non ha più nessun rimando — e la
+    sezione resterebbe un titolo senza contenuto utile. La citazione dell'autore resta
+    perché il manuale è opera sua e va attribuito, anche se non lo ospitiamo più.
+    """
     html = _read("documentazione.html")
-    assert "/static/docs/guida-xtrader.pdf" in html
-    assert "docs.pdf.version" in html, "manca la riga con la data della versione ospitata"
-    assert "TradingSportivo" in html
-    assert "autorizzazione" in html.lower()
+    assert "TradingSportivo" in html, "persa l'attribuzione all'autore del manuale"
 
 
 # ─────────────────────────── disclaimer ───────────────────────────
@@ -152,7 +175,10 @@ def test_rotta_documentazione_serve_la_pagina():
     assert 'data-i18n="docs.h1"' in resp.text
 
 
-def test_pdf_scaricabile_dalla_rotta_statica():
+def test_il_pdf_del_manuale_non_e_piu_servito():
+    """La rotta statica non deve più consegnare il manuale: chi ha il vecchio link
+    riceve 404, che è il comportamento voluto e non un guasto."""
     resp = _client().get("/static/docs/guida-xtrader.pdf")
-    assert resp.status_code == 200
-    assert resp.content[:5] == b"%PDF-"
+    assert resp.status_code == 404, (
+        "il sito serve ancora il manuale XTrader su /static/docs/guida-xtrader.pdf "
+        "(status %s)" % resp.status_code)

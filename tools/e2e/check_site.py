@@ -185,9 +185,13 @@ def controlla_endpoint(pagina, base: str, es: Esito) -> None:
     r = pagina.request.get(urljoin(base, "/favicon.ico"), timeout=20000)
     es.add("/favicon.ico", r.status == 200, "HTTP %s" % r.status)
 
-    r = pagina.request.get(urljoin(base, "/static/docs/guida-xtrader.pdf"), timeout=60000)
-    ok = r.status == 200 and r.body()[:5] == b"%PDF-"
-    es.add("PDF guida XTrader servito", ok, "HTTP %s, %d byte" % (r.status, len(r.body())))
+    # Il manuale XTrader è stato RIMOSSO dal sito (decisione del proprietario, 6 agosto 2026):
+    # era opera di TradingSportivo servita da noi. Qui si verifica che non torni per sbaglio in
+    # PRODUZIONE — un file ricopiato nella cartella statica non lo vedrebbe nessun test locale,
+    # perché il deploy è un'altra macchina.
+    r = pagina.request.get(urljoin(base, "/static/docs/guida-xtrader.pdf"), timeout=20000)
+    es.add("manuale XTrader non più ospitato", r.status == 404,
+           "HTTP %s — atteso 404: quel PDF non deve più essere servito" % r.status)
 
     r = pagina.request.get(urljoin(base, "/rotta-che-non-esiste"), timeout=20000)
     es.add("rotta inesistente → 404", r.status == 404, "HTTP %s" % r.status)
