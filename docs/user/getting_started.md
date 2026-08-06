@@ -1,6 +1,6 @@
-# Primi passi — configurare XTrader Signal Bridge
+# Primi passi — configurare BetRelay
 
-> Guida **utente**. XTrader Signal Bridge legge i segnali dalle chat Telegram che scegli, li
+> Guida **utente**. BetRelay legge i segnali dalle chat Telegram che scegli, li
 > trasforma in una riga CSV nel formato di XTrader e la scrive nel file che XTrader legge. Di
 > default parte in **Simulazione** (non scrive scommesse reali): è il modo sicuro per provare tutto.
 

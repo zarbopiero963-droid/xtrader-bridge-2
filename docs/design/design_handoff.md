@@ -1,4 +1,4 @@
-# XTrader Signal Bridge — Design Handoff
+# BetRelay — Design Handoff
 
 > **Scopo di questo documento.** Dare a chi si occupa del **design** (UI/UX) **tutto**
 > ciò che serve per capire il prodotto e ridisegnarlo senza rompere la logica di
@@ -47,7 +47,7 @@
 
 ## 1. Il prodotto in una frase
 
-**XTrader Signal Bridge** è un'app desktop Windows che fa da **ponte** tra i messaggi di
+**BetRelay** è un'app desktop Windows che fa da **ponte** tra i messaggi di
 una chat/canale **Telegram** e il software **XTrader** (TradingSportivo): legge i segnali,
 li traduce nel formato CSV che XTrader monitora, e svuota il CSV dopo un timeout.
 
@@ -74,7 +74,7 @@ sicurezza parte di default in **simulazione** (`dry_run=true`): riconosce i segn
   scommesse reali indesiderate. Il design deve **rendere impossibile sbagliare per caso**.
 - **Piattaforma primaria:** **Windows desktop**. (Su Linux/macOS gira solo in dev/CI.)
 - **Lingua UI:** **italiano** (tutte le label sono in italiano, con emoji).
-- **Distribuzione:** EXE singolo generato via GitHub Actions (`XTrader-Signal-Bridge.exe`).
+- **Distribuzione:** EXE singolo generato via GitHub Actions (`BetRelay.exe`).
 - **DPI e schermi piccoli (#311 §3.5):** l'app si dichiara **DPI-aware** all'avvio
   (per-monitor, prima della root Tk): su Windows con scaling 125–150% il testo è nitido
   (niente bitmap-stretch) e le misure sono in pixel reali; fallimento fail-open (l'app
@@ -147,7 +147,7 @@ di configurazione avanzata.
 FINESTRA PRINCIPALE  (720×760, ridimensionabile in entrambi gli assi, min 720×600)
 │
 ├── Header
-│     ├─ Titolo "🤖  XTrader Signal Bridge"
+│     ├─ Titolo "🤖  BetRelay"
 │     ├─ Toggle tema chiaro/scuro (icona 🌙/☀️, #288 Delta 1)
 │     ├─ Indicatore stato (OFFLINE / ATTIVO / RICONNESSIONE…)
 │     └─ Indicatore righe attive (N/M)
@@ -322,13 +322,13 @@ invariato; cambia solo il contenuto delle risposte nel trascritto.
 
 ## 6. Finestra principale — dettaglio completo
 
-**Titolo:** `XTrader Signal Bridge v0.1.0` · **Geometria:** 720×760, **ridimensionabile in
+**Titolo:** `BetRelay v0.1.0` · **Geometria:** 720×760, **ridimensionabile in
 entrambi gli assi** (collaudo #12, 2026-08-01: prima la larghezza era fissa e sul PC del
 proprietario la finestra risultava piccola e bloccata), minimo **720×600**. Il layout è tarato
 sulla larghezza minima: oltre, i contenitori si allargano; sotto non si può scendere.
 
 ### 6.1 Header
-- Titolo grande: **"🤖  XTrader Signal Bridge"** (font ~20, bold), su frame scuro
+- Titolo grande: **"🤖  BetRelay"** (font ~20, bold), su frame scuro
   (`#1a1a2e`, angoli arrotondati). Testo titolo in ciano (`#4fc3f7`).
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.
@@ -521,7 +521,16 @@ sicurezza**: il **banner ROSSO «⚠️ MODALITÀ REALE ATTIVA…»** (`real_mod
 **banner AMBRA «🔬 MODALITÀ COLLAUDO XTRADER…»** (`bridge_mode.COLLAUDO_BANNER_TEXT`), resi in
 `app.py` via `i18n.tr(...)` sulla costante. Traduzioni (catalogo `i18n.py`): EN «⚠️ REAL MODE
 ACTIVE …» / «🔬 BETTING TOOLKIT TEST MODE …», ES «⚠️ MODO REAL ACTIVO …» / «🔬 MODO DE
-PRUEBA BETTING TOOLKIT …». **Nome del prodotto di destinazione (#286).** In IT si chiama **XTrader**, in EN/ES
+PRUEBA BETTING TOOLKIT …». **Nome del PROGRAMMA (#232).** Questo software si chiama **BetRelay** — già «XTrader Signal
+Bridge» — ed è **uguale in tutte le lingue**: è il nostro nome, non un termine da tradurre.
+Header GUI **«📡 BetRelay»**, titolo finestra «BetRelay v<versione>», eseguibile `BetRelay.exe`.
+Da non confondere con la voce qui sotto, che riguarda il software di *destinazione*.
+
+Rinominato solo il **brand visibile** (Strato 1). Restano volutamente `XTraderBridge` la cartella
+`%APPDATA%`, il mutex single-instance e il servizio keyring: rinominarli richiede una migrazione
+(config, token, lock anti-doppia-istanza) ed è Strato 2, non ancora deciso.
+
+**Nome del prodotto di destinazione (#286).** In IT si chiama **XTrader**, in EN/ES
 **Betting Toolkit** — è lo *stesso* software con nomi diversi per mercato
 (BETTINGTOOLKIT.COM/.ES/.LAT). Le **chiavi** del catalogo sono le stringhe italiane, quindi
 nell'interfaccia italiana resta «XTrader» e cambia solo il valore tradotto. Da non confondere
@@ -559,7 +568,7 @@ stato** del layer puro `config_store.save_status_message` (si traduce solo il pr
 parte. I **dialoghi modali** di azione file (`messagebox`/`filedialog`: selettori «📁 Sfoglia…»/
 «📄 Crea CSV», titoli, conferme di sovrascrittura file/segnale attivo, e l'export «Esporta audit
 modalità reale») sono invece **localizzati dalla slice 4z** (EN/ES; `{path}` interpolato come valore,
-pattern `*.csv` e operazioni CSV invariati). **Eccezione**: il dialog «XTrader Bridge è già in
+pattern `*.csv` e operazioni CSV invariati). **Eccezione**: il dialog «BetRelay è già in
 esecuzione» all'avvio resta IT perché renderizza **prima** di `i18n.set_language` (l'acquisizione del
 lock di istanza precede la scelta lingua in `__init__`).
 
@@ -2112,9 +2121,9 @@ in blocchi.
 Il bridge gira in **una sola istanza**. Un secondo avvio mostra — **prima** che qualunque
 finestra dell'app venga costruita — un **messagebox di avviso** (`messagebox.showwarning`
 su root temporanea) e il processo esce subito:
-- **Titolo:** `XTrader Bridge`
+- **Titolo:** `BetRelay`
 - **Testo (verbatim):**
-  > XTrader Bridge è già in esecuzione.
+  > BetRelay è già in esecuzione.
   >
   > Chiudi l'altra istanza prima di avviarne una nuova: due istanze attive potrebbero
   > scrivere lo stesso CSV e piazzare scommesse doppie.

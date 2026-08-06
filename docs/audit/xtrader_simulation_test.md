@@ -1,4 +1,4 @@
-# Test end-to-end in simulazione — XTrader Signal Bridge
+# Test end-to-end in simulazione — BetRelay
 
 > PR-20 (PHASE 9). Procedura **manuale** per verificare la catena completa
 > Telegram → bridge → CSV → XTrader → conferma, con XTrader in **Modalità

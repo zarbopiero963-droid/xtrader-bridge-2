@@ -299,7 +299,7 @@ class App(ctk.CTk):
         # ma un FAILED su Windows reale resta diagnosticabile.
         logger.debug("DPI awareness: %s", dpi_awareness.enable_dpi_awareness())
         super().__init__()
-        self.title(f"XTrader Signal Bridge v{__version__}")
+        self.title(f"BetRelay v{__version__}")
         # Finestra RIDIMENSIONABILE in entrambi gli assi (collaudo #12, 2026-08-01: il
         # proprietario si è trovato una schermata piccola e bloccata — la larghezza fissa
         # era una scelta di layout, non un vincolo tecnico). La sicurezza del layout sta
@@ -827,7 +827,7 @@ class App(ctk.CTk):
             logger.warning("Seconda istanza rifiutata: lock di istanza già posseduto "
                            "(protezione doppia-scommessa #311-1.1).")
             self._notify_already_running()
-            raise SystemExit("XTrader Bridge è già in esecuzione: seconda istanza rifiutata.")
+            raise SystemExit("BetRelay è già in esecuzione: seconda istanza rifiutata.")
 
     def _notify_already_running(self):
         """Avviso GUI «già in esecuzione» su una root Tk temporanea (la finestra
@@ -838,8 +838,8 @@ class App(ctk.CTk):
             root = tk.Tk()
             root.withdraw()
             messagebox.showwarning(
-                "XTrader Bridge",
-                "XTrader Bridge è già in esecuzione.\n\n"
+                "BetRelay",
+                "BetRelay è già in esecuzione.\n\n"
                 "Chiudi l'altra istanza prima di avviarne una nuova: due istanze "
                 "attive potrebbero scrivere lo stesso CSV e piazzare scommesse doppie.")
             root.destroy()
@@ -1761,7 +1761,7 @@ class App(ctk.CTk):
         hdr = ctk.CTkFrame(self, fg_color=_COLOR_HEADER_BG, corner_radius=10)
         hdr.pack(fill="x", padx=15, pady=(12, 5))
 
-        ctk.CTkLabel(hdr, text="🤖  XTrader Signal Bridge",
+        ctk.CTkLabel(hdr, text="📡  BetRelay",
                      font=ctk.CTkFont(size=20, weight="bold"),
                      text_color=_COLOR_HEADER_TITLE).pack(side="left", padx=15, pady=10)
 

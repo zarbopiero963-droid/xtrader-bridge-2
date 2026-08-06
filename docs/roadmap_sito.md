@@ -213,7 +213,7 @@ Fra cui il **selettore Modalità bridge**. Finché non è risolta, gli screensho
 interfaccia mista — è dichiarato nel README della cartella, ma resta un difetto del prodotto.
 
 ### S15. #232 — rebrand
-L'app si chiama ancora «XTrader Signal Bridge» nel titolo e ha l'icona standard. Il sito dice
+L'app si chiama ancora «BetRelay» nel titolo e ha l'icona standard. Il sito dice
 BetRelay, il programma no: chi scarica dopo aver visto il sito trova un nome diverso.
 
 ### S16. #266 — screenshot XTrader mancanti

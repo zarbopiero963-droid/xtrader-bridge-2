@@ -290,7 +290,7 @@ def legacy_config_path() -> str:
 
     Nell'EXE PyInstaller (`--onefile`) `__file__` punta al bundle temporaneo,
     quindi quando l'app è "frozen" usiamo la cartella di `sys.executable` (dove
-    sta davvero `XTrader-Signal-Bridge.exe`), così la migrazione trova il
+    sta davvero `BetRelay.exe`), così la migrazione trova il
     vecchio `config.json` accanto all'eseguibile.
     """
     if getattr(sys, "frozen", False):

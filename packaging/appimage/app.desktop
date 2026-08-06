@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=XTrader Signal Bridge
+Name=BetRelay
 Comment=Bridge Telegram to CSV for XTrader
-Exec=XTrader-Signal-Bridge
+Exec=BetRelay
 Icon=app-icon
 Categories=Utility;
 Terminal=false

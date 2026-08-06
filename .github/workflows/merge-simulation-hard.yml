@@ -121,7 +121,7 @@ jobs:
       - name: Build EXE
         run: >
           pyinstaller --onefile --windowed
-          --name "XTrader-Signal-Bridge"
+          --name "BetRelay"
           --paths .
           --collect-submodules xtrader_bridge
           --add-data "data/dizionario_xtrader.csv;data"

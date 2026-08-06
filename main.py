@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-XTrader Signal Bridge
+BetRelay
 Telegram → CSV → XTrader
 
 Entrypoint: la logica vive nel package `xtrader_bridge`.

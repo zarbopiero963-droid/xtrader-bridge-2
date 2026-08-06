@@ -1,4 +1,4 @@
-# Roadmap tecnica — XTrader Signal Bridge
+# Roadmap tecnica — BetRelay
 
 > Documento master. Trasforma i problemi di `archive/known_issues.md` in una sequenza di
 > PR piccole, testabili e sicure. Ogni PR ha: obiettivo, task, **test hard**,
@@ -2073,9 +2073,9 @@ Windows reale. Nuovo workflow `build-nuitka.yaml` (**solo `workflow_dispatch`**,
 niente Release → nessuna collisione con la release PyInstaller): `python -m nuitka --standalone
 --onefile --assume-yes-for-downloads --enable-plugin=tk-inter --include-package-data=customtkinter
 --include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv
---windows-console-mode=disable --output-filename=XTrader-Signal-Bridge.exe --output-dir=dist
+--windows-console-mode=disable --output-filename=BetRelay.exe --output-dir=dist
 main.py`; test bloccanti PRIMA della build; artifact `…-Nuitka-Windows-v<ver>-<data>` col solito
-`XTrader-Signal-Bridge.exe`. Install legacy (`requirements-dev.txt` + `nuitka` + `httpx`): il
+`BetRelay.exe`. Install legacy (`requirements-dev.txt` + `nuitka` + `httpx`): il
 lock attuale è PyInstaller-only, il lock Nuitka `--require-hashes` arriva a parte.
 
 Il gate di sicurezza `tests/safety/test_build_exe_safety.py` è **esteso** per coprire ANCHE la
@@ -3661,7 +3661,7 @@ prodotto) + `showwarning` «Bridge avviato» (titolo+corpo) + 2 `askyesno` di so
 `showinfo` «Audit modalità reale» (titolo+corpo). Catalogo `i18n.py`: **13 chiavi NUOVE × EN/ES**.
 Tutte tr-constant di `app.py` → l'anti-drift le trova via `_APP_TR` (nessuna nuova sorgente).
 
-**Esclusioni (restano IT).** Il dialog **«XTrader Bridge è già in esecuzione»** all'avvio: renderizza
+**Esclusioni (restano IT).** Il dialog **«BetRelay è già in esecuzione»** all'avvio: renderizza
 **prima** di `i18n.set_language` (l'acquisizione del lock di istanza in `__init__` precede la scelta
 lingua) → localizzarlo non avrebbe effetto; escluso e verificato dal test. `{path}` = percorso file
 (valore di dominio). **Nessun cambio di logica**: selezione file, pattern `*.csv`, operazioni CSV e

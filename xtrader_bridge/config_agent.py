@@ -1474,7 +1474,7 @@ def build_default_registry(*, config_loader=None, parsers_dir=None, on_proposal=
 
 # Base del system prompt SENZA la clausola di lingua (aggiunta da `build_system_prompt`).
 _SYSTEM_PROMPT_BASE = (
-    "Sei l'assistente di configurazione di XTrader Signal Bridge. Aiuti il proprietario a "
+    "Sei l'assistente di configurazione di BetRelay. Aiuti il proprietario a "
     "configurare e CAPIRE il bridge tramite gli strumenti disponibili, non prendendo iniziative "
     "safety-critical. Non piazzi scommesse, non parli con XTrader/Betfair, non avvii il listener "
     "live o la modalità reale, non riveli segreti, non usi il web né esegui codice: queste azioni "
