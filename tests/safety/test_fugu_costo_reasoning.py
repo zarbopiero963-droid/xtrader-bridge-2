@@ -1,0 +1,788 @@
+"""Fugu Ultra: due difetti di costo misurati sulle PR reali del 05/08/2026.
+
+**① `reasoning: {"effort": "low"}` non è mai stato applicato.** Interrogato l'endpoint
+pubblico `openrouter.ai/api/v1/models`, `sakana/fugu-ultra` dichiara:
+
+    {"mandatory": true, "default_enabled": true,
+     "supported_efforts": ["max", "xhigh", "high"], "default_effort": "xhigh"}
+
+`"low"` **non è fra gli effort supportati**: il valore viene scartato e il modello applica il
+suo default, `xhigh`. Cioè si pagava ragionamento quasi al massimo credendo di averlo capato
+al minimo. E `mandatory: true` significa che non si può spegnere: `"high"` è il minimo
+possibile per questo modello.
+
+Le conseguenze si vedono nei costi riportati dai job stessi sulla PR #281: **9.600 e 12.598
+completion token** contro i ~200-1.300 che il prompt ultra-corto prevede — perché i token di
+reasoning **sono fatturati come output** (documentazione OpenRouter). Due di quelle review
+sono state pagate e poi **troncate**, quindi buttate: $0.62 + $0.52.
+
+Il commento nel workflow diceva *«effort=low libera budget per il testo; OpenRouter lo ignora
+per i modelli non-reasoning, quindi è sicuro comunque»*. La prima metà era vera per GPT-5.5
+(serie GPT-5: `low` è supportato), la seconda nascondeva il caso peggiore — un modello
+reasoning che **ignora il valore e usa il proprio default alto**.
+
+**② Fugu spendeva su ogni push che toccasse file core.** Decisione del proprietario: resta il
+**gate finale a head stabile**, che è il suo ruolo dichiarato nel `CLAUDE.md`. Sui push
+intermedi bastano GPT-5.5 e Fable, che insieme costano ~12 centesimi contro i ~55 di Fugu.
+"""
+
+import os
+import re
+
+import pytest
+
+from tests.safety.workflow_ast import extract_func, extract_heredocs
+
+_RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_FUGU = os.path.join(_RADICE, ".github", "workflows", "pr-review-openrouter-fugu-ultra.yml")
+
+
+def _fugu() -> str:
+    with open(_FUGU, encoding="utf-8") as fh:
+        return fh.read()
+
+
+#: Ciò che il modello dichiara di accettare (endpoint pubblico, nessuna chiave necessaria).
+EFFORT_SUPPORTATI = ("max", "xhigh", "high")
+
+
+def test_fugu_non_usa_un_effort_che_il_modello_NON_supporta():
+    """Il difetto ①, nella forma che conta: non «usa `high`» ma «non usa un valore rifiutato».
+
+    Scritto così perché il danno non è il valore in sé — è che un effort **non supportato**
+    viene scartato in silenzio e subentra `default_effort`, che qui è `xhigh`. Un test che
+    pretendesse letteralmente `"high"` passerebbe anche se domani il modello cambiasse i
+    valori ammessi; questo invece resta legato alla ragione.
+    """
+    src = _fugu()
+    match = re.search(r'"reasoning":\s*\{"effort":\s*"([a-z]+)"\}', src)
+
+    assert match, "il payload Fugu deve dichiarare esplicitamente un reasoning effort"
+    assert match.group(1) in EFFORT_SUPPORTATI, (
+        f"effort {match.group(1)!r} NON è fra quelli supportati da sakana/fugu-ultra "
+        f"{EFFORT_SUPPORTATI}: viene scartato e il modello applica il suo default "
+        "'xhigh' — si paga ragionamento quasi al massimo credendo di averlo ridotto."
+    )
+
+
+def test_fugu_usa_il_MINIMO_effort_possibile():
+    """Fra i tre supportati va scelto il più basso: il reasoning è `mandatory`, quindi
+    l'unica leva di costo è il livello. `high` è il pavimento, non una preferenza."""
+    src = _fugu()
+    match = re.search(r'"reasoning":\s*\{"effort":\s*"([a-z]+)"\}', src)
+
+    assert match and match.group(1) == "high", (
+        f"atteso l'effort MINIMO supportato ('high'), trovato {match and match.group(1)!r}: "
+        "'max'/'xhigh' costano di più senza servire a una review di 150 parole."
+    )
+
+
+def test_fugu_spiega_nel_workflow_perche_non_e_low():
+    """La ragione va nel file, non solo qui: chi in futuro vedesse `high` accanto al `low`
+    di GPT-5.5 penserebbe a una svista e lo "correggerebbe", riaprendo il difetto."""
+    src = _fugu()
+
+    assert "supported_efforts" in src, (
+        "il workflow deve dire PERCHÉ non usa 'low' (i valori ammessi dal modello), "
+        "altrimenti la differenza con GPT-5.5 sembra un errore da correggere"
+    )
+
+
+def _usage_note_reale():
+    """La `usage_note` VERA del workflow, estratta dall'heredoc via AST ed eseguita isolata.
+
+    Stessa tecnica di `_touches_core_reale` in `test_ai_audit_workflows.py`, e per la stessa
+    ragione (rilievo CodeRabbit su questa PR, fondato): la prima stesura di questo test
+    cercava la stringa `reasoning_tokens` nel sorgente — sarebbe passata anche se comparisse
+    solo in un **commento**, o in un'assegnazione mai usata. Cioè proprio il falso-verde che
+    il `CLAUDE.md` vieta: «i test devono esercitare funzioni reali del progetto».
+
+    Qui si misura il **comportamento**: dato un `usage`, cosa scrive nel report.
+    """
+    import ast
+    import re as _re
+
+    blocchi = extract_heredocs(_fugu())
+    assert len(blocchi) == 1, f"atteso 1 heredoc Python nel workflow, trovati {len(blocchi)}"
+    albero = ast.parse(blocchi[0])
+    # Servono anche le costanti di prezzo che `usage_note` usa: si estraggono dallo stesso
+    # sorgente invece di ricopiarne i valori qui, altrimenti il test resterebbe verde con
+    # un listino stantio (e il costo riportato dal workflow sarebbe sbagliato senza che
+    # nessuno se ne accorga).
+    NECESSARIE = ("PRICE_INPUT_PER_MILLION", "PRICE_OUTPUT_PER_MILLION")
+    voluti = [n for n in albero.body
+              if (isinstance(n, ast.FunctionDef) and n.name == "usage_note")
+              or (isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id in NECESSARIE for t in n.targets))]
+    funzioni = [n for n in voluti if isinstance(n, ast.FunctionDef)]
+    assert len(funzioni) == 1, (
+        f"attesa una sola `usage_note` a livello modulo, trovate {len(funzioni)} — "
+        "il report costi è stato ristrutturato, aggiorna questo test"
+    )
+    assert len(voluti) == len(funzioni) + len(NECESSARIE), (
+        "le costanti di prezzo non sono più assegnate a livello modulo: "
+        f"attese {NECESSARIE}, il costo nel report non sarebbe calcolabile"
+    )
+    # Le costanti leggono l'ambiente: si forniscono gli STESSI valori dichiarati nell'`env:`
+    # del workflow, così il prezzo esercitato è quello vero e non un default a zero.
+    import os as _os
+    prezzi = dict(_re.findall(r'^      (PRICE_\w+): "([\d.]+)"$', _fugu(), _re.M))
+    assert len(prezzi) >= 2, f"listino non leggibile dall'env del workflow: {prezzi}"
+    vecchio_env = {k: _os.environ.get(k) for k in prezzi}
+    _os.environ.update(prezzi)
+    try:
+        ns = {"os": _os}
+        exec(compile(ast.Module(body=voluti, type_ignores=[]), "fugu#usage_note", "exec"), ns)  # noqa: S102
+    finally:
+        for k, v in vecchio_env.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+    return ns["usage_note"]
+
+
+def test_usage_note_RENDE_i_token_di_reasoning():
+    """I 9.600 token di reasoning erano invisibili nel report, che mostrava solo
+    `completion_tokens`: un ragionamento esploso era indistinguibile da una review lunga, ed
+    è per questo che il difetto ① è sopravvissuto a lungo.
+
+    Si esercita la funzione vera con un `usage` realistico — quello della PR #292, dove Fugu
+    ha riportato 1.702 completion di cui 1.496 di reasoning.
+    """
+    usage_note = _usage_note_reale()
+
+    testo = usage_note(
+        {"prompt_tokens": 7899, "completion_tokens": 1702,
+         "completion_tokens_details": {"reasoning_tokens": 1496}},
+        "system", "user", "review",
+    )
+
+    assert "1496" in testo, f"il conteggio del reasoning non compare nel report: {testo!r}"
+    assert "87%" in testo, f"la percentuale non è calcolata correttamente: {testo!r}"
+    assert "1702" in testo, "il totale completion deve restare visibile"
+
+
+def test_usage_note_TACE_se_il_modello_non_riporta_reasoning():
+    """Contro-guardia: la riga in più non deve comparire quando il dato non c'è.
+
+    Serve perché `usage_note` è condivisa con le risposte che NON hanno il dettaglio (errori,
+    fallback, provider che non lo espongono): una riga «di cui reasoning: 0 (0%)» sarebbe una
+    misura inventata, non un'assenza dichiarata.
+    """
+    usage_note = _usage_note_reale()
+
+    testo = usage_note({"prompt_tokens": 100, "completion_tokens": 200}, "s", "u", "r")
+
+    assert "reasoning" not in testo.lower(), (
+        f"senza il dato il report non deve inventare una riga: {testo!r}"
+    )
+    assert "200" in testo, "il resto del report deve funzionare comunque"
+
+
+def test_fugu_non_spende_su_un_push_senza_label():
+    """Il difetto ②, verificato sul COMPORTAMENTO e non sul testo.
+
+    La prima stesura cercava `if EVENT_ACTION != "labeled":` nel sorgente — è morta al primo
+    refactor legittimo (l'estrazione della decisione in funzione pura), che è esattamente la
+    fragilità segnalata da GPT-5.5. Qui si esegue la decisione vera.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate("synchronize", ["manual-review-required"], "final-fugu-review") == "salta"
+
+
+def test_fugu_non_ha_piu_il_gate_core_ormai_morto():
+    """Contro-guardia: tolto lo skip condizionato, `CORE_TRIGGER_PATTERNS`/`touches_core`
+    non decidono più nulla. Lasciarli sarebbe codice morto che *sembra* governare il costo —
+    e la prossima persona che legge il file crederebbe che Fugu parta ancora sui file core."""
+    src = _fugu()
+
+    assert "CORE_TRIGGER_PATTERNS" not in src and "touches_core" not in src, (
+        "il gate core di Fugu è ormai inerte (spende solo su label): va rimosso, non "
+        "lasciato lì a suggerire un comportamento che non esiste più"
+    )
+
+
+def test_gli_ALTRI_reviewer_non_sono_stati_toccati():
+    """Regola 5: si cambia il costo di UN reviewer, non la copertura della PR.
+
+    GPT-5.5 resta automatico a ogni push (è l'unico sempre attivo, e costa due centesimi) e
+    Fable resta sul suo gate core+label. Se questa PR li spegnesse, ridurrebbe la revisione
+    invece del costo.
+    """
+    for nome, atteso in (("pr-review-gpt55.yml", "synchronize"),
+                         ("pr-review-claude-fable5.yml", "touches_core")):
+        p = os.path.join(_RADICE, ".github", "workflows", nome)
+        with open(p, encoding="utf-8") as fh:
+            testo = fh.read()
+        assert atteso in testo, f"{nome}: copertura ridotta per sbaglio (manca {atteso!r})"
+
+
+# ── la falla trovata da Fugu STESSO sulla PR #292 ──────────────────────────────────────────
+
+def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
+    """Bloccante sollevato da Fugu Ultra sulla PR che lo correggeva — e fondato.
+
+    Scenario: si arma il gate finale (label) → Fugu revisiona il head A → arriva un push →
+    head B → evento `synchronize` → con lo skip incondizionato il job **esce 0** e il check
+    resta **verde**. Ma quel verde si riferisce a una review del head A: sul head B nessuno
+    ha guardato, e la label è ancora lì a dire che il gate è stato armato.
+
+    Prima di questa PR il buco esisteva già ma era più stretto (su un push a file core Fugu
+    revisionava davvero). Lo skip incondizionato lo ha **allargato**: quindi va chiuso qui,
+    non lasciato com'era.
+
+    Fail-closed: se la label finale è presente e il head si è mosso, il gate è **stantio** e
+    il job lo dichiara invece di tacere. Un check verde che significa «non ho guardato» è
+    esattamente il difetto della #274 («un reviewer che non ha interrogato il modello risulta
+    success come uno che ha revisionato»).
+    """
+    # Rilievo CodeRabbit, fondato: le due assert precedenti cercavano `LABELS_PRESENTI` e
+    # `sys.exit(1)` nel sorgente, ma entrambe compaiono ALTROVE (`leggi_etichette`, i rami
+    # fail-closed sulla label). Restavano verdi anche cancellando il ramo stantio: un test
+    # che non può fallire sul vecchio comportamento non è un test. Ancorato all'AST, come
+    # il gemello `test_fable_lo_stantio_e_fail_closed`.
+    import ast
+
+    albero = ast.parse(extract_heredocs(_fugu())[0])
+    rami = [n for n in ast.walk(albero)
+            if isinstance(n, ast.If)
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'stantio'"]
+
+    assert len(rami) == 1, f"atteso un solo ramo stantio, trovati {len(rami)}"
+    corpo = ast.unparse(rami[0])
+    assert "::error::" in corpo and "sys.exit(1)" in corpo, (
+        "il gate stantio dev'essere ROSSO: un avviso su un check verde non lo legge nessuno"
+    )
+
+
+def _funzione_dal_workflow(nome):
+    """La funzione `nome` dell'heredoc Fugu, estratta ed **eseguibile**.
+
+    L'estrazione non è scritta qui: gli helper stanno in `tests/safety/workflow_ast.py`,
+    che è la fonte unica condivisa con `test_ai_audit_workflows.py` (regola 3 — la prima
+    stesura di questo modulo ne aveva una seconda copia, ed è stata rimossa).
+    """
+    blocchi = extract_heredocs(_fugu())
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow Fugu, trovati {len(blocchi)}: l'estrazione "
+        "per posizione non è più affidabile, va ancorata al blocco giusto"
+    )
+    return extract_func(blocchi[0], nome, {"os": os})
+
+
+@pytest.mark.parametrize("evento,armato,atteso", [
+    # Il gate è armato dalla label: si revisiona a prescindere dall'evento…
+    ("labeled",          True,  "revisiona"),
+    ("opened",           True,  "revisiona"),   # ← il buco trovato da Fugu
+    ("reopened",         True,  "revisiona"),
+    ("ready_for_review", True,  "revisiona"),
+    # …tranne quando il head si è mosso DOPO l'armamento: lì è stantio, non verde.
+    ("synchronize",      True,  "stantio"),
+    # Senza label non si spende mai, qualunque sia l'evento.
+    ("synchronize",      False, "salta"),
+    ("opened",           False, "salta"),
+    ("reopened",         False, "salta"),
+])
+def test_decisione_gate_su_ogni_evento(evento, armato, atteso):
+    """Il test che GPT-5.5 e CodeRabbit hanno chiesto **due volte** su questa PR, e avevano
+    ragione entrambe le volte: le prime stesure asserivano pattern testuali nel workflow —
+    fragili ai refactor e, soprattutto, incapaci di dimostrare il comportamento.
+
+    Ora la decisione è una funzione pura nello script, estratta ed **eseguita** qui su tutti
+    gli eventi che GitHub può emettere su una PR. Il caso `opened + armato` è il buco che
+    Fugu aveva trovato: una PR aperta con la label già applicata non riceve `labeled`, e con
+    lo skip silenzioso il check restava verde senza che nessuno avesse guardato.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    etichette = ["manual-review-required"] + (["final-fugu-review"] if armato else [])
+    # Su un evento `labeled` la label è quella che l'ha scatenato: qui il caso «armato»
+    # è appunto l'aggiunta della label finale. Il caso «label diversa» ha i suoi test
+    # dedicati più sotto. Sugli altri eventi la label non esiste.
+    label_evento = "final-fugu-review" if (evento == "labeled" and armato) else ""
+
+    assert decisione_gate(evento, etichette, "final-fugu-review", label_evento) == atteso
+
+
+def test_decisione_gate_e_pura(monkeypatch):
+    """Contro-guardia: la decisione non deve dipendere dall'ambiente o da stato globale,
+    altrimenti il test sopra proverebbe qualcosa di diverso da ciò che gira in CI.
+
+    `monkeypatch` e non `os.environ` diretto (rilievo CodeRabbit): scrivendo nell'ambiente
+    senza ripulirlo, i valori sopravvivevano per tutta la sessione pytest e potevano cambiare
+    l'esito di qualunque test successivo che li legge — un test che sporca gli altri.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    prima = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
+    monkeypatch.setenv("LABELS_PRESENTI", "niente")
+    monkeypatch.setenv("EVENT_ACTION", "labeled")
+    dopo = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
+
+    assert prima == dopo == "stantio", "la decisione legge l'ambiente invece dei suoi argomenti"
+
+
+def test_una_label_QUALSIASI_non_fa_spendere():
+    """Rilievo GPT-5.5: `decisione_gate("labeled", …)` rispondeva «revisiona» a prescindere
+    dalla label, appoggiandosi al filtro YAML del job (`github.event.label.name ==
+    'final-fugu-review'`).
+
+    Il filtro c'è ed è corretto, ma far dipendere una decisione di **costo** da un altro
+    strato è fragile: basta che qualcuno allarghi la condizione del job — per esempio per
+    reagire a `manual-review-required` — e la funzione comincia a spendere senza che nulla
+    la fermi. Difesa in profondità: la decisione richiede il gate ARMATO in ogni caso.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    # `labeled` di un'altra label, senza quella finale fra le presenti
+    assert decisione_gate("labeled", ["manual-review-required"], "final-fugu-review",
+                          "manual-review-required") == "salta"
+    # …e con quella finale presente si revisiona, come deve
+    assert decisione_gate("labeled", ["final-fugu-review"], "final-fugu-review",
+                          "final-fugu-review") == "revisiona"
+
+
+def test_estrazione_heredoc_non_prende_il_blocco_sbagliato():
+    """Rilievo GPT-5.5: `_funzione_dal_workflow` prendeva il PRIMO blocco `python3 <<'PY'`.
+    Oggi ce n'è uno solo, ma se un domani ne comparisse un altro prima, i test validerebbero
+    lo script sbagliato restando verdi — un falso verde silenzioso."""
+    blocchi = extract_heredocs(_fugu())
+
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow, trovati {len(blocchi)}: l'estrazione per "
+        "posizione non è più affidabile, va ancorata al blocco giusto"
+    )
+
+
+# ── Regola 2: la CLASSE, non il sito ───────────────────────────────────────────────────────
+#
+# Il rilievo di GPT-5.5 qui sopra non riguarda Fugu: riguarda «un gate di SPESA che si fida
+# del filtro YAML del job». Cercato il pattern su tutti i workflow, **Fable ha lo stesso
+# difetto**: il suo salto per assenza di file core è condizionato a `EVENT_ACTION != "labeled"`,
+# quindi un evento `labeled` — di qualunque label — bypassa il controllo core e fa spendere.
+# Oggi non succede perché la condizione YAML filtra le altre label; ma è esattamente la stessa
+# dipendenza da un altro strato, sullo stesso tipo di decisione (soldi).
+
+_FABLE = os.path.join(_RADICE, ".github", "workflows", "pr-review-claude-fable5.yml")
+
+
+def _fable() -> str:
+    with open(_FABLE, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _funzione_da_fable(nome):
+    blocchi = extract_heredocs(_fable())
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow Fable, trovati {len(blocchi)}"
+    )
+    return extract_func(blocchi[0], nome, {"os": os})
+
+
+@pytest.mark.parametrize("workflow,leggi", [
+    ("fugu", _fugu),
+    ("fable", _fable),
+])
+def test_le_etichette_arrivano_DAVVERO_dall_env_del_job(workflow, leggi):
+    """Le due `decisione_gate` ricevono le label come argomento, quindi i test
+    di comportamento qui sopra restano verdi anche se l'`env:` che le fornisce sparisce — e
+    il gate, in CI, non si armerebbe più (Fugu non spenderebbe MAI, Fable salterebbe il gate
+    finale in silenzio). Serve un'ancora sulla DICHIARAZIONE.
+
+    Non basta `"LABELS_PRESENTI" in testo`: la stringa compare comunque nello script che la
+    legge. Verificato per sabotaggio — cancellando l'env, la versione con `in` restava verde.
+    """
+    testo = leggi()
+
+    assert re.search(
+        r"^      LABELS_PRESENTI: \$\{\{ toJSON\(github\.event\.pull_request\.labels"
+        r"\.\*\.name\) \}\}$", testo, re.M), (
+        f"{workflow}: manca l'env LABELS_PRESENTI — il gate non vede le label della PR"
+    )
+    assert re.search(rf"^      FINAL_LABEL: final-{workflow}-review$", testo, re.M), (
+        f"{workflow}: manca l'env FINAL_LABEL — il gate userebbe il default hardcoded"
+    )
+    assert re.search(r"^      LABEL_EVENTO: \$\{\{ github\.event\.label\.name \}\}$",
+                     testo, re.M), (
+        f"{workflow}: manca l'env LABEL_EVENTO — senza il nome della label dell'evento il "
+        f"gate non distingue «aggiunta la finale» da «aggiunta un'altra su una PR che ce "
+        f"l'aveva già»"
+    )
+
+
+# ── Il caso peggiore, trovato da GPT-5.5 sulla correzione precedente ───────────────────────
+#
+# Guardare solo `LABELS_PRESENTI` non basta: se la label finale è GIÀ sulla PR e qualcuno ne
+# aggiunge un'altra, l'evento è `labeled`, lo stato risulta armato e il modello parte —
+# esattamente lo scenario che la difesa in profondità doveva coprire. Serve il nome della
+# label DELL'EVENTO (`github.event.label.name`), non solo l'elenco di quelle presenti.
+
+@pytest.mark.parametrize("etichette", [
+    ["final-fugu-review"],
+    ["final-fugu-review", "manual-review-required"],
+])
+def test_fugu_una_label_diversa_su_una_PR_gia_etichettata_non_fa_spendere(etichette):
+    """Il buco che restava: `labeled` + label evento NON finale + finale già presente."""
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate(
+        "labeled", etichette, "final-fugu-review", "manual-review-required") == "salta", (
+        "aggiungere una label qualsiasi a una PR che ha già quella finale non deve "
+        "rieseguire la review forte: la review su questo head è già stata fatta"
+    )
+    # …mentre la label finale, quella sì, arma il gate.
+    assert decisione_gate(
+        "labeled", etichette, "final-fugu-review", "final-fugu-review") == "revisiona"
+
+
+@pytest.mark.parametrize("etichette", [
+    ["final-fable-review"],
+    ["final-fable-review", "manual-review-required"],
+])
+def test_fable_una_label_diversa_su_una_PR_gia_etichettata_non_arma(etichette):
+    """Stesso caso sul gemello: qui armare il gate significa SALTARE il controllo sui file
+    core, quindi una label qualsiasi farebbe spendere su una PR di soli docs/test."""
+    decisione_gate = _funzione_da_fable("decisione_gate")
+
+    # Nessun file core: se la label diversa armasse, spenderebbe su una PR di soli docs/test.
+    assert decisione_gate("labeled", etichette, "final-fable-review",
+                          "manual-review-required", False, False) == "salta"
+    assert decisione_gate("labeled", etichette, "final-fable-review",
+                          "final-fable-review", False, False) == "revisiona"
+
+
+@pytest.mark.parametrize("evento", ["opened", "reopened", "ready_for_review"])
+def test_la_label_dell_evento_conta_SOLO_sugli_eventi_labeled(evento):
+    """Contro-guardia al fix: su `opened`/`reopened` non esiste alcuna label d'evento, e
+    pretenderla richiuderebbe il buco che Fugu aveva trovato — una PR aperta con la label già
+    applicata non riceve `labeled`, e senza review resterebbe un check verde mai guardato."""
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate(evento, ["final-fugu-review"], "final-fugu-review", "") == "revisiona"
+
+
+def test_fable_dice_ad_alta_voce_quando_una_label_non_arma():
+    """Un gate che salta in silenzio è indistinguibile da uno che ha approvato (difetto
+    #274): l'evento `labeled` che non arma deve lasciare traccia.
+
+    Ancorato al ramo via **AST**, non a una finestra di caratteri: la prima stesura leggeva
+    `src[inizio:inizio + 1600]` e GPT-5.5 ha giustamente osservato che un refactor o qualche
+    riga di commento in più l'avrebbe fatta fallire senza nessuna regressione reale.
+    """
+    import ast
+
+    albero = ast.parse(extract_heredocs(_fable())[0])
+    rami = [n for n in ast.walk(albero)
+            # `ast.unparse` normalizza le virgolette a singole: si confronta senza.
+            if isinstance(n, ast.If)
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'salta'"]
+
+    assert len(rami) == 1, (
+        f"atteso un solo ramo «gate non armato, si salta», trovati {len(rami)}"
+    )
+    corpo = ast.unparse(rami[0])
+    assert corpo.count("::notice::") == 2, (
+        "servono due messaggi distinti: label non finale, e push senza file core — "
+        "un solo testo generico non fa capire PERCHÉ il gate ha saltato"
+    )
+    assert "::warning::" not in corpo and "::error::" not in corpo, (
+        "saltare senza label finale e senza file core è il caso ORDINARIO: gridare qui è "
+        "rumore che poi nessuno legge. Il caso grave è lo STANTIO, che ha il suo ramo."
+    )
+
+
+def test_fable_lo_stantio_e_fail_closed():
+    """Il ramo stantio deve far fallire il job: un `::warning::` lascerebbe il check verde,
+    cioè esattamente il difetto che Fable 5 ha segnalato come bloccante."""
+    import ast
+
+    albero = ast.parse(extract_heredocs(_fable())[0])
+    rami = [n for n in ast.walk(albero)
+            if isinstance(n, ast.If)
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'stantio'"]
+
+    assert len(rami) == 1, f"atteso un solo ramo stantio, trovati {len(rami)}"
+    corpo = ast.unparse(rami[0])
+    assert "::error::" in corpo and "sys.exit(1)" in corpo, (
+        "il gate stantio dev'essere ROSSO: un avviso su un check verde non lo legge nessuno"
+    )
+
+
+# ── Quali eventi possono arrivare: l'assunzione su cui poggia tutto il gate ────────────────
+
+#: Gli eventi PR ammessi dai due workflow. La logica di armamento è coerente **solo** con
+#: questo elenco: `labeled` è deciso dalla label dell'evento, `synchronize` con la label
+#: presente è STANTIO, e gli eventi di apertura armano se la label finale c'è già.
+#: Aggiungerne altri cambia il significato di quel «resto» — per esempio `edited`
+#: (titolo/corpo modificati) o `unlabeled` (label RIMOSSA) farebbero partire una review
+#: finale che nessuno ha chiesto. Rilievo GPT-5.5 sulla #292.
+EVENTI_AMMESSI = ["opened", "synchronize", "reopened", "ready_for_review", "labeled"]
+
+
+def eventi_del_trigger(testo_workflow):
+    """Gli eventi dichiarati sotto `on: pull_request: types:`, come insieme.
+
+    Scritto tollerante di proposito (rilievo GPT-5.5 sulla #292): la prima stesura pretendeva
+    esattamente quattro spazi, la lista inline e persino l'ORDINE — un formatter YAML o una
+    lista multilinea equivalente l'avrebbero fatta fallire senza nessun cambio di
+    comportamento, cioè un falso rosso in CI. PyYAML non è fra le dipendenze dichiarate del
+    repo, quindi non si può parsare davvero il file: si accettano le due forme che YAML
+    ammette.
+
+    Tollerante, però, non vuol dire approssimativo — secondo rilievo di GPT-5.5, fondato:
+
+    - la ricerca è **circoscritta al blocco `pull_request`**, altrimenti un `types:` di un
+      altro trigger (`issues:`, `release:`) potrebbe essere letto al suo posto;
+    - la forma multilinea rispetta l'**indentazione**: si raccolgono solo le voci rientrate
+      più di `types:`, così una lista sorella non viene inghiottita.
+    """
+    righe = testo_workflow.splitlines()
+
+    def rientro(riga):
+        return len(riga) - len(riga.lstrip())
+
+    inizio = fine = None
+    for n, riga in enumerate(righe):
+        if re.match(r"^\s*pull_request:\s*$", riga):
+            inizio, base = n, rientro(riga)
+            for m in range(n + 1, len(righe)):
+                if righe[m].strip() and rientro(righe[m]) <= base:
+                    fine = m
+                    break
+            else:
+                fine = len(righe)
+            break
+    if inizio is None:
+        return set()
+
+    blocco = righe[inizio + 1:fine]
+
+    for n, riga in enumerate(blocco):
+        m = re.match(r"^([^\S\n]*)types:[^\S\n]*(.*)$", riga)
+        if not m:
+            continue
+        indent_chiave, resto = len(m.group(1)), m.group(2).strip()
+        if resto.startswith("["):
+            return {x.strip() for x in resto.strip("[]").split(",") if x.strip()}
+        eventi = set()
+        for voce in blocco[n + 1:]:
+            if not voce.strip():
+                continue
+            if rientro(voce) <= indent_chiave:
+                break
+            testo = voce.strip()
+            if testo.startswith("- "):
+                eventi.add(testo[2:].strip())
+            else:
+                break
+        return eventi
+    return set()
+
+
+@pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
+def test_gli_eventi_che_possono_armare_sono_solo_quelli_previsti(workflow, leggi):
+    """Il gate non è ispezionabile solo dalla funzione: dipende da QUALI eventi GitHub può
+    consegnargli. Questo test blocca l'allargamento silenzioso del trigger.
+
+    Non è nato da un bug ma da un rischio, quindi non ha un fail-first: la dimostrazione che
+    morde è per sabotaggio — aggiungendo `edited` all'elenco del workflow, diventa rosso.
+    """
+    trovati = eventi_del_trigger(leggi())
+
+    assert trovati == set(EVENTI_AMMESSI), (
+        f"{workflow}: il trigger ammette {sorted(trovati)}, atteso {sorted(EVENTI_AMMESSI)}. "
+        "Ogni evento in più arriva a un gate che arma sulla sola PRESENZA della label "
+        "finale: `edited` o `unlabeled` farebbero partire una review finale mai richiesta."
+    )
+
+
+def test_il_parser_del_trigger_regge_entrambe_le_forme_YAML():
+    """Contro-guardia al parser tollerante: se leggesse solo la forma inline, riformattare il
+    workflow in lista multilinea lo farebbe rispondere «nessun evento» — e il test sopra
+    passerebbe solo perché confronta due insiemi vuoti... no, fallirebbe; ma peggio ancora,
+    un parser che ignora la forma multilinea renderebbe INVISIBILE un `edited` aggiunto lì."""
+    inline = "on:\n  pull_request:\n    types: [opened, labeled]\n"
+    multilinea = "on:\n  pull_request:\n    types:\n      - opened\n      - labeled\n    branches: [main]\n"
+    indentato = "on:\n  pull_request:\n        types: [opened, labeled]\n"
+
+    atteso = {"opened", "labeled"}
+    assert eventi_del_trigger(inline) == atteso
+    assert eventi_del_trigger(multilinea) == atteso, "forma multilinea non riconosciuta"
+    assert eventi_del_trigger(indentato) == atteso, "indentazione diversa non riconosciuta"
+    assert eventi_del_trigger("on:\n  push:\n") == set()
+
+
+def test_il_parser_legge_il_blocco_pull_request_e_non_un_altro():
+    """Rilievo GPT-5.5: la ricerca di `types:` non era circoscritta al blocco `pull_request`.
+    Con un altro trigger che dichiara i propri `types:` prima, il guardiano validava l'elenco
+    sbagliato — e un `edited` aggiunto al trigger vero sarebbe passato inosservato."""
+    prima = (
+        "on:\n"
+        "  issues:\n"
+        "    types: [opened, deleted]\n"
+        "  pull_request:\n"
+        "    types: [opened, labeled]\n"
+    )
+    dopo = (
+        "on:\n"
+        "  pull_request:\n"
+        "    types: [opened, labeled]\n"
+        "  release:\n"
+        "    types: [published]\n"
+    )
+
+    assert eventi_del_trigger(prima) == {"opened", "labeled"}, "letto il blocco `issues`"
+    assert eventi_del_trigger(dopo) == {"opened", "labeled"}, "letto il blocco `release`"
+
+
+def test_il_parser_multilinea_non_inghiotte_una_lista_sorella():
+    """Rilievo GPT-5.5 sulla forma multilinea. Verificato: **non era riproducibile** con uno
+    YAML reale — il parser precedente si fermava comunque alla riga-chiave `branches:`, che
+    non inizia per `- `. Provato eseguendo il parser vecchio su questo stesso input: dava già
+    `{opened, labeled}`.
+
+    Il test resta perché la regola ora è ESPLICITA (si raccolgono solo le voci più rientrate
+    di `types:`) invece che incidentale, e questo caso la fissa. Ma va detto per quello che è:
+    una guardia, non la chiusura di un difetto — il rilievo reale del giro era l'altro, il
+    blocco `pull_request` non circoscritto, e quello era davvero rotto."""
+    yaml_finto = (
+        "on:\n"
+        "  pull_request:\n"
+        "    types:\n"
+        "      - opened\n"
+        "      - labeled\n"
+        "    branches:\n"
+        "      - main\n"
+        "      - develop\n"
+    )
+
+    assert eventi_del_trigger(yaml_finto) == {"opened", "labeled"}, (
+        "la lista `branches` è stata inghiottita fra gli eventi del trigger"
+    )
+
+
+# ── Il verde stantio che avevo chiuso su Fugu e lasciato aperto su Fable ───────────────────
+#
+# Bloccante di Claude Fable 5 sulla propria review finale, e fondato: con la label finale già
+# presente, un push che non tocca file core usciva VERDE — un check «gate finale» che si
+# riferisce a un head che nessun reviewer forte ha letto. È la stessa classe della #274 che
+# questa PR chiude per Fugu, lasciata aperta sul gemello.
+#
+# Regola ora simmetrica: se la label finale è sulla PR e arriva un push, il gate è STANTIO
+# (rosso, nessuna spesa) finché la label non viene rimossa e riaggiunta. Costa zero e dice la
+# verità; il push in sé resta coperto da GPT-5.5, e il riarmo produce una review dell'INTERA
+# PR, cioè più copertura di quella del solo push-range.
+
+def _decisione_fable():
+    return _funzione_da_fable("decisione_gate")
+
+
+@pytest.mark.parametrize("tocca_core", [False, True])
+def test_fable_un_push_dopo_la_label_e_STANTIO_non_verde(tocca_core):
+    decisione_gate = _decisione_fable()
+
+    esito = decisione_gate("synchronize", ["final-fable-review"], "final-fable-review",
+                           "", tocca_core, False)
+
+    assert esito == "stantio", (
+        "push con la label finale già presente: il gate si riferisce a un altro commit. "
+        f"Atteso «stantio» (rosso, zero spesa), ottenuto {esito!r}"
+    )
+
+
+@pytest.mark.parametrize("evento,etichette,label_evento,core,troncata,atteso", [
+    # Armamento vero → review dell'intera PR.
+    ("labeled", ["final-fable-review"], "final-fable-review", False, False, "revisiona"),
+    ("opened", ["final-fable-review"], "", False, False, "revisiona"),
+    ("reopened", ["final-fable-review"], "", False, False, "revisiona"),
+    # Label diversa: si torna a decidere sui file core, come sempre.
+    ("labeled", ["manual-review-required"], "manual-review-required", True, False, "core"),
+    ("labeled", ["manual-review-required"], "manual-review-required", False, False, "salta"),
+    # Senza label finale, il comportamento storico resta intatto.
+    ("synchronize", [], "", True, False, "core"),
+    ("synchronize", [], "", False, False, "salta"),
+    # Fail-safe Compare troncata: non si salta mai al buio.
+    ("synchronize", [], "", False, True, "core"),
+])
+def test_fable_decide_su_ogni_combinazione(evento, etichette, label_evento, core, troncata, atteso):
+    """Il gate di Fable diventa una funzione pura come quello di Fugu, così è **eseguibile**
+    dai test invece che asserito per pattern — la lezione che CodeRabbit e GPT-5.5 hanno
+    dovuto ripetere tre volte su questa PR."""
+    decisione_gate = _decisione_fable()
+
+    assert decisione_gate(evento, etichette, "final-fable-review",
+                          label_evento, core, troncata) == atteso
+
+
+@pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
+def test_le_label_arrivano_come_JSON_non_come_stringa_con_virgole(workflow, leggi):
+    """Secondo rilievo di Fable 5: `join(..., ',')` + `split(',')` si corrompe se una label
+    del repo contiene una virgola — e su quell'elenco poggia una decisione di spesa.
+
+    Oggi le label finali non hanno virgole, quindi è innocuo; ma un formato non escapato che
+    governa il costo è debito che si paga quando meno serve. `toJSON` non ha questo problema.
+    """
+    testo = leggi()
+
+    assert "toJSON(github.event.pull_request.labels.*.name)" in testo, (
+        f"{workflow}: le label devono arrivare come JSON, non come stringa join-ata: una "
+        "label con la virgola spezzerebbe l'elenco su cui si decide se spendere"
+    )
+    assert "join(github.event.pull_request.labels" not in testo, (
+        f"{workflow}: rimasto il vecchio join non escapato"
+    )
+
+
+# ── Le due frontiere dell'estrattore, chiuse su rilievo CodeRabbit ─────────────────────────
+#
+# `workflow_ast.py` è la fonte unica da cui i test di sicurezza ricavano il codice che gira
+# davvero nei workflow. Se sbaglia a delimitare o a scegliere la funzione, tutto ciò che ci
+# sta sopra valida qualcosa di diverso da ciò che GitHub esegue — e resta verde mentendo.
+
+def test_estrattore_non_chiude_su_un_PY_indentato_nel_corpo():
+    """Prima bastava una riga il cui `.strip()` fosse `PY`: una riga di codice Python
+    indentata chiamata `PY` (assegnazione, etichetta, qualunque cosa) troncava il blocco, e i
+    test validavano un workflow tagliato credendolo intero."""
+    finto = (
+        "    run: |\n"
+        "      python3 <<'PY'\n"
+        "      x = 1\n"
+        "          PY\n"          # ← indentata: è corpo, non chiusura
+        "      y = 2\n"
+        "      PY\n"
+    )
+
+    blocchi = extract_heredocs(finto)
+
+    assert len(blocchi) == 1
+    assert "y = 2" in blocchi[0], (
+        "il blocco è stato troncato su una riga `PY` indentata: il resto dello script "
+        "sarebbe invisibile ai test di sicurezza"
+    )
+
+
+def test_estrattore_solleva_su_heredoc_non_terminato():
+    """Prima un blocco che arrivava a fine file senza chiusura veniva restituito **monco**,
+    in silenzio. Meglio un errore rumoroso di una validazione parziale che sembra completa."""
+    import pytest as _pytest
+
+    troncato = "    run: |\n      python3 <<'PY'\n      x = 1\n"
+
+    with _pytest.raises(ValueError, match="non terminato"):
+        extract_heredocs(troncato)
+
+
+def test_estrattore_rifiuta_due_definizioni_omonime():
+    """Python lega il nome all'ULTIMA definizione; l'helper restituiva la PRIMA. Con due
+    funzioni omonime il test avrebbe esercitato un'implementazione che il workflow non usa."""
+    import pytest as _pytest
+
+    sorgente = "def f():\n    return 'prima'\n\n\ndef f():\n    return 'seconda'\n"
+
+    with _pytest.raises(AssertionError, match="trovate 2"):
+        extract_func(sorgente, "f", {})
+
+    # …e con una sola definizione continua a funzionare.
+    assert extract_func("def f():\n    return 'sola'\n", "f", {})() == "sola"

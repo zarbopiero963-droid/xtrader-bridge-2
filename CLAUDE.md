@@ -181,12 +181,15 @@ Non puoi saltare:
 ## FINAL AI REVIEW BEFORE MERGE — CANCELLO LABEL
 
 Due reviewer AI forti e costosi (Claude Fable 5, Fugu Ultra) **non** girano a
-ogni push come GPT-5.5/GLM. Spendono (chiamano il modello) **solo** in due casi:
+ogni push come GPT-5.5/GLM. **E dalla PR #292 non si comportano più allo stesso
+modo**: Fugu Ultra era da solo il **73%** della spesa di review misurata sulle
+PR #279/#280/#281, quindi ora spende **solo** sulla label finale. Fable 5 mantiene
+invece anche il gate a file core.
 
 1. **automaticamente** su un push che tocca **file core del bridge** (`main.py`,
    `xtrader_bridge/**`, `license_manager/**`, dipendenze
-   `requirements*`/`pyproject.toml`/`poetry.lock`)
-   — analizzano il push-range;
+   `requirements*`/`pyproject.toml`/`poetry.lock`) — analizza il push-range.
+   **Solo Claude Fable 5**: Fugu Ultra su un push esce senza spendere;
 2. **oppure** quando l'agente aggiunge la label finale (gate pre-merge sull'**intera
    PR**):
    - `final-fable-review` → `PR Review Claude Fable 5`
@@ -197,6 +200,36 @@ Su push che toccano **solo** workflow/CI, docs o test, i due job partono ma
 comunque coperti dai reviewer automatici GPT-5.5/GLM. L'agente **non vede mai le
 API key**: aggiunge solo la label; i secret restano nei GitHub Secrets e GitHub
 Actions resta read-only sul codice.
+
+**Il gate a label si arma solo con la SUA label** (#292). Entrambi i workflow
+ricevono la label **dell'evento** (`LABEL_EVENTO`) oltre all'elenco di quelle
+presenti (`LABELS_PRESENTI`), e su un evento `labeled` si armano **solo** se la label
+appena aggiunta è quella finale — non basta che la finale sia da qualche parte
+nell'elenco. La condizione YAML del job filtra già le altre label, ma una decisione
+di **spesa** non deve dipendere da un altro strato: se quella condizione venisse
+allargata — per esempio per reagire a `manual-review-required` — Fable
+scavalcherebbe il gate sui file core e Fugu chiamerebbe il modello. E guardare il
+solo elenco non basterebbe comunque: su una PR **già** etichettata, aggiungere una
+label qualsiasi lascerebbe lo stato «armato» e farebbe rieseguire la review su un
+head già revisionato.
+
+Conseguenza pratica per l'agente: **aggiungere `manual-review-required` a una PR che
+ha già le label finali non rilancia i due reviewer forti**. Per rieseguirli su un
+head nuovo va rimossa e riaggiunta la label finale, come già prescritto sopra.
+
+**Un push dopo l'armamento rende il gate STANTIO — su entrambi** (#292). Se la label
+finale è sulla PR e arriva un nuovo commit, la review precedente si riferisce a un
+altro head: i due job escono **rossi** senza chiamare il modello (costo zero), con il
+messaggio che dice di rimuovere e riaggiungere la label. Prima valeva solo per Fugu;
+Fable in quel caso usciva **verde** quando il push non toccava file core — cioè un
+check «gate finale» su un head che nessun reviewer forte aveva letto, la stessa classe
+di difetto della #274. Se ne è accorto **Fable stesso**, revisionando la PR che lo
+modificava.
+
+Quindi: quel rosso **non è un guasto**, è il gate che funziona. Si risolve riarmando
+la label a head stabile — e il riarmo produce una review dell'**intera PR**, cioè più
+copertura di quella del solo push-range. Nel frattempo il push resta comunque coperto
+da GPT-5.5, che gira su ogni commit.
 
 La label resta il **gate finale pre-merge obbligatorio**: anche se una PR non ha
 toccato file core (quindi i due forti non sono mai partiti da soli), prima di
@@ -239,9 +272,10 @@ con il gruppo di concorrenza della PR, i job buoni finiscono `skipped`. Il sinto
 è «ho messo le label e i reviewer non partono», e non è deducibile dai log: il job
 risulta semplicemente saltato. Aggiungerle in due chiamate separate funziona.
 
-**Nota sul gate costo (#247 ①).** I due reviewer forti chiamano il modello solo se
-il push tocca file core. Da #247 il set core include anche **`license_manager/`**:
-prima ne era fuori, quindi su una PR al tool che *firma le licenze* i due uscivano
+**Nota sul gate costo (#247 ①).** **Claude Fable 5** chiama il modello su un push
+solo se tocca file core (Fugu Ultra, dalla #292, su un push non spende mai: vedi
+sopra). Da #247 il set core include anche **`license_manager/`**: prima ne era
+fuori, quindi su una PR al tool che *firma le licenze* i reviewer forti uscivano
 in 2 s con `success` — e un reviewer che **tace** è indistinguibile da uno che
 **approva**. Se un domani nasce un'altra area che firma, cifra o pubblica qualcosa,
 va aggiunta a `CORE_TRIGGER_PATTERNS` nei due workflow (c'è un test in
@@ -331,10 +365,10 @@ I reviewer che coprono davvero una PR sono **i quattro workflow GitHub Actions d
 review con API key nei Secret del repo** — **GPT-5.5**, **GLM 5.2**, **Claude Fable
 5**, **OpenRouter Fugu Ultra** — più **CodeRabbit**. Questa è la situazione di
 default su OGNI PR: dai sempre per scontato che la copertura sia questa. GPT-5.5/GLM
-girano a ogni push; Fable/Fugu partono da soli solo su push che toccano **file core**
-(`main.py`, `xtrader_bridge/**`, `license_manager/**`, dipendenze) o con le label
-finali (vedi «FINAL AI
-REVIEW»); CodeRabbit rivede l'intera PR dal suo base.
+girano a ogni push; **Fable** parte da solo sui push che toccano **file core**
+(`main.py`, `xtrader_bridge/**`, `license_manager/**`, dipendenze), **Fugu** solo con
+la label finale; entrambi partono con le label finali (vedi «FINAL AI REVIEW»);
+CodeRabbit rivede l'intera PR dal suo base.
 
 **Codex e Sourcery NON sono un gate — non aspettarli:**
 
@@ -348,9 +382,9 @@ REVIEW»); CodeRabbit rivede l'intera PR dal suo base.
   pubblica il messaggio di rate-limit, trattalo allo stesso modo: assente, non un gate.
 
 **Ogni push costa API.** I quattro workflow di review chiamano modelli a pagamento a
-ogni push che aggiorna il head della PR (GPT-5.5/GLM sempre; Fable/Fugu solo su push
-che toccano file core — su push di soli docs/test/CI partono ma escono senza chiamare
-il modello, costo zero). Quindi sii parsimonioso coi push: **accorpa i fix di review
+ogni push che aggiorna il head della PR (GPT-5.5/GLM sempre; **Fable** solo sui push
+che toccano file core — su push di soli docs/test/CI parte ma esce senza chiamare il
+modello, costo zero; **Fugu** su un push non spende mai). Quindi sii parsimonioso coi push: **accorpa i fix di review
 in un solo push per giro** invece di uno per finding; **non pushare mai per cleanup
 puramente cosmetici o per rincorrere falsi positivi da diff-per-push** (un reviewer
 che ha visto solo l'ultimo commit e crede «mancante» un'implementazione che sta in un

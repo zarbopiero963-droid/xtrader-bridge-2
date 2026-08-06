@@ -61,6 +61,15 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
+      # Il gate di spesa non si fida del solo `EVENT_ACTION`: verifica che fra le label
+      # della PR ci sia davvero quella finale (vedi `decisione_gate` più sotto).
+      FINAL_LABEL: final-fable-review
+      LABELS_PRESENTI: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+      # La label DELL'EVENTO (vuota se non è un evento `labeled`): l'elenco sopra da solo
+      # non basta, perché su una PR che ha già la label finale qualunque altra label
+      # lascerebbe lo stato «armato».
+      LABEL_EVENTO: ${{ github.event.label.name }}
+
       REVIEW_ID: claude-fable5
       MODEL_LABEL: Claude Fable 5
 
@@ -506,12 +515,106 @@ jobs:
                           return True
               return False
 
+          def leggi_etichette():
+              """Le label della PR, dall'env, come lista.
+
+              JSON e non `join(..., ',')` + `split(',')`: le label di GitHub **possono
+              contenere una virgola**, e su questo elenco poggia una decisione di spesa —
+              un formato non escapato che governa il costo è debito che si paga quando meno
+              serve. Rilievo di Claude Fable 5 sulla #292.
+
+              Fail-safe: se il JSON è illeggibile si torna una lista vuota, cioè «gate non
+              armato». Sbagliare per difetto qui significa al massimo non spendere; sbagliare
+              per eccesso significherebbe spendere o, peggio, lasciare verde un gate finale.
+              """
+              grezzo = (os.environ.get("LABELS_PRESENTI") or "").strip()
+              if not grezzo:
+                  return []
+              try:
+                  valore = json.loads(grezzo)
+              except ValueError:
+                  print("::warning::LABELS_PRESENTI non è JSON valido: gate NON armato.")
+                  return []
+              if not isinstance(valore, list):
+                  return []
+              return [str(x).strip() for x in valore]
+
+          def decisione_gate(event_action, etichette, label_finale, label_evento,
+                             tocca_core, compare_troncata):
+              """Cosa fare su un evento della PR.
+
+              Quattro esiti: "revisiona" (modello sull'INTERA PR, gate finale) · "core"
+              (modello sul push-range, perché il push tocca file core del bridge) · "salta"
+              (nessuna spesa, check verde onesto) · "stantio" (nessuna spesa, check ROSSO).
+
+              La regola, e il perché di ogni riga:
+
+              - su `labeled` decide la label **dell'evento**, e solo quella. Non l'evento da
+                solo (la condizione YAML filtra già le altre label, ma una decisione di SPESA
+                non deve dipendere da un altro strato) e non l'elenco (su una PR già
+                etichettata, aggiungerne un'altra rieseguirebbe la review su un head già
+                revisionato);
+              - se la label finale c'è e arriva un **push**, il gate è STANTIO: la review
+                precedente si riferisce a un altro commit. Prima qui usciva verde quando il
+                push non toccava file core — cioè un check «gate finale» su un head che
+                nessun reviewer forte aveva letto, la stessa classe della #274 che questa PR
+                chiude per Fugu. **Bloccante trovato da Fable 5 sulla propria review.** Costa
+                zero e dice la verità; il push resta coperto da GPT-5.5, e il riarmo della
+                label produce una review dell'intera PR — più copertura, non meno;
+              - sugli eventi di apertura decide l'elenco: GitHub non emette `labeled` per una
+                PR **aperta** con la label già applicata, e senza questo la review finale non
+                partirebbe mai (buco che Fugu aveva trovato su se stesso nella #292);
+              - altrimenti comandano i file core, come sempre. `compare_troncata` è il
+                fail-safe: con la lista dei file troncata dalla Compare API non si può
+                escludere un file core oltre il limite, quindi non si salta al buio.
+              """
+              if event_action == "labeled":
+                  if label_evento == label_finale:
+                      return "revisiona"
+                  return "core" if (tocca_core or compare_troncata) else "salta"
+              if label_finale in etichette:
+                  if event_action == "synchronize":
+                      return "stantio"
+                  return "revisiona"
+              return "core" if (tocca_core or compare_troncata) else "salta"
+
+          FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fable-review")
+          etichette_pr = leggi_etichette()
+
           # Fail-safe: se la Compare API ha troncato la lista (>= 300 file) non
           # possiamo escludere che un file core sia oltre il limite → NON saltare
           # (meglio spendere che perdere una PR core grande).
           compare_maybe_truncated = len(files) >= 300
-          if (EVENT_ACTION != "labeled" and compare_maybe_truncated
-                  and not touches_core(files)):
+          tocca_core = touches_core(files)
+
+          esito_gate = decisione_gate(EVENT_ACTION, etichette_pr, FINAL_LABEL,
+                                      os.environ.get("LABEL_EVENTO", ""),
+                                      tocca_core, compare_maybe_truncated)
+
+          if esito_gate == "stantio":
+              print(
+                  f"::error::{REVIEW_ID}: il head è cambiato DOPO che il gate finale era "
+                  f"stato armato (label «{FINAL_LABEL}» presente). La review precedente si "
+                  "riferisce a un altro commit: rimuovi e riaggiungi la label per rieseguire "
+                  "il gate su questo head."
+              )
+              sys.exit(1)
+
+          if esito_gate == "salta":
+              if EVENT_ACTION == "labeled":
+                  etichetta = os.environ.get("LABEL_EVENTO", "") or "(vuota)"
+                  print(
+                      f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta}», che non è "
+                      f"quella finale («{FINAL_LABEL}»): nessun file core → review saltata."
+                  )
+              else:
+                  print(
+                      f"::notice::{REVIEW_ID}: push senza file core del bridge e senza "
+                      "label finale → review forte saltata (nessun costo modello)."
+                  )
+              sys.exit(0)
+
+          if esito_gate == "core" and compare_maybe_truncated and not tocca_core:
               # Tracciabilità costi: il fail-safe sta eseguendo la review forte su
               # una PR di massa dove non si vedono file core (Compare troncata).
               print(
@@ -519,13 +622,6 @@ jobs:
                   "file core nella lista visibile → review forte eseguita per sicurezza "
                   "(possibile costo su PR di massa)."
               )
-          if (EVENT_ACTION != "labeled" and not compare_maybe_truncated
-                  and not touches_core(files)):
-              print(
-                  f"::notice::{REVIEW_ID}: push senza file core del bridge e senza "
-                  "label finale → review forte saltata (nessun costo modello)."
-              )
-              sys.exit(0)
 
           # Budget patch adattivo: prima passa col tetto BASSO (economico). Se il diff è
           # stato troncato per budget (file non inviati / patch tagliata), RICOSTRUISCE

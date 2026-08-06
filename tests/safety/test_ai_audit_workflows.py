@@ -40,6 +40,12 @@ import re
 
 import pytest
 
+# Fonte unica degli helper di estrazione dagli heredoc (regola 3): vivevano qui come
+# `_extract_heredocs`/`_extract_func`, sono stati spostati quando sono serviti anche a
+# `test_fugu_costo_reasoning.py`. Gli alias sotto tengono invariati i call-site esistenti.
+from tests.safety.workflow_ast import extract_func as _extract_func
+from tests.safety.workflow_ast import extract_heredocs as _extract_heredocs
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
@@ -57,7 +63,13 @@ _AI_WORKFLOWS = {
     # troncava, PR #310), non basta ricreare il YAML.
     "pr-review-gpt55.yml": {"kind": "pr_review", "provider": "openai", "trigger": "auto", "reasoning": "low"},
     "pr-review-claude-fable5.yml": {"kind": "pr_review", "provider": "anthropic", "trigger": "label", "label": "final-fable-review", "reasoning": None},
-    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "low"},
+    # Fugu: effort "high" e NON "low" — `openrouter.ai/api/v1/models` dichiara
+    # supported_efforts ["max","xhigh","high"] con default "xhigh": "low" veniva SCARTATO e
+    # subentrava il default alto (9.600-12.598 completion token sulla #281, fatturati come
+    # output). `mandatory: true` → non spegnibile: "high" e' il pavimento.
+    # `core_gate: False` — decisione del proprietario: e' il reviewer piu' caro (73% della
+    # spesa) e per contratto e' il gate FINALE, quindi spende solo sulla label.
+    "pr-review-openrouter-fugu-ultra.yml": {"kind": "pr_review", "provider": "openrouter", "trigger": "label", "label": "final-fugu-review", "reasoning": "high", "core_gate": False},
     "manual-full-repo-ai-audit.yml": {"kind": "audit", "provider": "openai"},
     "claude-fable-full-repo-audit.yml": {"kind": "audit", "provider": "anthropic"},
 }
@@ -80,28 +92,6 @@ def _wf_path(name):
 def _read(name):
     with open(_wf_path(name), encoding="utf-8") as fh:
         return fh.read()
-
-
-def _extract_heredocs(text):
-    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell."""
-    lines = text.splitlines()
-    blocks = []
-    i = 0
-    while i < len(lines):
-        m = re.match(r"^(\s*)python3 <<'PY'\s*$", lines[i])
-        if m:
-            indent = m.group(1)
-            body = []
-            i += 1
-            while i < len(lines) and lines[i].strip() != "PY":
-                line = lines[i]
-                if line.startswith(indent):
-                    line = line[len(indent):]
-                body.append(line)
-                i += 1
-            blocks.append("\n".join(body))
-        i += 1
-    return blocks
 
 
 def _compiled_heredoc(name):
@@ -316,7 +306,8 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
     troncamento resta comunque dichiarato esplicitamente e fa fail-closed. Il floor
     minimo di sicurezza è coperto da `test_tutti_i_pr_review_riportano_il_troncamento`.
     """
-    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    finali = [n for n, m in _AI_WORKFLOWS.items()
+              if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
     for name in finali:
         text = _read(name)
@@ -363,21 +354,6 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
         )
 
 
-def _extract_func(src, fname, stubs):
-    """Estrae UNA funzione dal sorgente heredoc dedentato ed esegue solo quel nodo,
-    in un namespace con gli stub passati (safe_display/redact/is_critical), così può
-    essere esercitata offline senza far girare il resto dello script (rete/API)."""
-    import ast
-    tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == fname:
-            mod = ast.Module(body=[node], type_ignores=[])
-            ns = dict(stubs)
-            exec(compile(mod, "<heredoc>", "exec"), ns)  # noqa: S102 — sorgente del repo, test
-            return ns[fname]
-    raise AssertionError(f"{fname} non trovata nel sorgente di {src[:40]!r}…")
-
-
 def test_gate_finale_budget_patch_adattivo():
     """I due gate finali (label) usano un budget patch a 2 livelli: partono col tetto
     BASSO (economico) e, SOLO se il diff è stato troncato per budget, ricostruiscono
@@ -387,7 +363,8 @@ def test_gate_finale_budget_patch_adattivo():
     Verifica STRUTTURALE (env/default escalati + la ri-build su budget_truncated) e
     COMPORTAMENTALE (build_patch_payload reale: tier-1 tronca, tier-2 recupera il file).
     """
-    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    finali = [n for n, m in _AI_WORKFLOWS.items()
+              if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
     stubs = {
         "safe_display": lambda s: str(s or ""),
@@ -589,10 +566,15 @@ def test_tutti_i_pr_review_riportano_il_troncamento():
         # `False` Python, non `false` JSON/YAML — accettare `false` farebbe passare un
         # workflow che va in NameError a runtime.
         reasoning_mode = meta.get("reasoning")
-        if reasoning_mode == "low":
-            assert re.search(r'"reasoning":\s*\{"effort":\s*"low"\}', src), (
-                f"{name}: modello reasoning deve usare reasoning effort 'low' col budget "
-                "basso, altrimenti il reasoning nascosto tronca la review a 0 testo"
+        if reasoning_mode in ("low", "high"):
+            # L'effort atteso viene dal REGISTRO, non e' piu' il letterale "low": ogni
+            # modello supporta i propri valori e usarne uno fuori lista non e' neutro —
+            # viene scartato e subentra il `default_effort` del modello, che puo' essere
+            # ALTO (Fugu: default "xhigh"). Un test che pretendesse "low" ovunque
+            # imporrebbe proprio il difetto misurato sulla #281.
+            assert re.search(r'"reasoning":\s*\{"effort":\s*"%s"\}' % reasoning_mode, src), (
+                f"{name}: atteso reasoning effort {reasoning_mode!r} (valore supportato dal "
+                "modello); un effort fuori lista viene ignorato e si applica il default alto"
             )
         elif reasoning_mode == "disabled":
             assert re.search(r'"reasoning":\s*\{"enabled":\s*False\}', src), (
@@ -726,22 +708,70 @@ def test_pr_review_trigger_split():
             assert f"github.event.label.name == '{meta['label']}'" in text, (
                 f"{name}: gate finale deve accettare la label {meta['label']}"
             )
-            assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
-                f"{name}: manca il gate costo (modello solo su file core o label)"
-            )
-            assert 'EVENT_ACTION != "labeled"' in text and "not touches_core(files)" in text, (
-                f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
-            )
-            # Il set core deve includere almeno il package del bridge.
-            assert "xtrader_bridge/" in text, (
-                f"{name}: il trigger core deve includere xtrader_bridge/"
-            )
-            # Fail-safe: su Compare API troncata (>=300 file) NON deve saltare la
-            # review forte, perché un file core potrebbe essere oltre il limite
-            # (GPT-5.5). Il gate deve considerare la truncation prima di skippare.
-            assert "compare_maybe_truncated" in text, (
-                f"{name}: il gate costo non è fail-safe su Compare API troncata (>=300 file)"
-            )
+            if meta.get("core_gate", True):
+                assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
+                    f"{name}: manca il gate costo (modello solo su file core o label)"
+                )
+                # Lo skip vive su una funzione PURA (`decisione_gate`) invece che sul
+                # confronto testuale `EVENT_ACTION != "labeled"` che stava qui: quello si
+                # accontentava dell'evento e scavalcava il controllo core su QUALSIASI
+                # label, fidandosi del filtro YAML del job. Il COMPORTAMENTO, combinazione
+                # per combinazione, è coperto da
+                # `test_fugu_costo_reasoning.py::test_fable_decide_su_ogni_combinazione`.
+                assert ("def decisione_gate(" in text
+                        and 'esito_gate == "salta"' in text
+                        and "tocca_core = touches_core(files)" in text), (
+                    f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
+                )
+                # Il gate stantio vale ANCHE per chi ha il gate core: con la label finale
+                # presente, un push che non tocca file core usciva verde — un check «gate
+                # finale» su un head mai revisionato (bloccante di Fable 5 sulla #292).
+                assert 'esito_gate == "stantio"' in text and "sys.exit(1)" in text, (
+                    f"{name}: un push dopo l'armamento deve risultare STANTIO (rosso), non "
+                    f"verde su un head che nessun reviewer forte ha letto"
+                )
+                # Ancorato alla DICHIARAZIONE nell'`env:` del job, non alla presenza della
+                # stringa nel file: `LABELS_PRESENTI` compare comunque nello script che la
+                # legge, quindi un `in text` resterebbe verde anche cancellando l'env — e il
+                # gate non si armerebbe più. (Verificato per sabotaggio: la prima stesura di
+                # questa riga NON si accorgeva della rimozione.)
+                # `toJSON` e non `join(..., ',')`: una label che contiene una virgola
+                # spezzerebbe l'elenco su cui si decide se spendere — e una label chiamata
+                # `x,final-fable-review` armerebbe il gate (rilievo di Fugu Ultra sulla #292).
+                assert re.search(
+                    r"^      LABELS_PRESENTI: \$\{\{ toJSON\(github\.event\.pull_request"
+                    r"\.labels\.\*\.name\) \}\}$", text, re.M), (
+                    f"{name}: il gate non può verificare QUALE label è presente senza "
+                    f"riceverle dall'env del job"
+                )
+                # Il set core deve includere almeno il package del bridge.
+                assert "xtrader_bridge/" in text, (
+                    f"{name}: il trigger core deve includere xtrader_bridge/"
+                )
+                # Fail-safe: su Compare API troncata (>=300 file) NON deve saltare la
+                # review forte, perché un file core potrebbe essere oltre il limite
+                # (GPT-5.5). Il gate deve considerare la truncation prima di skippare.
+                # Vale solo per chi HA il gate core: senza set core non c'è nulla da cui
+                # salvarsi — chi spende solo su label non decide mai in base ai file.
+                assert "compare_maybe_truncated" in text, (
+                    f"{name}: il gate costo non è fail-safe su Compare API troncata (>=300 file)"
+                )
+            else:
+                # `core_gate: False` → spende SOLO sulla label: lo skip dev'essere
+                # incondizionato, e il gate core non deve restare come codice morto che
+                # suggerisce un comportamento che non esiste piu'.
+                # La decisione vive in una funzione PURA (`decisione_gate`) proprio per
+                # essere eseguibile dai test invece che asserita per pattern: qui basta
+                # verificare che esista: il COMPORTAMENTO è coperto, evento per evento, da
+                # `test_fugu_costo_reasoning.py::test_decisione_gate_su_ogni_evento`.
+                assert "def decisione_gate(" in text, (
+                    f"{name}: dichiarato core_gate=False ma manca la funzione di decisione "
+                    "del gate (che i test eseguono per verificarne il comportamento)"
+                )
+                assert "CORE_TRIGGER_PATTERNS" not in text and "touches_core" not in text, (
+                    f"{name}: core_gate=False ma il gate core e' ancora nel file (inerte)"
+                )
+
 
 
 def _touches_core_reale(name):
@@ -810,6 +840,13 @@ def test_gate_costo_copre_anche_il_license_manager():
     ]
     for name, meta in _AI_WORKFLOWS.items():
         if meta["kind"] != "pr_review" or meta["trigger"] != "label":
+            continue
+        if not meta.get("core_gate", True):
+            # Fugu spende SOLO sulla label (decisione costo del proprietario): non ha piu'
+            # un set core da verificare. L'invariante della #247 — «il tool che firma le
+            # licenze non deve far tacere un reviewer forte» — regge lo stesso, perche' su
+            # una PR a `license_manager/` l'agente arma comunque le label finali prima del
+            # merge, ed e' li' che Fugu parla.
             continue
         touches_core = _touches_core_reale(name)
         for path in core:
@@ -1327,7 +1364,8 @@ def test_gate_finale_pubblicazione_fail_closed():
     STRUTTURALE: entrambi i call-site catturano `published` e il fail-closed è
     condizionato a EVENT_ACTION == "labeled".
     """
-    finali = [n for n, m in _AI_WORKFLOWS.items() if m.get("trigger") == "label"]
+    finali = [n for n, m in _AI_WORKFLOWS.items()
+              if m.get("trigger") == "label"]
     assert finali, "atteso almeno un gate finale label-gated"
     for name in finali:
         src = _compiled_heredoc(name)
