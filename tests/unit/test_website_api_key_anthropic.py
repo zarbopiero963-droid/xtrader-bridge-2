@@ -133,17 +133,21 @@ def test_nessuna_chiave_vera_nella_pagina_o_nei_dizionari():
         "platform.claude.com, non solo cancellata da qui" % "; ".join(sospette))
 
 
-@pytest.mark.parametrize("lingua, parola", [("en", "English"), ("es", "inglés")])
-def test_le_versioni_en_es_dichiarano_che_le_schermate_sono_in_inglese(lingua, parola):
+@pytest.mark.parametrize("lingua, parola", [("en", "Italian"), ("es", "italiano")])
+def test_le_versioni_en_es_dichiarano_che_le_schermate_sono_in_italiano(lingua, parola):
     """`policy_lingue_sito.md` §4: il ripiego non è silenzioso.
 
-    La Console Anthropic esiste **solo in inglese**: un utente spagnolo ha diritto di sapere
-    perché le schermate non sono nella sua lingua, invece di pensare di aver sbagliato pagina.
+    **Avevo scritto il contrario.** La prima stesura diceva che la Console esiste solo in
+    inglese: gli screenshot del proprietario hanno dimostrato che è **tradotta** e segue la
+    lingua del browser — la sua è in italiano. Quindi il ripiego non è «mostriamo l'inglese
+    perché l'italiano non esiste», è «mostriamo l'italiano perché sono le schermate che
+    abbiamo», e va detto per quello che è: un utente inglese vedrà la SUA Console in inglese,
+    e deve sapere perché le figure non gli combaciano.
     """
     valore = _dizionari()[lingua].get("apikey.shots.lang")
     assert valore, "«apikey.shots.lang» non è tradotta in «%s»" % lingua
     assert parola in valore, (
-        "la nota sulle schermate in «%s» non dice che la Console è in inglese: %r"
+        "la nota sulle schermate in «%s» non dice che le figure sono in italiano: %r"
         % (lingua, valore))
 
 
@@ -165,22 +169,61 @@ def test_le_etichette_di_betrelay_restano_verbatim_in_en_es(etichetta):
             "troverebbe il campo" % (lingua, etichetta))
 
 
-def test_i_segnaposto_degli_screenshot_sono_dichiarati_e_contati():
-    """Gli screenshot non ci sono ancora: li deve fare il proprietario (serve un account
-    Anthropic, e ricostruirli sarebbe fabbricare schermate — §2 della policy).
+def test_ogni_passo_ha_una_figura_o_un_segnaposto_dichiarato():
+    """Nessun passo può restare senza illustrazione **e** senza dirlo.
 
-    I riquadri di attesa sono **sei**, uno per passo, e ciascuno dice cosa ci andrà: sono al
-    tempo stesso l'onestà verso il lettore e la lista di scatti da fare. Se un giorno le
-    immagini arrivano e qualcuno ne innesta cinque su sei, questo test lo dice.
+    Gli screenshot della Console li ha fatti il proprietario (io non posso: è dietro il login,
+    e ricostruirla sarebbe fabbricare schermate — §2 della policy). Quello di BetRelay non c'è
+    ancora, e finché manca il suo riquadro lo dichiara invece di lasciare un buco muto.
+
+    Il test non conta un numero fisso: guarda **ogni** `<section class="step">` e pretende che
+    contenga o una `<figure class="shot">` o un `<div class="attesa">`. Così regge sia oggi sia
+    quando l'ultima figura arriverà.
     """
-    testo = _html()
-    attese = re.findall(r'data-i18n="apikey\.s\d+\.attesa"', testo)
-    immagini = re.findall(r'<img[^>]+src="/static/img/apikey/', testo)
-    assert len(attese) + len(immagini) == 6, (
-        "i passi con schermata sono 6: trovati %d segnaposto + %d immagini"
-        % (len(attese), len(immagini)))
-    if attese:
+    html = _html()
+    passi = re.findall(r'<section class="step">(.*?)</section>', html, re.S)
+    assert len(passi) >= 6, "i passi della guida sono %d: la pagina è cambiata" % len(passi)
+    for n, corpo in enumerate(passi, 1):
+        assert 'class="shot"' in corpo or 'class="attesa"' in corpo, \
+            "il passo %d non ha né una figura né un segnaposto dichiarato" % n
+
+    # e i segnaposto rimasti devono essere tradotti come tutto il resto
+    for chiave in re.findall(r'data-i18n="(apikey\.[^"]*attesa)"', html):
         for lingua in ("en", "es"):
-            for chiave in re.findall(r'data-i18n="(apikey\.s\d+\.attesa)"', testo):
-                assert _dizionari()[lingua].get(chiave), \
-                    "il segnaposto «%s» non è tradotto in «%s»" % (chiave, lingua)
+            assert _dizionari()[lingua].get(chiave), \
+                "il segnaposto «%s» non è tradotto in «%s»" % (chiave, lingua)
+
+
+def test_le_immagini_esistono_e_hanno_un_alt():
+    """Un `<img>` con il percorso sbagliato è un rettangolo vuoto in pagina, e nessun test di
+    contenuto se ne accorge. L'`alt` serve a chi non vede le immagini — e su una guida fatta
+    di schermate è metà del contenuto."""
+    html = _html()
+    immagini = re.findall(r'<img[^>]+>', html)
+    assert immagini, "la guida non ha più nessuna immagine"
+    for tag in immagini:
+        src = re.search(r'src="([^"]+)"', tag).group(1)
+        percorso = _ROOT / "website" / src.lstrip("/")
+        assert percorso.is_file(), "immagine mancante sul disco: %s" % src
+        alt = re.search(r'alt="([^"]*)"', tag)
+        assert alt and len(alt.group(1)) > 15, "alt assente o troppo corto: %s" % src
+
+
+def test_nessuna_immagine_mostra_una_chiave_leggibile():
+    """La schermata del passo 5 è **vera**: conteneva la chiave in chiaro, ed è stata coperta.
+
+    Questo test non sa leggere dentro un JPEG — nessun test lo fa — ma può verificare la cosa
+    che rende quella copertura verificabile: che l'immagine sia stata **rigenerata** da noi e
+    non sia il file originale della fotocamera. Se un domani qualcuno rimette l'originale, il
+    peso torna quello di prima e questo test lo dice.
+
+    Il vero presidio resta umano e sta scritto in pagina: una chiave che si è vista si
+    **revoca**, non si oscura.
+    """
+    chiave_mostrata = _ROOT / "website" / "static" / "img" / "apikey" / "06-chiave-mostrata.jpg"
+    assert chiave_mostrata.is_file(), "manca la schermata del passo 5"
+    # l'originale pesava ~245 kB; quella redatta, con i riquadri pieni, sta sotto i 150 kB
+    peso = chiave_mostrata.stat().st_size
+    assert peso < 160_000, (
+        "06-chiave-mostrata.jpg pesa %d byte: sembra l'originale NON redatto. La chiave che "
+        "conteneva va REVOCATA, non solo ricoperta" % peso)

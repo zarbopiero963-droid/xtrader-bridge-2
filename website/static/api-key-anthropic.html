@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guida — Ottenere la API key Anthropic per l'assistente | BetRelay</title>
-<meta name="description" content="Guida passo-passo: creare l'account sulla Console Anthropic, aggiungere credito, generare la API key e incollarla in BetRelay per attivare l'assistente 🤖.">
+<meta name="description" content="Guida passo-passo con schermate reali: creare l'account sulla Console Anthropic, aggiungere credito, generare la API key e incollarla in BetRelay per attivare l'assistente 🤖.">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="stylesheet" href="/static/style.css">
 <style>
   .steps{counter-reset:step;margin-top:26px}
   .step{
-    display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:start;
+    display:grid;grid-template-columns:1fr 300px;gap:26px;align-items:start;
     background:var(--panel);border:1px solid var(--border);border-radius:14px;
     padding:22px 24px;margin-bottom:18px;
   }
@@ -25,7 +25,7 @@
   .step p{color:var(--muted);font-size:.94rem;margin-bottom:10px}
   .step p b{color:var(--text)}
   .step code{font-family:var(--mono);font-size:.85em;background:#0c0f14;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
-  .shot{background:#0c0f14;border:1px solid var(--border);border-radius:12px;padding:8px;overflow:hidden}
+  .shot{background:#0c0f14;border:1px solid var(--border);border-radius:12px;padding:8px;overflow:hidden;margin-bottom:12px}
   .shot img{display:block;width:100%;height:auto;border-radius:8px}
   .shot figcaption{color:var(--muted);font-size:.76rem;padding:8px 4px 2px;text-align:center}
   .attesa{
@@ -42,6 +42,9 @@
   .shots-note{border-left:3px solid var(--cyan);background:#0b1418;border-radius:8px;padding:12px 16px;margin:18px 0 0}
   .shots-note b{color:var(--cyan)}
   .shots-note p{color:#a9c3cc;font-size:.9rem;margin:0}
+  .citaz{border-left:3px solid var(--amber);background:#1a1508;border-radius:8px;padding:12px 16px;margin:10px 0}
+  .citaz b{color:var(--amber)}
+  .citaz p{color:#cfc3a6;font-size:.9rem;margin:0}
 </style>
 </head>
 <body>
@@ -71,8 +74,8 @@
   </div>
 
   <div class="shots-note">
-    <b data-i18n="apikey.shots.h">Le schermate sono in inglese.</b>
-    <p data-i18n="apikey.shots.lang">La Console Anthropic è in inglese e non esiste in italiano: le schermate qui sotto sono quelle vere, quindi in inglese. Il testo di questa guida è tradotto, i pulsanti no — quando ne cito uno lo scrivo <b>esattamente come appare a schermo</b>, con la traduzione fra parentesi.</p>
+    <b data-i18n="apikey.shots.h">Le schermate sono in italiano.</b>
+    <p data-i18n="apikey.shots.lang">La Console è tradotta e segue la lingua del tuo browser: queste schermate sono quelle vere, in italiano, ma <b>tu potresti vedere le stesse voci in inglese</b> — «Chiavi API» sarà <i>API keys</i>, «Fatturazione» sarà <i>Billing</i>. Nel testo cito l'etichetta come si vede qui, con l'inglese fra parentesi, così la trovi in ogni caso.</p>
   </div>
 
   <div class="steps">
@@ -81,53 +84,92 @@
       <div>
         <h2 data-i18n="apikey.s1.h"><span class="num"></span> Apri la Console e crea l'account</h2>
         <p data-i18n="apikey.s1.p1">L'indirizzo è <code>platform.claude.com</code>. Se ti ricordi <code>console.anthropic.com</code> non sbagli, ma è cambiato: quel vecchio indirizzo oggi rimanda qui.</p>
-        <p data-i18n="apikey.s1.p2">Registrati con email o con un account Google. Se hai già un account Claude puoi usare lo stesso accesso, ma <b>la Console resta separata</b>: entrarci non attiva niente e non costa niente finché non generi una chiave e la usi.</p>
+        <p data-i18n="apikey.s1.p2">Registrati con <b>Continua con Google</b> (<i>Continue with Google</i>) oppure con un'email. Se hai già un account Claude puoi usare lo stesso accesso, ma <b>la Console resta separata</b>: entrarci non attiva niente e non costa niente finché non generi una chiave e la usi.</p>
       </div>
-      <div class="attesa" data-i18n="apikey.s1.attesa">📸 Schermata in arrivo<br>La pagina di ingresso di platform.claude.com</div>
+      <figure class="shot">
+        <img src="/static/img/apikey/01-console-accesso.jpg" alt="Pagina di accesso di platform.claude.com con i pulsanti Continua con Google e Continua con l'email" loading="lazy">
+        <figcaption data-i18n="apikey.s1.cap">La pagina di ingresso: «Sviluppa sulla piattaforma Claude»</figcaption>
+      </figure>
     </section>
 
     <section class="step">
       <div>
-        <h2 data-i18n="apikey.s2.h"><span class="num"></span> Guardati intorno: Billing e API keys</h2>
-        <p data-i18n="apikey.s2.p1">Fatto l'accesso, le due voci che ti servono sono <b>Billing</b> (fatturazione, cioè il credito) e <b>API keys</b> (le chiavi). Le trovi nelle impostazioni dell'account.</p>
-        <p data-i18n="apikey.s2.p2">L'ordine giusto è questo: <b>prima il credito, poi la chiave</b>. Al contrario funziona lo stesso, ma ti ritrovi con una chiave che non risponde e non capisci perché — vedi il passo 3.</p>
+        <h2 data-i18n="apikey.s2.h"><span class="num"></span> Guardati intorno: due voci sole ti servono</h2>
+        <p data-i18n="apikey.s2.p1">Entrato, sei sulla <b>Dashboard</b>. Nel menu di sinistra le due voci che useremo sono <b>«Chiavi API»</b> (<i>API keys</i>) e, dentro le impostazioni dell'organizzazione, <b>«Fatturazione»</b> (<i>Billing</i>). Tutto il resto — Workbench, Agenti, Batch — non ti serve per BetRelay.</p>
+        <p data-i18n="apikey.s2.p2">L'ordine giusto è <b>prima il credito, poi la chiave</b>. Al contrario funziona lo stesso, ma ti ritrovi con una chiave che non risponde e non capisci perché — vedi il passo 3.</p>
       </div>
-      <div class="attesa" data-i18n="apikey.s2.attesa">📸 Schermata in arrivo<br>La Console dopo l'accesso, con il menu delle impostazioni</div>
+      <figure class="shot">
+        <img src="/static/img/apikey/02-console-dashboard.jpg" alt="Dashboard della Console con i crediti dell'organizzazione, la spesa del mese e il menu laterale" loading="lazy">
+        <figcaption data-i18n="apikey.s2.cap">La Dashboard: in alto il credito, a sinistra il menu</figcaption>
+      </figure>
     </section>
 
     <section class="step">
       <div>
         <h2 data-i18n="apikey.s3.h"><span class="num"></span> Aggiungi credito — il passo che saltano tutti</h2>
-        <p data-i18n="apikey.s3.p1">Vai su <b>Billing</b> e aggiungi credito. Senza, la chiave viene creata regolarmente ma <b>ogni richiesta viene rifiutata</b>: l'assistente resta <b>🔴 in ERRORE</b> e nel messaggio compare <code>credit balance is too low</code>.</p>
+        <p data-i18n="apikey.s3.p1">Vai su <b>«Fatturazione»</b> (<i>Billing</i>) e premi <b>«Acquista crediti»</b> (<i>Buy credits</i>). Senza credito la chiave viene creata regolarmente ma <b>ogni richiesta viene rifiutata</b>: l'assistente resta <b>🔴 in ERRORE</b> e nel messaggio compare <code>credit balance is too low</code>.</p>
         <p data-i18n="apikey.s3.p2">È il modo più comune di perdere mezz'ora: la chiave sembra giusta, l'hai incollata bene, e non funziona lo stesso. <b>È il credito, non la chiave.</b></p>
         <div class="tip">
-          <b data-i18n="apikey.s3.tip.h">Quanto mettere.</b>
-          <p data-i18n="apikey.s3.tip.p">Il minimo basta e avanza. L'assistente scambia poche righe di testo per volta: una conversazione di configurazione costa <b>frazioni di centesimo</b>. Il credito si consuma per quello che usi, non a canone.</p>
+          <b data-i18n="apikey.s3.tip.h">Quanto costa cominciare.</b>
+          <p data-i18n="apikey.s3.tip.p">Il minimo è <b>5 USD</b>, che con l'imposta diventano <b>6,10 USD</b>. Ed è tantissimo per questo uso: l'assistente scambia poche righe per volta, una conversazione di configurazione costa <b>frazioni di centesimo</b>. Nota però che <b>i crediti scadono un anno dopo l'acquisto</b>.</p>
+        </div>
+        <div class="citaz">
+          <b data-i18n="apikey.s3.auto.h">La ricarica automatica: pensaci due volte.</b>
+          <p data-i18n="apikey.s3.auto.p">La Console propone di attivarla «per mantenere la tua API attiva quando il saldo raggiunge zero». Comoda se l'assistente ti serve sempre; ma è un addebito che parte da solo. Per BetRelay <b>lasciala spenta</b> e ricarica a mano quando serve: sono pochi euro l'anno, e così non c'è modo di spendere senza accorgersene.</p>
         </div>
       </div>
-      <div class="attesa" data-i18n="apikey.s3.attesa">📸 Schermata in arrivo<br>La pagina Billing con il pulsante per aggiungere credito</div>
+      <div>
+        <figure class="shot">
+          <img src="/static/img/apikey/07-fatturazione.jpg" alt="Pagina Fatturazione con saldo crediti, pulsante Acquista crediti e limiti di spesa" loading="lazy">
+          <figcaption data-i18n="apikey.s3.cap1">«Fatturazione» → «Acquista crediti»</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="/static/img/apikey/08-aggiungi-crediti.jpg" alt="Dialog Aggiungi crediti con gli importi 5, 20, 100 USD e il totale dovuto con imposta" loading="lazy">
+          <figcaption data-i18n="apikey.s3.cap2">5 USD + imposta = 6,10 USD dovuti</figcaption>
+        </figure>
+      </div>
     </section>
 
     <section class="step">
       <div>
         <h2 data-i18n="apikey.s4.h"><span class="num"></span> Crea la chiave</h2>
-        <p data-i18n="apikey.s4.p1">Apri <b>API keys</b> (l'indirizzo diretto è <code>platform.claude.com/settings/keys</code>) e premi il pulsante per crearne una nuova.</p>
-        <p data-i18n="apikey.s4.p2">Ti chiede un <b>nome</b> — mettici <code>BetRelay</code>, così fra sei mesi sai a cosa serve — e una <b>scadenza</b>. Se scegli una scadenza, segnatela: il giorno che scade l'assistente smette di rispondere e il motivo non è ovvio.</p>
+        <p data-i18n="apikey.s4.p1">Apri <b>«Chiavi API»</b> (<i>API keys</i>) — l'indirizzo diretto è <code>platform.claude.com/settings/keys</code> — e premi <b>«Crea chiave»</b> (<i>Create key</i>) in alto a destra.</p>
+        <p data-i18n="apikey.s4.p2">Nel campo <b>«Nome»</b> scrivi qualcosa che fra sei mesi ti dica ancora a cosa serve: <code>BetRelay</code> va benissimo. Poi la <b>«Scadenza»</b>: le opzioni sono 3 ore, 1 giorno, 7 giorni, 30 giorni, personalizzata, oppure <b>«Mai»</b>.</p>
+        <div class="citaz">
+          <b data-i18n="apikey.s4.warn.h">Cosa dice Anthropic stessa quando scegli «Mai»</b>
+          <p data-i18n="apikey.s4.warn.p">«Le chiavi API a lunga durata rappresentano un rischio per la sicurezza in caso di perdita. <b>Non condividere mai la tua chiave, non archiviarla in una posizione pubblica come un repository di codice</b> o nel codice lato client, né includerla in un prompt LLM.» Se non hai un motivo per il contrario, <b>30 giorni</b> è una scelta più prudente: alla scadenza ne rifai una in trenta secondi.</p>
+        </div>
       </div>
-      <div class="attesa" data-i18n="apikey.s4.attesa">📸 Schermata in arrivo<br>L'elenco API keys con il pulsante di creazione</div>
+      <div>
+        <figure class="shot">
+          <img src="/static/img/apikey/03-chiavi-api.jpg" alt="Elenco Chiavi API con il pulsante Crea chiave in alto a destra" loading="lazy">
+          <figcaption data-i18n="apikey.s4.cap1">L'elenco delle chiavi e «Crea chiave»</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="/static/img/apikey/04-crea-chiave.jpg" alt="Dialog Crea chiave API con il nome compilato e l'avviso di sicurezza di Anthropic" loading="lazy">
+          <figcaption data-i18n="apikey.s4.cap2">Nome, scadenza e l'avviso di Anthropic</figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="/static/img/apikey/05-scadenza.jpg" alt="Menu a tendina della scadenza con le opzioni 3 ore, 1 giorno, 7 giorni, 30 giorni, personalizzato, mai" loading="lazy">
+          <figcaption data-i18n="apikey.s4.cap3">Le scadenze disponibili</figcaption>
+        </figure>
+      </div>
     </section>
 
     <section class="step">
       <div>
         <h2 data-i18n="apikey.s5.h"><span class="num"></span> Copiala subito: te la mostra una volta sola</h2>
-        <p data-i18n="apikey.s5.p1">Appena creata, la chiave compare per intero. Comincia con <code>sk-ant-</code> ed è lunga. <b>Copiala adesso</b>: chiusa quella finestra, Anthropic non te la rimostra più — nemmeno a te.</p>
-        <p data-i18n="apikey.s5.p2">Se la perdi non è un dramma: si cancella quella e se ne crea un'altra. Ma è tempo buttato, e nel frattempo l'assistente non parte.</p>
+        <p data-i18n="apikey.s5.p1">Appena creata compare la finestra <b>«Salva la tua chiave API»</b> con scritto, testualmente, <b>«Non potrai visualizzarla di nuovo»</b>. La chiave comincia con <code>sk-ant-</code> ed è lunga. Premi <b>«Copia chiave»</b> (<i>Copy key</i>) <b>adesso</b>: chiusa quella finestra, non te la rimostra più — nemmeno a te.</p>
+        <p data-i18n="apikey.s5.p2">Se la perdi non è un dramma: si elimina quella e se ne crea un'altra. Ma è tempo buttato, e nel frattempo l'assistente non parte.</p>
         <div class="warn">
           <b data-i18n="apikey.s5.warn.h">La chiave è una password, e questa spende soldi tuoi.</b>
-          <p data-i18n="apikey.s5.warn.p">Chi ce l'ha può usare il tuo credito. Non mandarla in chat, non metterla negli screenshot, non incollarla in un forum per chiedere aiuto. Se ti sfugge: torna su <b>API keys</b>, <b>revocala</b> e creane una nuova — la vecchia smette di funzionare all'istante.</p>
+          <p data-i18n="apikey.s5.warn.p">Chi ce l'ha può usare il tuo credito. Non mandarla in chat, non metterla negli screenshot, non incollarla in un forum per chiedere aiuto. Se ti sfugge: torna su <b>«Chiavi API»</b>, aprila dai tre puntini e <b>revocala</b> — la vecchia smette di funzionare all'istante. Revocare, non oscurare: una chiave finita in giro resta valida finché non la elimini.</p>
         </div>
       </div>
-      <div class="attesa" data-i18n="apikey.s5.attesa">📸 Schermata in arrivo<br>La chiave appena creata (oscurata: si vede la forma, non il valore)</div>
+      <figure class="shot">
+        <img src="/static/img/apikey/06-chiave-mostrata.jpg" alt="Finestra Salva la tua chiave API: il valore della chiave è coperto da un riquadro nero" loading="lazy">
+        <figcaption data-i18n="apikey.s5.cap">La chiave in chiaro — qui coperta, perché questa schermata è vera</figcaption>
+      </figure>
     </section>
 
     <section class="step">
@@ -150,13 +192,13 @@
 
   <h2 class="sec" data-i18n="apikey.trouble.h">Se smette di funzionare</h2>
   <div class="card">
-    <p data-i18n="apikey.trouble.credit"><b>«credit balance is too low»</b> — è finito il credito. Torna su <b>Billing</b> e ricarica. La chiave è ancora valida.</p>
-    <p data-i18n="apikey.trouble.auth"><b>Errore di autenticazione</b> — la chiave è sbagliata, revocata o scaduta. Creane una nuova e reincollala: il campo va riempito di nuovo, non si «aggiorna» da solo.</p>
+    <p data-i18n="apikey.trouble.credit"><b>«credit balance is too low»</b> — è finito il credito. Torna su <b>«Fatturazione»</b> e ricarica. La chiave è ancora valida.</p>
+    <p data-i18n="apikey.trouble.auth"><b>Errore di autenticazione</b> — la chiave è sbagliata, revocata o <b>scaduta</b> (se avevi scelto una scadenza). Creane una nuova e reincollala: il campo va riempito di nuovo, non si «aggiorna» da solo.</p>
     <p data-i18n="apikey.trouble.keyring"><b>«Keyring non disponibile: chiave NON salvata»</b> — Windows non ha messo a disposizione la Gestione credenziali. BetRelay <b>non</b> ripiega scrivendo la chiave in chiaro: preferisce non salvarla.</p>
     <p data-i18n="apikey.trouble.rest">In tutti e tre i casi <b>il bridge continua a funzionare</b>: Telegram, parser, CSV e limiti di sicurezza non dipendono dall'assistente.</p>
   </div>
 
-  <p class="secsub" style="margin-top:22px;font-size:.85rem" data-i18n="apikey.disclaimer">BetRelay non è affiliata ad Anthropic né a Claude, e non rivende il loro servizio: la chiave la prendi tu, direttamente da loro, e il rapporto — credito, fatturazione, condizioni d'uso — resta fra te e Anthropic. Qui trovi solo le istruzioni per non perderci tempo.</p>
+  <p class="secsub" style="margin-top:22px;font-size:.85rem" data-i18n="apikey.disclaimer">BetRelay non è affiliata ad Anthropic né a Claude, e non rivende il loro servizio: la chiave la prendi tu, direttamente da loro, e il rapporto — credito, fatturazione, condizioni d'uso — resta fra te e Anthropic. Qui trovi solo le istruzioni per non perderci tempo. Le schermate mostrano la Console di Anthropic a scopo descrittivo, con i dati personali oscurati.</p>
 
   <div class="cta-row">
     <a class="btn primary" href="/documentazione" data-i18n="apikey.cta.docs">← Torna alla documentazione</a>
