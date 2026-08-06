@@ -115,25 +115,60 @@ def test_il_wizard_delega_e_non_reimplementa():
     legittimo. Un test strutturale deve vincolare *da dove viene la regola*, non lo stile di
     import con cui la si raggiunge; altrimenti il prossimo che tocca il file lo vede fallire
     senza aver rotto nulla, e la lezione che impara è che il test va aggirato.
+
+    **Perché il nome della chiamata non basta** (secondo rilievo GPT-5.5 sulla #295, ed era
+    giusto: il difetto l'aveva introdotto l'allargamento qui sopra). Accettare *qualunque*
+    chiamata di nome `is_valid_chat_id` rende il test PERMISSIVO — un helper omonimo definito
+    dentro `wizard.py` lo lascerebbe VERDE mentre viola esattamente l'invariante che difende.
+    Un falso verde è peggio del falso rosso che si era corretti: il primo tace su un difetto,
+    il secondo dà solo fastidio.
+
+    Quindi il test non si ferma al nome: risolve il **simbolo effettivamente chiamato** e
+    pretende che sia *lo stesso oggetto* di `source_manager.is_valid_chat_id`. È l'unico
+    controllo che distingue «delega alla regola canonica» da «ha una funzione che si chiama
+    come lei».
     """
     import ast
     import inspect
 
-    albero = ast.parse(inspect.getsource(wizard.check_chat).lstrip())
+    # `unwrap`: se un domani `check_chat` venisse decorata, `getsource` leggerebbe il wrapper
+    # invece del corpo vero, e il test tacerebbe. Secondo rilievo GPT-5.5, costo una riga.
+    funzione = inspect.unwrap(wizard.check_chat)
+    albero = ast.parse(inspect.getsource(funzione).lstrip())
 
-    chiamate = set()
+    nomi_chiamati, sorgenti = set(), []
     for n in ast.walk(albero):
         if not isinstance(n, ast.Call):
             continue
         if isinstance(n.func, ast.Attribute):        # source_manager.is_valid_chat_id(...)
-            chiamate.add(n.func.attr)
+            nomi_chiamati.add(n.func.attr)
+            if n.func.attr == "is_valid_chat_id" and isinstance(n.func.value, ast.Name):
+                sorgenti.append((n.func.value.id, n.func.attr))
         elif isinstance(n.func, ast.Name):           # is_valid_chat_id(...) importata a nome
-            chiamate.add(n.func.id)
+            nomi_chiamati.add(n.func.id)
+            if n.func.id == "is_valid_chat_id":
+                sorgenti.append((None, n.func.id))
 
-    assert "is_valid_chat_id" in chiamate, (
+    assert "is_valid_chat_id" in nomi_chiamati, (
         "`check_chat` deve chiamare `is_valid_chat_id` di `source_manager` — qualificata o "
         "importata a nome, indifferente — invece di riscrivere la regola"
     )
-    assert "isdigit" not in chiamate, (
+    assert "isdigit" not in nomi_chiamati, (
         "`str.isdigit()` è Unicode-aware ed è la copia divergente da rimuovere"
     )
+
+    # La parte che chiude il falso verde: il simbolo chiamato deve ESSERE quello canonico.
+    atteso = source_manager.is_valid_chat_id
+    for qualificatore, attributo in sorgenti:
+        radice = wizard if qualificatore is None else getattr(wizard, qualificatore, None)
+        assert radice is not None, (
+            f"`check_chat` chiama `{qualificatore}.{attributo}` ma `wizard.{qualificatore}` "
+            f"non esiste: la regola non arriva da nessuna fonte risolvibile"
+        )
+        risolto = getattr(radice, attributo, None)
+        assert risolto is atteso, (
+            f"`check_chat` chiama un `{attributo}` che NON è "
+            f"`source_manager.is_valid_chat_id` (risolto: {risolto!r}). Una funzione che si "
+            f"chiama come la regola canonica non è la regola canonica: è di nuovo una seconda "
+            f"copia, cioè il difetto che questa PR rimuove."
+        )
