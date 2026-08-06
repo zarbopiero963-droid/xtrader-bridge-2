@@ -457,7 +457,7 @@ contratti IA (localizzazione cross-cutting a parte).
 
 Dalla **slice 4g** è localizzata la **chrome** di **🧩 Parser Personalizzato** (§7.1) —
 il pannello più complesso: titolo finestra, etichette campo (Nome parser/Modalità/Sport/
-Parser salvati/Catalogo XTrader/Nomi squadra · separatore/Mercati/Messaggio di prova),
+Parser salvati/Catalogo Betfair/Nomi squadra · separatore/Mercati/Messaggio di prova),
 header di sezione (🔗 Traduzioni attive · ⚙️ Avanzate · Output multi-riga · Anteprima ·
 Diagnostica), bottoni (➕ Provider/🆕 Nuovo/📂 Carica/📑 Duplica/🗑 Elimina/➕ Inserisci
 regole fisse/🗺️ Dizionario nomi/🎯 Dizionario mercati/💾 Salva parser/🧪 Prova messaggio/🧪🧪
@@ -1153,7 +1153,7 @@ Sezioni (colonna destra, dall'alto):
   **"📇 Provider"** (porta sulla scheda Provider dell'hub; senza hub ricade sull'aggiunta
   rapida), **"🗺️ Dizionario nomi"**, **"🎯 Dizionario mercati"**. I due dizionari **non stanno
   più** dentro le righe delle Traduzioni, dove erano mescolati a separatore e checkbox.
-- **Catalogo XTrader:** label **«Mercato:»** + dropdown, label **«Selezione:»** + dropdown
+- **Catalogo Betfair:** label **«Mercato:»** + dropdown, label **«Selezione:»** + dropdown
   (#182 PR A ⑤: prima le due tendine a cascata avevano **una sola** etichetta, davanti alla
   prima) + **"➕ Inserisci regole fisse"**.
 - **Avviso valore fisso (#182 PR A ⑥):** riga ambra (`STATUS_WARN`), **non bloccante**, che
@@ -1362,7 +1362,7 @@ Sezioni (colonna destra, dall'alto):
   - `⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: …` (Dizionario mercati);
   - `⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)`;
   - `⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti dalla
-    Modalità: gli ID si prendono dal «Catalogo XTrader», i nomi si estraggono dal messaggio ·
+    Modalità: gli ID si prendono dal «Catalogo Betfair», i nomi si estraggono dal messaggio ·
     mancanti: MarketId, SelectionId`;
   - `⚠ 1/2 righe piazzabili (le altre verranno scartate) · riga 1 (Mercato): INVALID_PRICE —
     quota non numerica o ≤ 1.0` — il riepilogo multi-riga ora **nomina la riga** e il perché;
@@ -1530,8 +1530,8 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
   illeggibile o auto-save fallito), l'evidenziazione dell'elenco **torna indietro** insieme allo
   stato interno. Senza, l'utente crederebbe di essere sul profilo nuovo e scriverebbe le righe
   sopra quello vecchio. Sotto: la tabella
-  **Country · Betfair/XTrader · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
-  canale nei nomi attesi da Betfair/XTrader. La colonna **«Come lo scrive il canale»** (già «Provider»,
+  **Country · Betfair · Come lo scrive il canale · Sport · Tipo · Lingua**. Traduce i nomi del
+  canale nei nomi attesi da Betfair. La colonna **«Come lo scrive il canale»** (già «Provider»,
   rinominata in **#293** per non collidere con l'anagrafica «Provider» = etichetta CSV; la chiave
   dati resta `provider`) contiene l'alias con cui il canale scrive il nome squadra. La tendina
   **«Lingua»** (epica multilingua **#3 slice 5b**) tagga la riga con la **lingua della fonte**
@@ -1569,7 +1569,7 @@ gate, dedup, invarianti anti-scommessa-involontaria) è **invariata**: cambia so
 
   Sotto la colonna: tabella **Inizia dopo · Finisce prima ·
   Testo mercato · Mercato (catalogo) · Selezione (catalogo) · Lingua**. Legge il mercato da una
-  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo XTrader. La tendina
+  posizione precisa del messaggio e imposta Mercato/Selezione dal catalogo Betfair. La tendina
   **«Lingua»** (epica multilingua **#3 slice 5c**, speculare alla colonna Lingua del Dizionario
   nomi) tagga la voce con la **lingua della fonte** (`IT`/`EN`/`ES`) oppure **«(tutte le lingue)»**
   = agnostica (default): quando la lingua-fonte è impostata, le voci della lingua ESATTA hanno
@@ -2242,6 +2242,12 @@ Il design può cambiare **aspetto e disposizione**, ma NON deve indebolire quest
 8. **Errori parlanti** sul perché non parte / perché non scrive.
 9. **Nessuna automazione "di puntata diretta"** verso Betfair/XTrader dalla UI: l'app scrive
    solo il CSV.
+   <!-- #285-ok: questo «Betfair/XTrader» NON è la colonna rinominata — qui significa «verso
+        Betfair O XTrader», cioè i due sistemi esterni, ed è un'invariante di sicurezza.
+        Va lasciato così: una rinomina generica lo mutilerebbe, togliendo XTrader
+        dall'elenco di ciò verso cui la UI non automatizza nulla. -->
+
+
 
 ---
 

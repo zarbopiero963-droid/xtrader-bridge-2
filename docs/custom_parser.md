@@ -120,7 +120,7 @@ Derivano un valore calcolato da quello estratto. Built-in:
 >    nessuna frase combacia e nessun mercato dalle regole
 > ⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)
 > ⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti
->    dalla Modalità: gli ID si prendono dal «Catalogo XTrader», i nomi si estraggono dal
+>    dalla Modalità: gli ID si prendono dal «Catalogo Betfair», i nomi si estraggono dal
 >    messaggio · mancanti: MarketId, SelectionId
 > ⚠ 1/2 righe piazzabili (le altre verranno scartate) · riga 1 (Mercato): INVALID_PRICE
 >    — quota non numerica o ≤ 1.0
@@ -189,9 +189,9 @@ mai un lato/selezione tradotto a caso.
 Un canale può scrivere le squadre con nomi diversi da quelli che XTrader/Betfair si
 aspettano nell'`EventName` (alias, abbreviazioni, lingue diverse). I **profili di
 mappatura nomi** (`name_mapping_store`, config `name_mappings`) traducono i nomi
-provider nei nomi Betfair/XTrader **prima** della scrittura:
+provider nei nomi Betfair **prima** della scrittura:
 
-- ogni profilo è una tabella a campi liberi `Betfair/XTrader ↔ Provider` (+ `Country`
+- ogni profilo è una tabella a campi liberi `Betfair ↔ Provider` (+ `Country`
   organizzativo); entrambe le colonne le compili tu;
 - nel pannello **🗺️ Mapping → ⚽ Calcio** i profili sono in una **colonna sempre visibile**
   (#182 PR B), non più dentro una tendina da aprire. Ogni riga mostra il nome, **«🧩 N»** =
@@ -389,7 +389,7 @@ vengono azzerati (a differenza del ramo dizionario, dove il nome può cambiare p
 **GUI**: i profili si gestiscono nella scheda **Mapping** della finestra «🧰 Strumenti»
 (pulsante «🗺️ Mapping» nella finestra principale → `name_mapping_gui.MappingPanel`),
 **area ⚽ Calcio** (`NameMappingPanel`): selettore profilo (nuovo/rinomina/elimina) e
-tabella `Country | Betfair/XTrader | Provider | Sport | Tipo | Lingua`. La classe
+tabella `Country | Betfair | Provider | Sport | Tipo | Lingua`. La classe
 `NameMappingWindow` resta come finestra standalone (compatibilità). La tabella ha una
 colonna **Sport** per riga (PR-P10: «(tutti gli sport)» = agnostica, oppure uno sport
 specifico), una colonna **Tipo** (#178 §2: «(qualsiasi tipo)» = agnostica, oppure
@@ -408,7 +408,7 @@ il **separatore** squadre e spunti i **profili** da usare (checkbox multi-selezi
 > `betfair_known_teams` resta come substrato ed è **popolata a mano** dall'utente (o via import
 > del suo dizionario custom). Lo schema e la precompila qui sotto sono invariati.
 
-La colonna **Betfair/XTrader** della mappatura nomi resta **campo libero** (puoi sempre
+La colonna **Betfair** della mappatura nomi resta **campo libero** (puoi sempre
 digitare un nome), ma può essere **precompilata** coi nomi squadra **permanenti** presenti nel
 dizionario locale per i 5 sport:
 
@@ -519,7 +519,7 @@ quando la scheda torna attiva nell'hub Strumenti (una modifica al dizionario nel
 aver aggiunto valori). Fonte dati: `App._known_market_terms(sport)` — sola lettura, **fail-fast**
 se un altro thread tiene il lock del DB (probe non bloccante: nessun suggerimento momentaneo
 invece di congelare la GUI), DB assente → nessun suggerimento. La coerenza «selezione appartiene al mercato» resta garantita
-dal picker **«Catalogo XTrader»** (che imposta la tripla Mercato→Tipo→Selezione); le tendine
+dal picker **«Catalogo Betfair»** (che imposta la tripla Mercato→Tipo→Selezione); le tendine
 per-riga offrono i valori per-sport senza cascading Mercato→Selezione (fuori scope PR 13).
 
 ### Mappatura mercati a frase (`market_mapping_profiles`)
@@ -533,14 +533,14 @@ elenchi condividono la stessa implementazione, quindi restano allineati per cost
 
 I **profili di mappatura mercati** (`market_mapping_store`, config
 `market_mappings`) leggono il mercato **da una posizione precisa** del messaggio e lo
-traducono nel **Mercato + Selezione XTrader** canonici (gli stessi del Catalogo del builder):
+traducono nel **Mercato + Selezione Betfair** canonici (gli stessi del Catalogo del builder):
 
 - ogni **voce** è `(Inizia dopo, Finisce prima, Testo mercato) → (MarketType, MarketName,
   SelectionName)`. I delimitatori **Inizia dopo / Finisce prima** funzionano **come nel
   Parser** (match tollerante agli spazi; se *Finisce prima* è vuoto → fino a fine riga). Si
   estrae il campo, e se vi compare il **Testo mercato** (case-insensitive, su confini di
   token) la voce scatta. Mercato e selezione **non** sono testo libero: si scelgono dal
-  Catalogo XTrader, così il CSV è sempre canonico;
+  Catalogo Betfair, così il CSV è sempre canonico;
 - **perché a delimitatori e non "frase su tutto il messaggio"**: molti provider mettono in
   testa un **banner/menu** con più mercati (es. `P.Bet. 30/0,5HT/1,5HT/1 ASIATICO`); cercare
   la frase nell'intero testo darebbe falsi match/ambiguità. Leggendo **solo** il campo
@@ -585,7 +585,7 @@ la riga resta valida senza ID stantii.
 **funzionante**: selettore profilo (nuovo/rinomina/elimina) + tabella `Inizia dopo |
 Finisce prima | Testo mercato | Mercato (catalogo ▾) | Selezione (catalogo ▾) | Lingua ▾`, dove i
 delimitatori ritagliano il campo del messaggio, il Testo mercato lo riconosce, e
-Mercato/Selezione si scelgono dai menù del Catalogo XTrader (la Selezione dipende dal
+Mercato/Selezione si scelgono dai menù del Catalogo Betfair (la Selezione dipende dal
 Mercato) con `MarketType` derivato dal Catalogo. La tendina **«Lingua»** (#3 slice 5c:
 «(tutte le lingue)» = agnostica, oppure `IT`/`EN`/`ES` = lingua-fonte della voce) imposta il
 filtro-lingua per riga, come la colonna analoga del Dizionario nomi. I profili persistono in `config.json` → `market_mappings`. Rinominare/eliminare un

@@ -82,7 +82,7 @@ l'assistente lo **prova col parser attivo** e ti dice:
     che è quello che succedeva prima;
   - **dizionario nomi / dizionario mercati**: nome o mercato non risolvibile, e perché;
   - **Provider** mancante, o **campi di riconoscimento** richiesti dalla Modalità (con l'indicazione
-    che gli ID si prendono dal «Catalogo XTrader»);
+    che gli ID si prendono dal «Catalogo Betfair»);
   - **MultiMarket / MultiSelection**: quale riga generata viene scartata e per quale motivo, e
     l'avviso se un interruttore è acceso ma non c'è nessuna riga abilitata (in quel caso non
     nasce nessuna riga extra, anche se il verdetto è «pronto»).

@@ -4842,7 +4842,7 @@ class App(ctk.CTk):
         def _make_mapping(parent):
             """Crea il pannello Mapping e ne tiene il riferimento per il refresh.
             Inietta il provider dei nomi squadra del dizionario locale (#282 PR 11), così l'area
-            ⚽ Calcio può precompilare la colonna Betfair/XTrader coi nomi già presenti nel
+            ⚽ Calcio può precompilare la colonna Betfair coi nomi già presenti nel
             dizionario (popolato a mano dall'utente)."""
             panel_refs["mapping"] = MappingPanel(
                 parent, on_saved=_mapping_saved,

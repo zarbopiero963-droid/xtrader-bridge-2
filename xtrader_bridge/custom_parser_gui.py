@@ -736,12 +736,12 @@ class CustomParserPanel(ctk.CTkFrame):
         ctk.CTkButton(riga_anag, text=i18n.tr("🎯 Dizionario mercati"), width=170,
                       command=self._open_market_mapping).pack(side="left", padx=6)
 
-        # Catalogo XTrader (B2): scegli Mercato → Selezione (solo NON dinamici) e
+        # Catalogo Betfair (B2): scegli Mercato → Selezione (solo NON dinamici) e
         # inseriscili come regole FISSE, senza digitare i nomi canonici a mano.
         # #182 restyle: card di sezione (prima era un frame trasparente, senza confini).
         cat = ctk.CTkFrame(outer, **ui_cards.card_style())
         cat.pack(fill="x", padx=10, pady=(0, 6))
-        ctk.CTkLabel(cat, text=i18n.tr("Catalogo XTrader:"),
+        ctk.CTkLabel(cat, text=i18n.tr("Catalogo Betfair:"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(side="left", padx=8, pady=6)
         self._markets = self.builder.market_options()
         # #182 PR A ⑤: le due tendine sono a CASCATA (Mercato -> Selezione) ma avevano una sola
@@ -773,7 +773,7 @@ class CustomParserPanel(ctk.CTkFrame):
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(4, 0))
 
         # Mappatura nomi squadra: separatore casa/trasferta del canale + profili
-        # (checkbox multi-selezione) che traducono l'EventName provider → Betfair/XTrader.
+        # (checkbox multi-selezione) che traducono l'EventName provider → Betfair.
         nm = ctk.CTkFrame(trad, fg_color="transparent")
         nm.pack(fill="x", padx=6, pady=(0, 4))
         ctk.CTkLabel(nm, text=i18n.tr("Separatore squadre:")).pack(side="left", padx=6)
@@ -799,7 +799,7 @@ class CustomParserPanel(ctk.CTkFrame):
             wraplength=680, justify="left").pack(anchor="w", padx=14, pady=(0, 2))
 
         # Mappatura mercati a frase: profili (checkbox multi-selezione) che traducono una
-        # frase-mercato del messaggio nel Mercato/Selezione XTrader (market_mapping_store).
+        # frase-mercato del messaggio nel Mercato/Selezione Betfair (market_mapping_store).
         mm = ctk.CTkFrame(trad, fg_color="transparent")
         mm.pack(fill="x", padx=6, pady=(0, 6))
         ctk.CTkLabel(mm, text=i18n.tr("Mercati:")).pack(side="left", padx=6)
@@ -1596,7 +1596,7 @@ class CustomParserPanel(ctk.CTkFrame):
         self._result.configure(text=gui_utils.with_running_notice(
             i18n.tr("💾 Salvato in {path}").format(path=path), self._is_running))
 
-    # ── catalogo XTrader (B2) ───────────────────────────────────────────────
+    # ── catalogo Betfair (B2) ───────────────────────────────────────────────
     def _on_market_change(self, _value=None):
         """Cambiato il mercato → rinfresca la tendina delle selezioni (solo fisse)."""
         self._refresh_selection_menu()

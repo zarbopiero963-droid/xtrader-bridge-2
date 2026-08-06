@@ -179,7 +179,7 @@ class ParserBuilder:
         vuoto/None/ignoto → "" (non specificato, agnostico)."""
         self.sport = sports.normalize_sport(sport) or ""
 
-    # ── catalogo XTrader: Mercato → Selezione FISSI (B2) ───────────────────
+    # ── catalogo Betfair: Mercato → Selezione FISSI (B2) ───────────────────
     def market_options(self, rows=None) -> list:
         """MarketName selezionabili come valore **fisso** per la tendina Mercato del
         catalogo: esclude i mercati **dinamici** (MarketName con placeholder squadra,
@@ -195,7 +195,7 @@ class ParserBuilder:
                 if not s["dynamic"] and s["SelectionName"]]
 
     def set_fixed_market(self, market: str, selection: str, rows=None) -> None:
-        """Imposta Mercato+Selezione **fissi** dal catalogo XTrader (B2): crea/aggiorna
+        """Imposta Mercato+Selezione **fissi** dal catalogo Betfair (B2): crea/aggiorna
         le regole `MarketType`, `MarketName`, `SelectionName` coi valori canonici scelti
         (`fixed_value`), azzerando estrazione/transform/value-map così il valore resta
         ESATTAMENTE quello del catalogo. Non tocca le altre regole.
@@ -212,7 +212,7 @@ class ParserBuilder:
             (m for m in self.market_options(rows=rows)
              if m.strip().casefold() == market_key), None)
         if not canonical_market:
-            raise ValueError(f"Mercato non nel catalogo XTrader: {market!r}")
+            raise ValueError(f"Mercato non nel catalogo Betfair: {market!r}")
         canonical_selection = next(
             (s for s in self.selection_options(canonical_market, rows)
              if s.strip().casefold() == selection_key), None)

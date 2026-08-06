@@ -378,7 +378,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
 
     `name_mapping_profiles` (lista di liste-di-righe, vedi `name_mapping_store`):
     se il parser richiede la mappatura nomi (`defn.name_mapping_profiles` non vuoto)
-    l'`EventName` provider viene tradotto nel nome Betfair/XTrader PRIMA della
+    l'`EventName` provider viene tradotto nel nome Betfair PRIMA della
     validazione; se non è traducibile lo stato è `MAPPING_MISSING` (fail-closed,
     nessuna riga). La mappatura è **obbligatoria** quando richiesta: profili assenti
     (`None`) sono trattati come lista vuota → `MAPPING_MISSING` (l'anteprima senza
@@ -388,7 +388,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     se il parser seleziona dei profili mercati (`defn.market_mapping_profiles` non vuoto),
     il mercato letto da una **posizione delimitata** del messaggio (D3: `resolve_market`
     estrae tra `Inizia dopo`/`Finisce prima`) imposta `MarketType`/`MarketName`/
-    `SelectionName` CANONICI dal Catalogo XTrader. Precedenza D1:
+    `SelectionName` CANONICI dal Catalogo Betfair. Precedenza D1:
     il dizionario **vince** sulle regole-colonna quando una voce combacia in modo univoco;
     ambiguità → `MARKET_MAPPING_MISSING` (fail-closed, D2); nessun match → restano i valori
     delle regole-colonna, ma se nemmeno quelle hanno un mercato → `MARKET_MAPPING_MISSING`
@@ -436,7 +436,7 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
     if _handicap_bloccante(row):
         return PipelineResult(INVALID_HANDICAP, row, list(res.missing_required))
 
-    # Mappatura nomi squadra: traduce l'EventName provider nel nome Betfair/XTrader.
+    # Mappatura nomi squadra: traduce l'EventName provider nel nome Betfair.
     # Se il parser la richiede è **obbligatoria** e fail-closed: profili assenti
     # (`None`, es. anteprima senza config) sono trattati come "nessun profilo" →
     # MAPPING_MISSING, così l'anteprima NON mostra "Pronto" per un evento che il

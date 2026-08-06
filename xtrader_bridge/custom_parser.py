@@ -237,7 +237,7 @@ class CustomParserDef:
     mode: str = recognition.DEFAULT_MODE
     rules: "list[FieldRule]" = field(default_factory=list)
     # Mappatura nomi squadra (name_mapping_store): profili selezionati per tradurre
-    # l'EventName provider → nome Betfair/XTrader. Vuoto = nessuna mappatura (EventName
+    # l'EventName provider → nome Betfair. Vuoto = nessuna mappatura (EventName
     # invariato, retro-compatibile). `team_separator` è il separatore casa/trasferta
     # nei messaggi del canale (testo libero: "v"/"vs"/"-"/"/"); vuoto = default "v".
     name_mapping_profiles: "list[str]" = field(default_factory=list)

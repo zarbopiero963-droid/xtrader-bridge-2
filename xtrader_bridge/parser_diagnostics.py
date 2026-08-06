@@ -110,7 +110,7 @@ _EXPLAIN.update({
     validator.INVALID_MISSING_PRICE: "quota richiesta dal parser ma assente nel messaggio",
     validator.INVALID_MISSING_FIELDS: (
         "mancano i campi di riconoscimento richiesti dalla Modalità: gli ID si prendono dal "
-        "«Catalogo XTrader», i nomi si estraggono dal messaggio"),
+        "«Catalogo Betfair», i nomi si estraggono dal messaggio"),
 })
 
 

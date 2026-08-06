@@ -1,7 +1,7 @@
 """Finestra di gestione del Dizionario nomi squadra (profili di mappatura).
 
 Permette di **creare/rinominare/eliminare** profili di mappatura e di **modificarne
-la tabella** ``Country | Betfair/XTrader | Come lo scrive il canale`` (entrambe le colonne nome a
+la tabella** ``Country | Betfair | Come lo scrive il canale`` (entrambe le colonne nome a
 campo libero), salvati in ``config.json`` → chiave ``name_mappings``. I profili poi
 si selezionano (checkbox) nel Parser Personalizzato per tradurre l'``EventName`` del
 canale nel nome atteso da XTrader.
@@ -52,7 +52,7 @@ _CHANNEL_ALIAS_COLUMN = "Come lo scrive il canale"
 # Colonne (etichetta, larghezza px) dell'intestazione tabella del Dizionario nomi squadra.
 # Fonte unica usata da `_build_ui` E dal test di regressione (`test_channel_alias_rename.py`),
 # così la verifica dell'etichetta è sul DATO reale dell'header, non su una grep del sorgente.
-_HEADER_COLUMNS = (("Country (opz.)", 180), ("Betfair / XTrader", 240),
+_HEADER_COLUMNS = (("Country (opz.)", 180), ("Betfair", 240),
                    (_CHANNEL_ALIAS_COLUMN, 240), ("Sport", 150), ("Tipo", 150),
                    ("Lingua", 130))
 
@@ -177,7 +177,7 @@ class NameMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
         ctk.CTkLabel(
             self, text=i18n.tr(
                 "Traduce i nomi squadra così come li scrive il canale nel nome atteso da "
-                "Betfair/XTrader. Seleziona i profili nel Parser Personalizzato."),
+                "Betfair. Seleziona i profili nel Parser Personalizzato."),
             font=ctk.CTkFont(size=11), text_color="gray", wraplength=720,
             anchor="w", justify="left").pack(anchor="w", padx=12, pady=(0, 6))
 
@@ -706,7 +706,7 @@ class MarketMappingPanel(_ElencoProfiliMixin, ctk.CTkFrame):
     leggono il mercato da una **posizione precisa** del messaggio: ogni riga è ``Inizia dopo
     | Finisce prima | Testo mercato | Mercato ▾ | Selezione ▾``. I delimitatori ritagliano il
     campo (come nel Parser); se vi compare il «Testo mercato» la voce imposta Mercato/Selezione
-    scelti dai menù del **Catalogo XTrader** (la Selezione dipende dal Mercato), così il valore
+    scelti dai menù del **Catalogo Betfair** (la Selezione dipende dal Mercato), così il valore
     nel CSV è sempre **canonico**. I profili si selezionano poi nel Parser Personalizzato.
 
     Tutta la logica pura sta in `market_mapping_store`/`dizionario` (testate in CI); qui
