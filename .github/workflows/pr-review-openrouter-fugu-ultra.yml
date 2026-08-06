@@ -51,6 +51,9 @@ jobs:
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       EVENT_ACTION: ${{ github.event.action }}
+      # Le label VIVE della PR: servono a distinguere «push su PR mai armata» (skip
+      # legittimo) da «push DOPO che il gate era stato armato» (gate stantio, fail-closed).
+      LABELS_PRESENTI: ${{ join(github.event.pull_request.labels.*.name, ',') }}
       # before/after esistono solo sul payload pull_request `synchronize`. Su
       # `synchronize` (push di file core) resolve_range() li usa per il push-range;
       # su `labeled`/`opened`/`reopened` sono vuoti e ripiega su BASE_SHA...HEAD
@@ -86,6 +89,9 @@ jobs:
       PRICE_OUTPUT_PER_MILLION: "30.00"
 
       MANUAL_REVIEW_LABEL: manual-review-required
+      # La label che ARMA questo gate. Serve allo script per riconoscere un push arrivato
+      # DOPO l'armamento (gate stantio) e fallire invece di lasciare un verde bugiardo.
+      FINAL_LABEL: final-fugu-review
 
     steps:
       - name: Review pushed commit range with Fugu Ultra
@@ -502,6 +508,25 @@ jobs:
           # subito senza spendere. La copertura dei push resta a GPT-5.5 (automatico,
           # ~2 centesimi) e a Fable, che mantiene il suo gate core+label.
           if EVENT_ACTION != "labeled":
+              # Falla trovata da Fugu stesso sulla PR #292, e fondata: se la label finale è
+              # GIÀ presente e arriva un push, uscire 0 lascerebbe un check VERDE su un head
+              # che nessun reviewer forte ha letto — il verde si riferisce alla review del
+              # head precedente. È il difetto della #274 («un reviewer che non ha interrogato
+              # il modello risulta success come uno che ha revisionato»), qui aggravato dal
+              # fatto che la label ancora presente *afferma* che il gate è stato armato.
+              # Fail-closed: gate stantio → job ROSSO, che si risolve riarmando la label
+              # (remove + re-add), cioè la procedura che il CLAUDE.md già prescrive.
+              FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fugu-review")
+              etichette = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
+              gate_stantio = FINAL_LABEL in etichette
+              if gate_stantio:
+                  print(
+                      f"::error::{REVIEW_ID}: il head è cambiato DOPO che il gate finale era "
+                      f"stato armato (label «{FINAL_LABEL}» presente). La review precedente "
+                      "si riferisce a un altro commit: rimuovi e riaggiungi la label per "
+                      "rieseguire il gate su questo head."
+                  )
+                  sys.exit(1)
               print(
                   f"::notice::{REVIEW_ID}: push senza label finale → review forte saltata "
                   "(nessun costo modello). Fugu spende solo sul gate finale a head stabile."

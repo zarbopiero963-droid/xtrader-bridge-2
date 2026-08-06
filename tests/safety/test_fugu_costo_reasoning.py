@@ -135,3 +135,33 @@ def test_gli_ALTRI_reviewer_non_sono_stati_toccati():
         with open(p, encoding="utf-8") as fh:
             testo = fh.read()
         assert atteso in testo, f"{nome}: copertura ridotta per sbaglio (manca {atteso!r})"
+
+
+# ── la falla trovata da Fugu STESSO sulla PR #292 ──────────────────────────────────────────
+
+def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
+    """Bloccante sollevato da Fugu Ultra sulla PR che lo correggeva — e fondato.
+
+    Scenario: si arma il gate finale (label) → Fugu revisiona il head A → arriva un push →
+    head B → evento `synchronize` → con lo skip incondizionato il job **esce 0** e il check
+    resta **verde**. Ma quel verde si riferisce a una review del head A: sul head B nessuno
+    ha guardato, e la label è ancora lì a dire che il gate è stato armato.
+
+    Prima di questa PR il buco esisteva già ma era più stretto (su un push a file core Fugu
+    revisionava davvero). Lo skip incondizionato lo ha **allargato**: quindi va chiuso qui,
+    non lasciato com'era.
+
+    Fail-closed: se la label finale è presente e il head si è mosso, il gate è **stantio** e
+    il job lo dichiara invece di tacere. Un check verde che significa «non ho guardato» è
+    esattamente il difetto della #274 («un reviewer che non ha interrogato il modello risulta
+    success come uno che ha revisionato»).
+    """
+    src = _fugu()
+
+    assert "LABELS_PRESENTI" in src or "gate_stantio" in src, (
+        "il workflow deve accorgersi di un push arrivato DOPO la label finale: altrimenti "
+        "lascia un check verde su un head che nessun reviewer forte ha letto"
+    )
+    assert "sys.exit(1)" in src, (
+        "il gate stantio dev'essere fail-closed (job rosso), non un avviso che nessuno legge"
+    )
