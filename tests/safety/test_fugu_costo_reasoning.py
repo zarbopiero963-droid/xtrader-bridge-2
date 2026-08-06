@@ -555,6 +555,36 @@ def test_fable_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette)
 EVENTI_AMMESSI = ["opened", "synchronize", "reopened", "ready_for_review", "labeled"]
 
 
+def eventi_del_trigger(testo_workflow):
+    """Gli eventi `pull_request` dichiarati dal workflow, come insieme.
+
+    Scritto tollerante di proposito (rilievo GPT-5.5 sulla #292): la prima stesura pretendeva
+    esattamente quattro spazi, la lista inline e persino l'ORDINE — un formatter YAML o una
+    lista multilinea equivalente l'avrebbero fatta fallire senza nessun cambio di
+    comportamento. PyYAML non è fra le dipendenze dichiarate del repo, quindi non si può
+    parsare davvero il file: si accettano entrambe le forme che YAML ammette.
+    """
+    # `[^\S\n]*` e non `\s*`: `\s` include il newline, quindi su una lista multilinea
+    # avrebbe divorato l'a capo e catturato la PRIMA voce come se fosse il valore inline —
+    # restituendo un solo evento su tre. Preso al primo giro di test.
+    m = re.search(r"^[^\S\n]*types:[^\S\n]*(.*)$", testo_workflow, re.M)
+    if not m:
+        return set()
+    resto = m.group(1).strip()
+    if resto.startswith("["):
+        return {x.strip() for x in resto.strip("[]").split(",") if x.strip()}
+    # Forma multilinea: `types:` da solo, poi una riga `- evento` per ciascuno.
+    coda = testo_workflow[m.end():].splitlines()
+    eventi = set()
+    for riga in coda:
+        voce = riga.strip()
+        if voce.startswith("- "):
+            eventi.add(voce[2:].strip())
+        elif voce:
+            break
+    return eventi
+
+
 @pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
 def test_gli_eventi_che_possono_armare_sono_solo_quelli_previsti(workflow, leggi):
     """Il gate non è ispezionabile solo dalla funzione: dipende da QUALI eventi GitHub può
@@ -563,13 +593,26 @@ def test_gli_eventi_che_possono_armare_sono_solo_quelli_previsti(workflow, leggi
     Non è nato da un bug ma da un rischio, quindi non ha un fail-first: la dimostrazione che
     morde è per sabotaggio — aggiungendo `edited` all'elenco del workflow, diventa rosso.
     """
-    match = re.search(r"^    types: \[([^\]]+)\]$", leggi(), re.M)
+    trovati = eventi_del_trigger(leggi())
 
-    assert match, f"{workflow}: elenco `types:` del trigger pull_request non trovato"
-    trovati = [x.strip() for x in match.group(1).split(",")]
-
-    assert trovati == EVENTI_AMMESSI, (
-        f"{workflow}: il trigger ammette {trovati}, atteso {EVENTI_AMMESSI}. Ogni evento in "
-        "più arriva a un gate che arma sulla sola PRESENZA della label finale: `edited` o "
-        "`unlabeled` farebbero partire una review finale mai richiesta."
+    assert trovati == set(EVENTI_AMMESSI), (
+        f"{workflow}: il trigger ammette {sorted(trovati)}, atteso {sorted(EVENTI_AMMESSI)}. "
+        "Ogni evento in più arriva a un gate che arma sulla sola PRESENZA della label "
+        "finale: `edited` o `unlabeled` farebbero partire una review finale mai richiesta."
     )
+
+
+def test_il_parser_del_trigger_regge_entrambe_le_forme_YAML():
+    """Contro-guardia al parser tollerante: se leggesse solo la forma inline, riformattare il
+    workflow in lista multilinea lo farebbe rispondere «nessun evento» — e il test sopra
+    passerebbe solo perché confronta due insiemi vuoti... no, fallirebbe; ma peggio ancora,
+    un parser che ignora la forma multilinea renderebbe INVISIBILE un `edited` aggiunto lì."""
+    inline = "on:\n  pull_request:\n    types: [opened, labeled]\n"
+    multilinea = "on:\n  pull_request:\n    types:\n      - opened\n      - labeled\n    branches: [main]\n"
+    indentato = "on:\n  pull_request:\n        types: [opened, labeled]\n"
+
+    atteso = {"opened", "labeled"}
+    assert eventi_del_trigger(inline) == atteso
+    assert eventi_del_trigger(multilinea) == atteso, "forma multilinea non riconosciuta"
+    assert eventi_del_trigger(indentato) == atteso, "indentazione diversa non riconosciuta"
+    assert eventi_del_trigger("on:\n  push:\n") == set()
