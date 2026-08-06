@@ -90,18 +90,25 @@ main.py                  FastAPI: pagine statiche + POST /api/chat + /api/health
 knowledge/bridge_kb.md   knowledge base del chatbot (dalle docs reali del bridge)
 static/                  index.html · demo.html · documentazione.html · faq.html ·
                          contatti.html · guida-bot.html · style.css · chat.js · i18n.js
-static/docs/             manuale PDF di XTrader (materiale di terzi — vedi sotto)
+static/docs/             catalogo screenshot delle strategie XTrader (vedi sotto)
 static/img/guida/        screenshot delle guide (valori d'esempio, mai dati reali)
 Dockerfile               build per Railway / locale
 ```
 
-## Materiale di terzi — non ne ospitiamo
+## Materiale di terzi
 
-Il sito **non ospita** materiale di terzi. Fino al 6 agosto 2026 serviva
-`static/docs/guida-xtrader.pdf`, il manuale ufficiale di XTrader (opera di **TradingSportivo**,
-358 pagine, 3,8 MB), con la loro autorizzazione. **È stato rimosso per decisione del
-proprietario**: ospitare l'opera di qualcun altro è una responsabilità che si sceglie di avere, e
-si è scelto di non averla.
+Fino al 6 agosto 2026 il sito serviva `static/docs/guida-xtrader.pdf`, il manuale ufficiale di
+XTrader (opera di **TradingSportivo**, 358 pagine, 3,8 MB), con la loro autorizzazione. **È stato
+rimosso per decisione del proprietario**: ospitare l'opera di qualcun altro è una responsabilità
+che si sceglie di avere, e si è scelto di non averla.
+
+> ⚠️ **Resta un secondo file di terzi**, e va detto invece di lasciar credere che la cartella sia
+> pulita: `static/docs/strategie-xtrader/condizioni/FORMULA.pdf` è la stampa di un articolo del
+> **Servizio Assistenza di XTrader** («GUIDA IN LINEA DI XTRADER · Condizione Formula»). Nessuna
+> pagina lo linka, ma sta sotto `static/` quindi è **raggiungibile pubblicamente**. Serve come
+> fonte al catalogo delle strategie e al documento `docs/xtrader_formule.md`. Se la ragione della
+> rimozione del manuale vale anche per lui, va tolto allo stesso modo — **decisione del
+> proprietario**, non di chi scrive questo README.
 
 Oggi `/documentazione` **nomina** il manuale, ne **attribuisce** la paternità a TradingSportivo e
 dice che sta sul loro sito — senza copia e senza link diretto al file.
