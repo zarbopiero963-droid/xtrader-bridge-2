@@ -477,3 +477,28 @@ def test_la_label_dell_evento_conta_SOLO_sugli_eventi_labeled(evento):
     decisione_gate = _funzione_dal_workflow("decisione_gate")
 
     assert decisione_gate(evento, ["final-fugu-review"], "final-fugu-review", "") == "revisiona"
+
+
+def test_fable_distingue_la_label_NORMALE_dal_payload_ANOMALO():
+    """Rilievo GPT-5.5 (secondo giro): declassare a `notice` l'evento `labeled` non armato
+    riduce il rumore in CI — è il caso normale, si aggiunge `manual-review-required` — ma
+    perde di vista il caso che non dovrebbe mai capitare: la label dell'evento **è** quella
+    finale, eppure fra le label della PR non c'è. Lì il payload è incoerente e il gate finale
+    sta per essere trattato come un push qualsiasi: va detto ad alta voce.
+
+    Il test guarda il sorgente perché il livello del messaggio è una direttiva
+    `::notice::`/`::warning::` di Actions, non un valore di ritorno: non c'è funzione pura da
+    eseguire. Ancorato ai due rami, non a un conteggio.
+    """
+    src = extract_heredocs(_fable())[0]
+
+    inizio = src.index("ARMATO = gate_finale_armato(")
+    blocco = src[inizio:inizio + 1600]
+
+    assert "::notice::" in blocco, (
+        "l'aggiunta di una label diversa è ordinaria: deve restare un notice, non gridare"
+    )
+    assert "::warning::" in blocco, (
+        "la label dell'evento È quella finale ma non risulta fra quelle della PR: payload "
+        "incoerente o condizione YAML allargata → serve un warning, non un notice"
+    )

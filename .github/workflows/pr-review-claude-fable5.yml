@@ -539,17 +539,27 @@ jobs:
           ARMATO = gate_finale_armato(EVENT_ACTION, etichette_pr, FINAL_LABEL,
                                       os.environ.get("LABEL_EVENTO", ""))
 
-          # Evento `labeled` che NON arma il gate: o è stata aggiunta un'altra label, o la
-          # finale non risulta fra quelle della PR. Si prosegue col gate sui file core — il
-          # comportamento sicuro — ma va DETTO, altrimenti un gate finale che salta in
-          # silenzio è indistinguibile da uno che ha approvato (difetto della #274).
+          # Evento `labeled` che NON arma il gate. Due casi ben diversi, e vanno detti a
+          # voce diversa (rilievo GPT-5.5 sulla #292): un gate finale che salta in silenzio
+          # è indistinguibile da uno che ha approvato (difetto della #274), ma gridare sul
+          # caso ordinario è rumore che poi nessuno legge.
           if EVENT_ACTION == "labeled" and not ARMATO:
-              etichetta = os.environ.get("LABEL_EVENTO", "") or "(sconosciuta)"
-              print(
-                  f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta}», che non è quella "
-                  f"finale («{FINAL_LABEL}»): il gate finale NON è armato, si decide sui "
-                  "file core."
-              )
+              etichetta = os.environ.get("LABEL_EVENTO", "")
+              if etichetta == FINAL_LABEL:
+                  # Non dovrebbe mai capitare: la label dell'evento È la finale, ma fra
+                  # quelle della PR non c'è. Payload incoerente, o la PR è stata modificata
+                  # nel frattempo: il gate finale sta per essere trattato come un push.
+                  print(
+                      f"::warning::{REVIEW_ID}: evento `labeled` per «{FINAL_LABEL}» ma quella "
+                      "label non risulta fra quelle della PR: il gate finale NON è armato, "
+                      "si decide sui file core."
+                  )
+              else:
+                  # Caso ordinario: è stata aggiunta un'altra label (es. manual-review-required).
+                  print(
+                      f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta or '(vuota)'}», che "
+                      f"non è quella finale («{FINAL_LABEL}»): si decide sui file core."
+                  )
 
           # Fail-safe: se la Compare API ha troncato la lista (>= 300 file) non
           # possiamo escludere che un file core sia oltre il limite → NON saltare
