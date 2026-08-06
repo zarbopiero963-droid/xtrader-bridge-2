@@ -201,6 +201,14 @@ comunque coperti dai reviewer automatici GPT-5.5/GLM. L'agente **non vede mai le
 API key**: aggiunge solo la label; i secret restano nei GitHub Secrets e GitHub
 Actions resta read-only sul codice.
 
+**Il gate a label si arma solo con la SUA label** (#292). Entrambi i workflow
+ricevono l'elenco delle label della PR (`LABELS_PRESENTI`) e verificano che quella
+finale ci sia davvero, invece di accontentarsi dell'evento `labeled`. La condizione
+YAML del job filtra già le altre label, ma una decisione di **spesa** non deve
+dipendere da un altro strato: se quella condizione venisse allargata — per esempio
+per reagire a `manual-review-required` — Fable scavalcherebbe il gate sui file core
+e Fugu chiamerebbe il modello, entrambi senza che nulla li fermi.
+
 La label resta il **gate finale pre-merge obbligatorio**: anche se una PR non ha
 toccato file core (quindi i due forti non sono mai partiti da soli), prima di
 dichiararla pronta l'agente **deve** far partire le review finali via label.

@@ -526,10 +526,14 @@ jobs:
               `opened`. L'unica eccezione è il head cambiato DOPO l'armamento (`synchronize`):
               lì la review precedente si riferisce a un altro commit, quindi il gate è
               STANTIO e va dichiarato invece di lasciare un verde bugiardo.
+
+              `labeled` NON è una scorciatoia: anche lì serve che il gate sia armato. La
+              condizione YAML del job filtra già le label diverse da quella finale, ma una
+              decisione di SPESA non deve dipendere da un altro strato — se quella
+              condizione cambiasse, una label qualsiasi (es. `manual-review-required`)
+              farebbe partire il modello. Rilievo di GPT-5.5 su questa PR.
               """
               armato = label_finale in etichette
-              if event_action == "labeled":
-                  return "revisiona"
               if not armato:
                   return "salta"
               return "stantio" if event_action == "synchronize" else "revisiona"

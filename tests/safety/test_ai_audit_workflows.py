@@ -40,6 +40,12 @@ import re
 
 import pytest
 
+# Fonte unica degli helper di estrazione dagli heredoc (regola 3): vivevano qui come
+# `_extract_heredocs`/`_extract_func`, sono stati spostati quando sono serviti anche a
+# `test_fugu_costo_reasoning.py`. Gli alias sotto tengono invariati i call-site esistenti.
+from tests.safety.workflow_ast import extract_func as _extract_func
+from tests.safety.workflow_ast import extract_heredocs as _extract_heredocs
+
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _WF_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 
@@ -86,28 +92,6 @@ def _wf_path(name):
 def _read(name):
     with open(_wf_path(name), encoding="utf-8") as fh:
         return fh.read()
-
-
-def _extract_heredocs(text):
-    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell."""
-    lines = text.splitlines()
-    blocks = []
-    i = 0
-    while i < len(lines):
-        m = re.match(r"^(\s*)python3 <<'PY'\s*$", lines[i])
-        if m:
-            indent = m.group(1)
-            body = []
-            i += 1
-            while i < len(lines) and lines[i].strip() != "PY":
-                line = lines[i]
-                if line.startswith(indent):
-                    line = line[len(indent):]
-                body.append(line)
-                i += 1
-            blocks.append("\n".join(body))
-        i += 1
-    return blocks
 
 
 def _compiled_heredoc(name):
@@ -368,21 +352,6 @@ def test_gate_finale_prompt_severo_budget_basso_e_troncamento():
             f"{name}: il marker di completamento deve dipendere da model_failed "
             "(una review troncata/errore NON deve marcare done → deve poter essere rifatta)"
         )
-
-
-def _extract_func(src, fname, stubs):
-    """Estrae UNA funzione dal sorgente heredoc dedentato ed esegue solo quel nodo,
-    in un namespace con gli stub passati (safe_display/redact/is_critical), così può
-    essere esercitata offline senza far girare il resto dello script (rete/API)."""
-    import ast
-    tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == fname:
-            mod = ast.Module(body=[node], type_ignores=[])
-            ns = dict(stubs)
-            exec(compile(mod, "<heredoc>", "exec"), ns)  # noqa: S102 — sorgente del repo, test
-            return ns[fname]
-    raise AssertionError(f"{fname} non trovata nel sorgente di {src[:40]!r}…")
 
 
 def test_gate_finale_budget_patch_adattivo():
@@ -743,9 +712,27 @@ def test_pr_review_trigger_split():
                 assert "CORE_TRIGGER_PATTERNS" in text and "touches_core" in text, (
                     f"{name}: manca il gate costo (modello solo su file core o label)"
                 )
-                assert ('EVENT_ACTION != "labeled"' in text
+                # Lo skip vive su una funzione PURA (`gate_finale_armato`) invece che sul
+                # confronto testuale `EVENT_ACTION != "labeled"` che stava qui: quello si
+                # accontentava dell'evento e scavalcava il controllo core su QUALSIASI
+                # label, fidandosi del filtro YAML del job. Il COMPORTAMENTO, label per
+                # label, è coperto da
+                # `test_fugu_costo_reasoning.py::test_fable_arma_il_gate_solo_con_la_SUA_label`.
+                assert ("def gate_finale_armato(" in text
+                        and "not ARMATO" in text
                         and "not touches_core(files)" in text), (
                     f"{name}: manca la condizione di skip (nessun file core e nessuna label)"
+                )
+                # Ancorato alla DICHIARAZIONE nell'`env:` del job, non alla presenza della
+                # stringa nel file: `LABELS_PRESENTI` compare comunque nello script che la
+                # legge, quindi un `in text` resterebbe verde anche cancellando l'env — e il
+                # gate non si armerebbe più. (Verificato per sabotaggio: la prima stesura di
+                # questa riga NON si accorgeva della rimozione.)
+                assert re.search(
+                    r"^      LABELS_PRESENTI: \$\{\{ join\(github\.event\.pull_request"
+                    r"\.labels\.\*\.name, ','\) \}\}$", text, re.M), (
+                    f"{name}: il gate non può verificare QUALE label è presente senza "
+                    f"riceverle dall'env del job"
                 )
                 # Il set core deve includere almeno il package del bridge.
                 assert "xtrader_bridge/" in text, (

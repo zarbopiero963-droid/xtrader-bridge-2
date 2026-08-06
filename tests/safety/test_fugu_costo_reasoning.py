@@ -31,6 +31,8 @@ import re
 
 import pytest
 
+from tests.safety.workflow_ast import extract_func, extract_heredocs
+
 _RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _FUGU = os.path.join(_RADICE, ".github", "workflows", "pr-review-openrouter-fugu-ultra.yml")
 
@@ -100,19 +102,9 @@ def _usage_note_reale():
     import ast
     import re as _re
 
-    righe = _fugu().splitlines()
-    corpo, dentro, indent = [], False, ""
-    for r in righe:
-        m = _re.match(r"^(\s*)python3 <<'PY'\s*$", r)
-        if m and not dentro:
-            dentro, indent = True, m.group(1)
-            continue
-        if dentro:
-            if r.strip() == "PY":
-                break
-            corpo.append(r[len(indent):] if r.startswith(indent) else r)
-    assert corpo, "heredoc Python non individuato nel workflow"
-    albero = ast.parse("\n".join(corpo))
+    blocchi = extract_heredocs(_fugu())
+    assert len(blocchi) == 1, f"atteso 1 heredoc Python nel workflow, trovati {len(blocchi)}"
+    albero = ast.parse(blocchi[0])
     # Servono anche le costanti di prezzo che `usage_note` usa: si estraggono dallo stesso
     # sorgente invece di ricopiarne i valori qui, altrimenti il test resterebbe verde con
     # un listino stantio (e il costo riportato dal workflow sarebbe sbagliato senza che
@@ -258,30 +250,18 @@ def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
 
 
 def _funzione_dal_workflow(nome):
-    """Estrae una funzione a livello modulo dall'heredoc del workflow e la esegue isolata."""
-    import ast
-    import re as _re
+    """La funzione `nome` dell'heredoc Fugu, estratta ed **eseguibile**.
 
-    righe = _fugu().splitlines()
-    corpo, dentro, indent = [], False, ""
-    for r in righe:
-        m = _re.match(r"^(\s*)python3 <<'PY'\s*$", r)
-        if m and not dentro:
-            dentro, indent = True, m.group(1)
-            continue
-        if dentro:
-            if r.strip() == "PY":
-                break
-            corpo.append(r[len(indent):] if r.startswith(indent) else r)
-    albero = ast.parse("\n".join(corpo))
-    voluti = [n for n in albero.body if isinstance(n, ast.FunctionDef) and n.name == nome]
-    assert len(voluti) == 1, (
-        f"attesa una sola `{nome}` a livello modulo, trovate {len(voluti)} — la struttura "
-        "dello script è cambiata, aggiorna questo test"
+    L'estrazione non è scritta qui: gli helper stanno in `tests/safety/workflow_ast.py`,
+    che è la fonte unica condivisa con `test_ai_audit_workflows.py` (regola 3 — la prima
+    stesura di questo modulo ne aveva una seconda copia, ed è stata rimossa).
+    """
+    blocchi = extract_heredocs(_fugu())
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow Fugu, trovati {len(blocchi)}: l'estrazione "
+        "per posizione non è più affidabile, va ancorata al blocco giusto"
     )
-    ns = {"os": __import__("os")}
-    exec(compile(ast.Module(body=voluti, type_ignores=[]), f"fugu#{nome}", "exec"), ns)  # noqa: S102
-    return ns[nome]
+    return extract_func(blocchi[0], nome, {"os": os})
 
 
 @pytest.mark.parametrize("evento,armato,atteso", [
@@ -325,3 +305,108 @@ def test_decisione_gate_e_pura():
     dopo = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
 
     assert prima == dopo == "stantio", "la decisione legge l'ambiente invece dei suoi argomenti"
+
+
+def test_una_label_QUALSIASI_non_fa_spendere():
+    """Rilievo GPT-5.5: `decisione_gate("labeled", …)` rispondeva «revisiona» a prescindere
+    dalla label, appoggiandosi al filtro YAML del job (`github.event.label.name ==
+    'final-fugu-review'`).
+
+    Il filtro c'è ed è corretto, ma far dipendere una decisione di **costo** da un altro
+    strato è fragile: basta che qualcuno allarghi la condizione del job — per esempio per
+    reagire a `manual-review-required` — e la funzione comincia a spendere senza che nulla
+    la fermi. Difesa in profondità: la decisione richiede il gate ARMATO in ogni caso.
+    """
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    # `labeled` di un'altra label, senza quella finale fra le presenti
+    assert decisione_gate("labeled", ["manual-review-required"], "final-fugu-review") == "salta"
+    # …e con quella finale presente si revisiona, come deve
+    assert decisione_gate("labeled", ["final-fugu-review"], "final-fugu-review") == "revisiona"
+
+
+def test_estrazione_heredoc_non_prende_il_blocco_sbagliato():
+    """Rilievo GPT-5.5: `_funzione_dal_workflow` prendeva il PRIMO blocco `python3 <<'PY'`.
+    Oggi ce n'è uno solo, ma se un domani ne comparisse un altro prima, i test validerebbero
+    lo script sbagliato restando verdi — un falso verde silenzioso."""
+    blocchi = extract_heredocs(_fugu())
+
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow, trovati {len(blocchi)}: l'estrazione per "
+        "posizione non è più affidabile, va ancorata al blocco giusto"
+    )
+
+
+# ── Regola 2: la CLASSE, non il sito ───────────────────────────────────────────────────────
+#
+# Il rilievo di GPT-5.5 qui sopra non riguarda Fugu: riguarda «un gate di SPESA che si fida
+# del filtro YAML del job». Cercato il pattern su tutti i workflow, **Fable ha lo stesso
+# difetto**: il suo salto per assenza di file core è condizionato a `EVENT_ACTION != "labeled"`,
+# quindi un evento `labeled` — di qualunque label — bypassa il controllo core e fa spendere.
+# Oggi non succede perché la condizione YAML filtra le altre label; ma è esattamente la stessa
+# dipendenza da un altro strato, sullo stesso tipo di decisione (soldi).
+
+_FABLE = os.path.join(_RADICE, ".github", "workflows", "pr-review-claude-fable5.yml")
+
+
+def _fable() -> str:
+    with open(_FABLE, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _funzione_da_fable(nome):
+    blocchi = extract_heredocs(_fable())
+    assert len(blocchi) == 1, (
+        f"atteso 1 heredoc Python nel workflow Fable, trovati {len(blocchi)}"
+    )
+    return extract_func(blocchi[0], nome, {"os": os})
+
+
+@pytest.mark.parametrize("evento,etichette,atteso", [
+    # La label finale, e solo quella, arma il gate…
+    ("labeled", ["final-fable-review"], True),
+    ("labeled", ["manual-review-required", "final-fable-review"], True),
+    # …una label qualsiasi no: si torna al controllo sui file core, che è ciò che decide
+    # se spendere su un push.
+    ("labeled", ["manual-review-required"], False),
+    ("labeled", [], False),
+    # E nessun altro evento arma il gate: su `synchronize`/`opened` la spesa dipende dai
+    # file core, non dalla label già presente da un giro precedente.
+    ("synchronize", ["final-fable-review"], False),
+    ("opened", ["final-fable-review"], False),
+])
+def test_fable_arma_il_gate_solo_con_la_SUA_label(evento, etichette, atteso):
+    """Stesso rilievo di `test_una_label_QUALSIASI_non_fa_spendere`, applicato al sibling.
+
+    Fable è il reviewer forte che resta anche sui push core: se una label qualsiasi gli
+    facesse saltare il controllo core, spenderebbe su PR di soli docs/test — il costo che
+    questa PR sta cercando di togliere.
+    """
+    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
+
+    assert gate_finale_armato(evento, etichette, "final-fable-review") is atteso
+
+
+@pytest.mark.parametrize("workflow,leggi", [
+    ("fugu", _fugu),
+    ("fable", _fable),
+])
+def test_le_etichette_arrivano_DAVVERO_dall_env_del_job(workflow, leggi):
+    """`decisione_gate`/`gate_finale_armato` ricevono le label come argomento, quindi i test
+    di comportamento qui sopra restano verdi anche se l'`env:` che le fornisce sparisce — e
+    il gate, in CI, non si armerebbe più (Fugu non spenderebbe MAI, Fable salterebbe il gate
+    finale in silenzio). Serve un'ancora sulla DICHIARAZIONE.
+
+    Non basta `"LABELS_PRESENTI" in testo`: la stringa compare comunque nello script che la
+    legge. Verificato per sabotaggio — cancellando l'env, la versione con `in` restava verde.
+    """
+    testo = leggi()
+
+    assert re.search(
+        r"^      LABELS_PRESENTI: \$\{\{ join\(github\.event\.pull_request\.labels\.\*\.name,"
+        r" ','\) \}\}$", testo, re.M), (
+        f"{workflow}: manca l'env LABELS_PRESENTI — il gate non vede le label della PR"
+    )
+    assert re.search(rf"^      FINAL_LABEL: final-{workflow}-review$", testo, re.M), (
+        f"{workflow}: manca l'env FINAL_LABEL — il gate userebbe il default hardcoded"
+    )
