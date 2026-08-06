@@ -290,8 +290,12 @@ def test_decisione_gate_su_ogni_evento(evento, armato, atteso):
     decisione_gate = _funzione_dal_workflow("decisione_gate")
 
     etichette = ["manual-review-required"] + (["final-fugu-review"] if armato else [])
+    # Su un evento `labeled` la label è quella che l'ha scatenato: qui il caso «armato»
+    # è appunto l'aggiunta della label finale. Il caso «label diversa» ha i suoi test
+    # dedicati più sotto. Sugli altri eventi la label non esiste.
+    label_evento = "final-fugu-review" if (evento == "labeled" and armato) else ""
 
-    assert decisione_gate(evento, etichette, "final-fugu-review") == atteso
+    assert decisione_gate(evento, etichette, "final-fugu-review", label_evento) == atteso
 
 
 def test_decisione_gate_e_pura():
@@ -320,9 +324,11 @@ def test_una_label_QUALSIASI_non_fa_spendere():
     decisione_gate = _funzione_dal_workflow("decisione_gate")
 
     # `labeled` di un'altra label, senza quella finale fra le presenti
-    assert decisione_gate("labeled", ["manual-review-required"], "final-fugu-review") == "salta"
+    assert decisione_gate("labeled", ["manual-review-required"], "final-fugu-review",
+                          "manual-review-required") == "salta"
     # …e con quella finale presente si revisiona, come deve
-    assert decisione_gate("labeled", ["final-fugu-review"], "final-fugu-review") == "revisiona"
+    assert decisione_gate("labeled", ["final-fugu-review"], "final-fugu-review",
+                          "final-fugu-review") == "revisiona"
 
 
 def test_estrazione_heredoc_non_prende_il_blocco_sbagliato():
@@ -384,7 +390,12 @@ def test_fable_arma_il_gate_solo_con_la_SUA_label(evento, etichette, atteso):
     """
     gate_finale_armato = _funzione_da_fable("gate_finale_armato")
 
-    assert gate_finale_armato(evento, etichette, "final-fable-review") is atteso
+    # Su `labeled` la label dell'evento è quella che l'ha scatenato: nel caso «armato» è
+    # la finale. Il caso «label diversa su PR già etichettata» ha il suo test dedicato.
+    label_evento = "final-fable-review" if (evento == "labeled" and atteso) else ""
+
+    assert gate_finale_armato(
+        evento, etichette, "final-fable-review", label_evento) is atteso
 
 
 @pytest.mark.parametrize("workflow,leggi", [
@@ -410,3 +421,59 @@ def test_le_etichette_arrivano_DAVVERO_dall_env_del_job(workflow, leggi):
     assert re.search(rf"^      FINAL_LABEL: final-{workflow}-review$", testo, re.M), (
         f"{workflow}: manca l'env FINAL_LABEL — il gate userebbe il default hardcoded"
     )
+    assert re.search(r"^      LABEL_EVENTO: \$\{\{ github\.event\.label\.name \}\}$",
+                     testo, re.M), (
+        f"{workflow}: manca l'env LABEL_EVENTO — senza il nome della label dell'evento il "
+        f"gate non distingue «aggiunta la finale» da «aggiunta un'altra su una PR che ce "
+        f"l'aveva già»"
+    )
+
+
+# ── Il caso peggiore, trovato da GPT-5.5 sulla correzione precedente ───────────────────────
+#
+# Guardare solo `LABELS_PRESENTI` non basta: se la label finale è GIÀ sulla PR e qualcuno ne
+# aggiunge un'altra, l'evento è `labeled`, lo stato risulta armato e il modello parte —
+# esattamente lo scenario che la difesa in profondità doveva coprire. Serve il nome della
+# label DELL'EVENTO (`github.event.label.name`), non solo l'elenco di quelle presenti.
+
+@pytest.mark.parametrize("etichette", [
+    ["final-fugu-review"],
+    ["final-fugu-review", "manual-review-required"],
+])
+def test_fugu_una_label_diversa_su_una_PR_gia_etichettata_non_fa_spendere(etichette):
+    """Il buco che restava: `labeled` + label evento NON finale + finale già presente."""
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate(
+        "labeled", etichette, "final-fugu-review", "manual-review-required") == "salta", (
+        "aggiungere una label qualsiasi a una PR che ha già quella finale non deve "
+        "rieseguire la review forte: la review su questo head è già stata fatta"
+    )
+    # …mentre la label finale, quella sì, arma il gate.
+    assert decisione_gate(
+        "labeled", etichette, "final-fugu-review", "final-fugu-review") == "revisiona"
+
+
+@pytest.mark.parametrize("etichette", [
+    ["final-fable-review"],
+    ["final-fable-review", "manual-review-required"],
+])
+def test_fable_una_label_diversa_su_una_PR_gia_etichettata_non_arma(etichette):
+    """Stesso caso sul gemello: qui armare il gate significa SALTARE il controllo sui file
+    core, quindi una label qualsiasi farebbe spendere su una PR di soli docs/test."""
+    gate_finale_armato = _funzione_da_fable("gate_finale_armato")
+
+    assert gate_finale_armato(
+        "labeled", etichette, "final-fable-review", "manual-review-required") is False
+    assert gate_finale_armato(
+        "labeled", etichette, "final-fable-review", "final-fable-review") is True
+
+
+@pytest.mark.parametrize("evento", ["opened", "reopened", "ready_for_review"])
+def test_la_label_dell_evento_conta_SOLO_sugli_eventi_labeled(evento):
+    """Contro-guardia al fix: su `opened`/`reopened` non esiste alcuna label d'evento, e
+    pretenderla richiuderebbe il buco che Fugu aveva trovato — una PR aperta con la label già
+    applicata non riceve `labeled`, e senza review resterebbe un check verde mai guardato."""
+    decisione_gate = _funzione_dal_workflow("decisione_gate")
+
+    assert decisione_gate(evento, ["final-fugu-review"], "final-fugu-review", "") == "revisiona"

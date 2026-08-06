@@ -65,6 +65,10 @@ jobs:
       # della PR ci sia davvero quella finale (vedi `gate_finale_armato` più sotto).
       FINAL_LABEL: final-fable-review
       LABELS_PRESENTI: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+      # La label DELL'EVENTO (vuota se non è un evento `labeled`): l'elenco sopra da solo
+      # non basta, perché su una PR che ha già la label finale qualunque altra label
+      # lascerebbe lo stato «armato».
+      LABEL_EVENTO: ${{ github.event.label.name }}
 
       REVIEW_ID: claude-fable5
       MODEL_LABEL: Claude Fable 5
@@ -511,33 +515,40 @@ jobs:
                           return True
               return False
 
-          def gate_finale_armato(event_action, etichette, label_finale) -> bool:
-              """Il gate finale a label è ARMATO solo se l'evento è `labeled` **e** la label
-              presente è davvero quella finale.
+          def gate_finale_armato(event_action, etichette, label_finale, label_evento="") -> bool:
+              """Il gate finale è ARMATO solo se l'evento è `labeled`, la label **di quel
+              evento** è quella finale, e la finale risulta fra le label della PR.
 
               Prima bastava `event_action == "labeled"`: la condizione YAML del job filtra
               già le altre label (`github.event.label.name == 'final-fable-review'`), quindi
               in pratica non si spendeva a sproposito. Ma far dipendere una decisione di
               COSTO da un altro strato è fragile — basta allargare quella condizione (per
               esempio per reagire a `manual-review-required`) e il controllo sui file core
-              viene scavalcato senza che nulla lo fermi. Difesa in profondità, stesso rilievo
-              che GPT-5.5 ha fatto sul gemello Fugu nella #292.
+              viene scavalcato senza che nulla lo fermi.
+
+              E non basta guardare l'ELENCO delle label (secondo rilievo di GPT-5.5 sulla
+              #292): su una PR che ha già `final-fable-review`, aggiungerne una qualsiasi
+              lascerebbe lo stato «armato» e farebbe saltare di nuovo il gate core.
               """
-              return event_action == "labeled" and label_finale in etichette
+              return (event_action == "labeled"
+                      and label_evento == label_finale
+                      and label_finale in etichette)
 
           FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fable-review")
           etichette_pr = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
-          ARMATO = gate_finale_armato(EVENT_ACTION, etichette_pr, FINAL_LABEL)
+          ARMATO = gate_finale_armato(EVENT_ACTION, etichette_pr, FINAL_LABEL,
+                                      os.environ.get("LABEL_EVENTO", ""))
 
-          # Caso che non dovrebbe mai capitare: l'evento è `labeled` (quindi la condizione
-          # YAML ha già stabilito che la label è la nostra) ma fra quelle della PR non c'è.
-          # Si prosegue col gate sui file core — che è il comportamento sicuro se qualcuno
-          # ha allargato quella condizione — ma va DETTO, altrimenti un gate finale che
-          # salta in silenzio è indistinguibile da uno che ha approvato (difetto della #274).
+          # Evento `labeled` che NON arma il gate: o è stata aggiunta un'altra label, o la
+          # finale non risulta fra quelle della PR. Si prosegue col gate sui file core — il
+          # comportamento sicuro — ma va DETTO, altrimenti un gate finale che salta in
+          # silenzio è indistinguibile da uno che ha approvato (difetto della #274).
           if EVENT_ACTION == "labeled" and not ARMATO:
+              etichetta = os.environ.get("LABEL_EVENTO", "") or "(sconosciuta)"
               print(
-                  f"::warning::{REVIEW_ID}: evento `labeled` ma «{FINAL_LABEL}» non è fra le "
-                  "label della PR: il gate finale NON è armato, si decide sui file core."
+                  f"::notice::{REVIEW_ID}: aggiunta la label «{etichetta}», che non è quella "
+                  f"finale («{FINAL_LABEL}»): il gate finale NON è armato, si decide sui "
+                  "file core."
               )
 
           # Fail-safe: se la Compare API ha troncato la lista (>= 300 file) non

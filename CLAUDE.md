@@ -202,12 +202,20 @@ API key**: aggiunge solo la label; i secret restano nei GitHub Secrets e GitHub
 Actions resta read-only sul codice.
 
 **Il gate a label si arma solo con la SUA label** (#292). Entrambi i workflow
-ricevono l'elenco delle label della PR (`LABELS_PRESENTI`) e verificano che quella
-finale ci sia davvero, invece di accontentarsi dell'evento `labeled`. La condizione
-YAML del job filtra già le altre label, ma una decisione di **spesa** non deve
-dipendere da un altro strato: se quella condizione venisse allargata — per esempio
-per reagire a `manual-review-required` — Fable scavalcherebbe il gate sui file core
-e Fugu chiamerebbe il modello, entrambi senza che nulla li fermi.
+ricevono la label **dell'evento** (`LABEL_EVENTO`) oltre all'elenco di quelle
+presenti (`LABELS_PRESENTI`), e su un evento `labeled` si armano **solo** se la label
+appena aggiunta è quella finale — non basta che la finale sia da qualche parte
+nell'elenco. La condizione YAML del job filtra già le altre label, ma una decisione
+di **spesa** non deve dipendere da un altro strato: se quella condizione venisse
+allargata — per esempio per reagire a `manual-review-required` — Fable
+scavalcherebbe il gate sui file core e Fugu chiamerebbe il modello. E guardare il
+solo elenco non basterebbe comunque: su una PR **già** etichettata, aggiungere una
+label qualsiasi lascerebbe lo stato «armato» e farebbe rieseguire la review su un
+head già revisionato.
+
+Conseguenza pratica per l'agente: **aggiungere `manual-review-required` a una PR che
+ha già le label finali non rilancia i due reviewer forti**. Per rieseguirli su un
+head nuovo va rimossa e riaggiunta la label finale, come già prescritto sopra.
 
 La label resta il **gate finale pre-merge obbligatorio**: anche se una PR non ha
 toccato file core (quindi i due forti non sono mai partiti da soli), prima di
