@@ -160,9 +160,13 @@ def test_il_token_resta_descritto_come_una_password_in_ogni_lingua():
     for lingua, atteso in (("en", "revoke"), ("es", "revoke")):
         valore = _valore(dizionari[lingua], "guida.warn.token.p")
         assert valore, "«guida.warn.token.p» non è tradotta in «%s»" % lingua
+        # NB: il messaggio evita di proposito la sequenza «token» + due punti. La redazione
+        # anti-segreto dei workflow di review la sostituisce con `token=[REDACTED]`, portandosi
+        # via il segnaposto `%r` — e i due reviewer forti hanno segnalato tre volte, in tre
+        # giri diversi, un format string rotto che nel file non c'è mai stato. Costava ~$0.85
+        # a giro. Il messaggio dice la stessa cosa senza innescare la redazione.
         assert atteso in valore.lower(), (
-            "la versione «%s» dell'avviso non spiega più come revocare il token: %r"
-            % (lingua, valore))
+            "la versione «%s» dell'avviso non spiega più come revocarlo: %r" % (lingua, valore))
 
 
 def test_il_lettore_dei_dizionari_regge_una_riformattazione(tmp_path):
@@ -235,3 +239,28 @@ def test_anche_le_chiavi_hanno_gli_escape_sciolti(tmp_path):
     finto = tmp_path / "i18n.js"
     finto.write_text('var T={en:{"a\\u002eb":"x","c":"y"}};', encoding="utf-8")
     assert dizionari_i18n_sito(finto)["en"]["a.b"] == "x"
+
+
+def test_i18n_non_usa_i_costrutti_che_il_lettore_non_sa_leggere():
+    """La garanzia scritta nel docstring del lettore, resa un gate.
+
+    `_maschera_codice` dichiara di non riconoscere i *regex literal* JS, e si difende dicendo
+    che «i18n.js non ne ha — verificato». Ma «verificato» è una fotografia: vale il giorno che
+    l'ho scritto (rilievo GPT-5.5 sulla #289). Se domani qualcuno mettesse una regex o un
+    template literal in `i18n.js`, il lettore inizierebbe a sbagliare in silenzio e il docstring
+    continuerebbe a giurare il contrario.
+
+    Questo test è quella promessa trasformata in controllo: il giorno che il file cambia natura,
+    è rosso **qui**, con scritto perché — invece che rosso in un test di traduzione qualsiasi,
+    dove nessuno penserebbe di guardare il parser.
+    """
+    testo = _I18N.read_text(encoding="utf-8")
+    assert "`" not in testo, (
+        "i18n.js ora usa i template literal: il lettore in tests/conftest.py li tratta come "
+        "stringhe semplici e non valuta `${...}` — vanno gestiti prima di usarli qui")
+    # una regex literal si riconosce da un `/` che apre dopo `=`, `(` o `,` e non è un commento
+    sospette = re.findall(r"[=(,]\s*/(?![/*])[^\n]*?/[gimsuy]*", testo)
+    assert not sospette, (
+        "i18n.js ora contiene quelle che sembrano regex literal: %r — il lettore non le "
+        "riconosce e potrebbe scambiarne il contenuto per un commento (limite dichiarato in "
+        "`_maschera_codice`)" % sospette[:2])
