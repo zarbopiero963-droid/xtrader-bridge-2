@@ -27,6 +27,18 @@ Nella finestra principale, nella tabview di configurazione, apri **⚙️ Genera
 
 Salva con **💾 Salva Config**.
 
+> ⚠️ **Il percorso proposto per default è cambiato** — era `C:\XTrader\segnali.csv`, ora è
+> `C:\BetRelay\segnali.csv` (#232). Riguarda **solo le installazioni nuove**: se hai già una
+> configurazione salvata, il tuo percorso resta quello che hai scelto e non viene toccato.
+>
+> Conta però una cosa sola, e vale in ogni caso: **il percorso qui e la *fonte* configurata dentro
+> XTrader devono puntare allo stesso file**. Se differiscono, il bridge scrive un CSV che XTrader
+> non legge — nessun errore, nessun segnale piazzato. Se reinstalli o riparti da una
+> configurazione azzerata, ricontrolla che i due combacino.
+>
+> La cartella `C:\BetRelay\` non viene creata dal programma: se non esiste, **▶ AVVIA si rifiuta di
+> partire** e ti dice quale cartella manca — non parte a vuoto.
+
 ## 3. Verifica con il **🧙 Wizard prima configurazione**
 
 Dalla barra **🧰 Strumenti** apri **«🧙 Wizard prima configurazione»**: ti guida in **5 passi** e

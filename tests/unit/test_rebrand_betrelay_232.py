@@ -223,6 +223,66 @@ def test_il_percorso_csv_di_default_dice_betrelay():
     assert "XTrader" not in app_mod._FIELD_PLACEHOLDERS["csv_path"]
 
 
+def test_una_config_esistente_conserva_il_suo_percorso_csv(tmp_path):
+    """**Rilievo Claude Fable 5 sulla #299, punto 2** — la metà che rende innocuo il cambio di
+    default: chi ha già configurato il bridge **non viene spostato**.
+
+    Il default vale solo per le chiavi ASSENTI. Un utente che ha puntato XTrader su
+    `C:\\XTrader\\segnali.csv` deve continuare a scriverci: se il caricamento «migrasse» il
+    percorso al nuovo default, il bridge scriverebbe in una cartella che XTrader non guarda —
+    e i segnali sparirebbero **in silenzio**, senza nessun errore visibile.
+
+    È l'unico modo in cui il rebrand poteva diventare una perdita di segnali su un'installazione
+    esistente, quindi è pinnato qui e non lasciato al test generico sul merge dei default.
+    """
+    import json
+
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"csv_path": r"C:\XTrader\segnali.csv"}), encoding="utf-8")
+
+    cfg = config_store.load_config(str(p))
+    assert cfg["csv_path"] == r"C:\XTrader\segnali.csv", (
+        "il percorso CSV salvato dall'utente è stato sostituito dal nuovo default: il bridge "
+        "scriverebbe dove XTrader non legge"
+    )
+
+
+def test_il_preflight_del_percorso_csv_blocca_l_avvio_e_precede_il_listener():
+    """**Rilievo Claude Fable 5 sulla #299, punto 2** — l'altra metà: su un'installazione NUOVA
+    il default `C:\\BetRelay\\` è una cartella che tipicamente **non esiste**.
+
+    Il comportamento sicuro c'è già (`csv_path_problem` a START), ma non era pinnato da nessuna
+    parte: nulla impediva a un refactor di spostare il pre-flight **dopo** l'avvio del listener.
+    In quel caso il bridge risulterebbe «ATTIVO» scrivendo verso un percorso inutilizzabile —
+    il fallimento sarebbe silenzioso, e silenzioso è il modo peggiore di sbagliare qui.
+
+    `_start` è GUI/thread-coupled e non istanziabile headless: si pinna il **wiring**, stesso
+    pattern già usato da `test_start_senza_parser_attivo_e_bloccante`. La logica pura di
+    `csv_path_problem` è coperta a parte in `test_config_basic`.
+    """
+    import inspect
+
+    from xtrader_bridge import app
+
+    src = inspect.getsource(app.App._start)
+    assert "csv_path_problem" in src, "il pre-flight del percorso CSV è sparito da _start"
+
+    idx = src.index("csv_path_problem")
+    blocco = src[idx:idx + 400]
+    assert "Avvio annullato" in blocco, "il problema di percorso non è più segnalato all'utente"
+    assert "return" in blocco, (
+        "il pre-flight non è più BLOCCANTE: il listener partirebbe con un percorso inutilizzabile"
+    )
+
+    # …e sta PRIMA dell'avvio vero. L'ancora deve esistere (niente fallback no-op che passerebbe
+    # in silenzio su un rename), e comparire DOPO il guard.
+    assert "_bot_thread" in src
+    assert idx < src.index("_bot_thread"), (
+        "il pre-flight del percorso CSV è finito DOPO l'avvio del listener: il bridge andrebbe "
+        "in stato ATTIVO prima di sapere se il CSV è scrivibile"
+    )
+
+
 # ── ④ il nome dell'EXE nei workflow di build ──────────────────────────────────────────
 
 @pytest.mark.parametrize("workflow", ["build.yaml", "build-nuitka.yaml"])

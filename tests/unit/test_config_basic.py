@@ -1164,7 +1164,7 @@ def test_csv_path_problem(tmp_path):
     assert config_store.csv_path_problem("") != ""
     assert config_store.csv_path_problem("   ") != ""
     assert config_store.csv_path_problem(None) != ""
-    # cartella padre INESISTENTE (es. il default C:\XTrader\ assente) → problema
+    # cartella padre INESISTENTE (es. il default C:\BetRelay\ assente) → problema
     missing = str(tmp_path / "non_esiste" / "segnali.csv")
     prob = config_store.csv_path_problem(missing)
     assert prob and "non esiste" in prob
