@@ -287,7 +287,13 @@ def test_dal_mercato_ambiguo_non_esce_nessuna_riga_nel_CSV(tmp_path):
         csv_writer.write_csv(res.row, percorso)
 
     def _righe():
-        return [r for r in open(percorso, encoding="utf-8-sig").read().splitlines() if r.strip()]
+        # Context manager, non `open()` nudo (rilievo GPT-5.5 sulla #301): l'handle resterebbe
+        # aperto fino alla garbage collection, e la scrittura qui sotto è ATOMICA — cioè un
+        # `os.replace` sullo stesso path. Su Windows un handle di lettura ancora aperto può
+        # farla fallire, e questo repo ha una CI Windows: sarebbe un rosso intermittente che
+        # non c'entra nulla con ciò che il test verifica.
+        with open(percorso, encoding="utf-8-sig") as f:
+            return [r for r in f.read().splitlines() if r.strip()]
 
     assert len(_righe()) == 1, (
         f"un mercato AMBIGUO ha prodotto una riga nel CSV che XTrader legge: {_righe()[1:]}"
@@ -301,6 +307,10 @@ def test_dal_mercato_ambiguo_non_esce_nessuna_riga_nel_CSV(tmp_path):
     # differenza fra i due scenari ridotta a una voce di dizionario in più.
     buono = _esito([_voce("", "Entrambe le squadre a segno", "Sì")])
     assert buono.placeable, "il caso di controllo non è piazzabile: scenario mal costruito"
+    # `row` esplicitamente non-None (rilievo GPT-5.5): senza, un `placeable=True` con `row=None`
+    # farebbe fallire `write_csv` con un errore che parla d'altro, e la metà anti-vacuità
+    # sembrerebbe rotta per la ragione sbagliata.
+    assert buono.row is not None, "caso di controllo piazzabile ma senza riga"
     csv_writer.write_csv(buono.row, percorso)
     assert len(_righe()) == 2, "il CSV non cresce nemmeno scrivendo: il test sopra era vacuo"
 
