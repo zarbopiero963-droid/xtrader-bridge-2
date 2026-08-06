@@ -556,33 +556,66 @@ EVENTI_AMMESSI = ["opened", "synchronize", "reopened", "ready_for_review", "labe
 
 
 def eventi_del_trigger(testo_workflow):
-    """Gli eventi `pull_request` dichiarati dal workflow, come insieme.
+    """Gli eventi dichiarati sotto `on: pull_request: types:`, come insieme.
 
     Scritto tollerante di proposito (rilievo GPT-5.5 sulla #292): la prima stesura pretendeva
     esattamente quattro spazi, la lista inline e persino l'ORDINE — un formatter YAML o una
     lista multilinea equivalente l'avrebbero fatta fallire senza nessun cambio di
-    comportamento. PyYAML non è fra le dipendenze dichiarate del repo, quindi non si può
-    parsare davvero il file: si accettano entrambe le forme che YAML ammette.
+    comportamento, cioè un falso rosso in CI. PyYAML non è fra le dipendenze dichiarate del
+    repo, quindi non si può parsare davvero il file: si accettano le due forme che YAML
+    ammette.
+
+    Tollerante, però, non vuol dire approssimativo — secondo rilievo di GPT-5.5, fondato:
+
+    - la ricerca è **circoscritta al blocco `pull_request`**, altrimenti un `types:` di un
+      altro trigger (`issues:`, `release:`) potrebbe essere letto al suo posto;
+    - la forma multilinea rispetta l'**indentazione**: si raccolgono solo le voci rientrate
+      più di `types:`, così una lista sorella non viene inghiottita.
     """
-    # `[^\S\n]*` e non `\s*`: `\s` include il newline, quindi su una lista multilinea
-    # avrebbe divorato l'a capo e catturato la PRIMA voce come se fosse il valore inline —
-    # restituendo un solo evento su tre. Preso al primo giro di test.
-    m = re.search(r"^[^\S\n]*types:[^\S\n]*(.*)$", testo_workflow, re.M)
-    if not m:
-        return set()
-    resto = m.group(1).strip()
-    if resto.startswith("["):
-        return {x.strip() for x in resto.strip("[]").split(",") if x.strip()}
-    # Forma multilinea: `types:` da solo, poi una riga `- evento` per ciascuno.
-    coda = testo_workflow[m.end():].splitlines()
-    eventi = set()
-    for riga in coda:
-        voce = riga.strip()
-        if voce.startswith("- "):
-            eventi.add(voce[2:].strip())
-        elif voce:
+    righe = testo_workflow.splitlines()
+
+    def rientro(riga):
+        return len(riga) - len(riga.lstrip())
+
+    # 1. il blocco `pull_request:` (a qualunque profondità sotto `on:`)
+    inizio = fine = None
+    for n, riga in enumerate(righe):
+        if re.match(r"^\s*pull_request:\s*$", riga):
+            inizio, base = n, rientro(riga)
+            for m in range(n + 1, len(righe)):
+                if righe[m].strip() and rientro(righe[m]) <= base:
+                    fine = m
+                    break
+            else:
+                fine = len(righe)
             break
-    return eventi
+    if inizio is None:
+        return set()
+
+    blocco = righe[inizio + 1:fine]
+
+    # 2. `types:` dentro quel blocco
+    for n, riga in enumerate(blocco):
+        m = re.match(r"^([^\S\n]*)types:[^\S\n]*(.*)$", riga)
+        if not m:
+            continue
+        indent_chiave, resto = len(m.group(1)), m.group(2).strip()
+        if resto.startswith("["):
+            return {x.strip() for x in resto.strip("[]").split(",") if x.strip()}
+        # Forma multilinea: solo le voci PIÙ rientrate di `types:`.
+        eventi = set()
+        for voce in blocco[n + 1:]:
+            if not voce.strip():
+                continue
+            if rientro(voce) <= indent_chiave:
+                break
+            testo = voce.strip()
+            if testo.startswith("- "):
+                eventi.add(testo[2:].strip())
+            else:
+                break
+        return eventi
+    return set()
 
 
 @pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
@@ -616,3 +649,52 @@ def test_il_parser_del_trigger_regge_entrambe_le_forme_YAML():
     assert eventi_del_trigger(multilinea) == atteso, "forma multilinea non riconosciuta"
     assert eventi_del_trigger(indentato) == atteso, "indentazione diversa non riconosciuta"
     assert eventi_del_trigger("on:\n  push:\n") == set()
+
+
+def test_il_parser_legge_il_blocco_pull_request_e_non_un_altro():
+    """Rilievo GPT-5.5: la ricerca di `types:` non era circoscritta al blocco `pull_request`.
+    Con un altro trigger che dichiara i propri `types:` prima, il guardiano validava l'elenco
+    sbagliato — e un `edited` aggiunto al trigger vero sarebbe passato inosservato."""
+    prima = (
+        "on:\n"
+        "  issues:\n"
+        "    types: [opened, deleted]\n"
+        "  pull_request:\n"
+        "    types: [opened, labeled]\n"
+    )
+    dopo = (
+        "on:\n"
+        "  pull_request:\n"
+        "    types: [opened, labeled]\n"
+        "  release:\n"
+        "    types: [published]\n"
+    )
+
+    assert eventi_del_trigger(prima) == {"opened", "labeled"}, "letto il blocco `issues`"
+    assert eventi_del_trigger(dopo) == {"opened", "labeled"}, "letto il blocco `release`"
+
+
+def test_il_parser_multilinea_non_inghiotte_una_lista_sorella():
+    """Rilievo GPT-5.5 sulla forma multilinea. Verificato: **non era riproducibile** con uno
+    YAML reale — il parser precedente si fermava comunque alla riga-chiave `branches:`, che
+    non inizia per `- `. Provato eseguendo il parser vecchio su questo stesso input: dava già
+    `{opened, labeled}`.
+
+    Il test resta perché la regola ora è ESPLICITA (si raccolgono solo le voci più rientrate
+    di `types:`) invece che incidentale, e questo caso la fissa. Ma va detto per quello che è:
+    una guardia, non la chiusura di un difetto — il rilievo reale del giro era l'altro, il
+    blocco `pull_request` non circoscritto, e quello era davvero rotto."""
+    yaml_finto = (
+        "on:\n"
+        "  pull_request:\n"
+        "    types:\n"
+        "      - opened\n"
+        "      - labeled\n"
+        "    branches:\n"
+        "      - main\n"
+        "      - develop\n"
+    )
+
+    assert eventi_del_trigger(yaml_finto) == {"opened", "labeled"}, (
+        "la lista `branches` è stata inghiottita fra gli eventi del trigger"
+    )
