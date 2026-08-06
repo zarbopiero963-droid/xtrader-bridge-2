@@ -123,10 +123,22 @@ def test_il_wizard_delega_e_non_reimplementa():
     Un falso verde è peggio del falso rosso che si era corretti: il primo tace su un difetto,
     il secondo dà solo fastidio.
 
-    Quindi il test non si ferma al nome: risolve il **simbolo effettivamente chiamato** e
-    pretende che sia *lo stesso oggetto* di `source_manager.is_valid_chat_id`. È l'unico
-    controllo che distingue «delega alla regola canonica» da «ha una funzione che si chiama
-    come lei».
+    Quindi il test non guarda il **nome** della chiamata: risolve i simboli chiamati e pretende
+    che **almeno uno sia lo stesso oggetto** di `source_manager.is_valid_chat_id`.
+
+    **Perché per identità e non per nome** (terzo rilievo GPT-5.5 sulla #295, anch'esso
+    misurato). La stesura intermedia pretendeva il *nome* `is_valid_chat_id` fra le chiamate, e
+    così andava ROSSA su `from .source_manager import is_valid_chat_id as canonica` — un alias
+    che delega alla regola canonica **identica**, quindi un falso rosso. Guardare l'identità
+    dell'oggetto risolve i tre casi insieme e rende il controllo più semplice, non più
+    complicato: l'invariante non è «si chiama così», è «è quella funzione lì».
+
+        forma nel codice                              esito
+        source_manager.is_valid_chat_id(cid)          VERDE  (qualificata)
+        is_valid_chat_id(cid)      [import a nome]    VERDE  (stesso oggetto)
+        canonica(cid)              [import con alias] VERDE  (stesso oggetto)
+        is_valid_chat_id(cid)      [helper omonimo]   ROSSO  (oggetto diverso)
+        cid.lstrip("-").isdigit()                     ROSSO  (nessuna delega)
     """
     import ast
     import inspect
@@ -136,39 +148,30 @@ def test_il_wizard_delega_e_non_reimplementa():
     funzione = inspect.unwrap(wizard.check_chat)
     albero = ast.parse(inspect.getsource(funzione).lstrip())
 
-    nomi_chiamati, sorgenti = set(), []
+    nomi_chiamati, risolti = set(), []
     for n in ast.walk(albero):
         if not isinstance(n, ast.Call):
             continue
-        if isinstance(n.func, ast.Attribute):        # source_manager.is_valid_chat_id(...)
+        if isinstance(n.func, ast.Attribute):        # <qualcosa>.nome(...)
             nomi_chiamati.add(n.func.attr)
-            if n.func.attr == "is_valid_chat_id" and isinstance(n.func.value, ast.Name):
-                sorgenti.append((n.func.value.id, n.func.attr))
-        elif isinstance(n.func, ast.Name):           # is_valid_chat_id(...) importata a nome
+            if isinstance(n.func.value, ast.Name):   # solo `modulo.nome`, non catene
+                radice = getattr(wizard, n.func.value.id, None)
+                risolti.append((f"{n.func.value.id}.{n.func.attr}",
+                                getattr(radice, n.func.attr, None)))
+        elif isinstance(n.func, ast.Name):           # nome(...), importato a nome o con alias
             nomi_chiamati.add(n.func.id)
-            if n.func.id == "is_valid_chat_id":
-                sorgenti.append((None, n.func.id))
+            risolti.append((n.func.id, getattr(wizard, n.func.id, None)))
 
-    assert "is_valid_chat_id" in nomi_chiamati, (
-        "`check_chat` deve chiamare `is_valid_chat_id` di `source_manager` — qualificata o "
-        "importata a nome, indifferente — invece di riscrivere la regola"
+    atteso = source_manager.is_valid_chat_id
+    delega = [etichetta for etichetta, oggetto in risolti if oggetto is atteso]
+
+    assert delega, (
+        "`check_chat` non chiama `source_manager.is_valid_chat_id`: nessuno dei simboli che "
+        "invoca si risolve in QUELL'oggetto. Qualificata, importata a nome o con alias è "
+        "indifferente — ciò che conta è che la regola sia quella canonica e non una seconda "
+        f"copia. Simboli risolti: { {e: o for e, o in risolti if o is not None} }"
     )
     assert "isdigit" not in nomi_chiamati, (
-        "`str.isdigit()` è Unicode-aware ed è la copia divergente da rimuovere"
+        "`str.isdigit()` è Unicode-aware ed è la copia divergente da rimuovere: se compare di "
+        "nuovo accanto alla delega, la divergenza è tornata anche se la delega c'è"
     )
-
-    # La parte che chiude il falso verde: il simbolo chiamato deve ESSERE quello canonico.
-    atteso = source_manager.is_valid_chat_id
-    for qualificatore, attributo in sorgenti:
-        radice = wizard if qualificatore is None else getattr(wizard, qualificatore, None)
-        assert radice is not None, (
-            f"`check_chat` chiama `{qualificatore}.{attributo}` ma `wizard.{qualificatore}` "
-            f"non esiste: la regola non arriva da nessuna fonte risolvibile"
-        )
-        risolto = getattr(radice, attributo, None)
-        assert risolto is atteso, (
-            f"`check_chat` chiama un `{attributo}` che NON è "
-            f"`source_manager.is_valid_chat_id` (risolto: {risolto!r}). Una funzione che si "
-            f"chiama come la regola canonica non è la regola canonica: è di nuovo una seconda "
-            f"copia, cioè il difetto che questa PR rimuove."
-        )
