@@ -205,6 +205,24 @@ def test_il_handoff_cita_lo_stesso_header_del_codice():
     assert "📡  BetRelay" in testo, "il design handoff non cita l'header attuale"
 
 
+def test_il_percorso_csv_di_default_dice_betrelay():
+    """Il default di `csv_path`, deciso dal proprietario insieme al resto del rebrand.
+
+    **Non è solo un placeholder grafico**: `config_store.DEFAULTS["csv_path"]` è il valore che
+    eredita ogni installazione NUOVA. Chi ha già una config tiene il suo percorso — il default
+    non tocca nulla di esistente — ma a un utente nuovo il programma proponeva una cartella
+    che porta il nome vecchio.
+
+    Il campo GUI mostra lo stesso percorso come esempio: se i due divergessero, il
+    suggerimento e il valore precompilato indicherebbero posti diversi.
+    """
+    from xtrader_bridge import app as app_mod
+
+    assert config_store.DEFAULTS["csv_path"] == r"C:\BetRelay\segnali.csv"
+    assert "BetRelay" in app_mod._FIELD_PLACEHOLDERS["csv_path"]
+    assert "XTrader" not in app_mod._FIELD_PLACEHOLDERS["csv_path"]
+
+
 # ── ④ il nome dell'EXE nei workflow di build ──────────────────────────────────────────
 
 @pytest.mark.parametrize("workflow", ["build.yaml", "build-nuitka.yaml"])

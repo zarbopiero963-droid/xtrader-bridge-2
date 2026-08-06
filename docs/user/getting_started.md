@@ -22,7 +22,7 @@ Nella finestra principale, nella tabview di configurazione, apri **⚙️ Genera
 |---|---|
 | **🔑 Bot Token** | Il token del bot Telegram (da **@BotFather**). Senza, **AVVIA** è bloccato. È un segreto: viene salvato nel **keyring del sistema** (Windows Credential Manager). Solo se **non** è disponibile alcun keyring, ripiega sul token in chiaro in `config.json` con un **avviso** nel log. |
 | **💬 Chat ID** | L'ID della chat/canale **sorgente** dei segnali (es. `-1001234567890`). Definisce **quali** messaggi vengono accettati. |
-| **📄 CSV Path** | Il percorso del file CSV che **XTrader legge** (es. `C:\XTrader\segnali.csv`). La cartella deve esistere. |
+| **📄 CSV Path** | Il percorso del file CSV che **XTrader legge** (es. `C:\BetRelay\segnali.csv`). La cartella deve esistere. |
 | **⏱️ Timeout** | Dopo quanti secondi il CSV viene **svuotato** (torna a solo header) dopo un segnale. |
 
 Salva con **💾 Salva Config**.

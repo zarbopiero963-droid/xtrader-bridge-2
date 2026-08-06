@@ -244,7 +244,7 @@ _CSV_CREATE_PADX = (0, 10)         # pulsante «📄 Crea CSV»
 _FIELD_PLACEHOLDERS = {
     "bot_token":   "incolla qui il token del bot",
     "chat_id":     "es. -1001234567890",
-    "csv_path":    r"es. C:\XTrader\segnali.csv",
+    "csv_path":    r"es. C:\BetRelay\segnali.csv",
     "clear_delay": "es. 90",
     "provider":    "es. TelegramBot",
 }
@@ -3400,7 +3400,7 @@ class App(ctk.CTk):
                 return
 
         # Pre-flight del csv_path (#184 low-csvpath-validate): un problema di percorso (cartella
-        # mancante, es. il default C:\XTrader\, o path vuoto/è una cartella) dà un messaggio CHIARO
+        # mancante, es. il default C:\BetRelay\, o path vuoto/è una cartella) dà un messaggio CHIARO
         # e azionabile e annulla l'avvio, invece di un generico FileNotFoundError da init_csv. Gli
         # errori di lock/permessi restano gestiti dall'except OSError sotto.
         csv_problem = config_store.csv_path_problem(cfg["csv_path"])
