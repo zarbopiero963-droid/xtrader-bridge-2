@@ -103,35 +103,51 @@ def test_nel_modulo_non_resta_nessuna_classe_di_cifre_unicode():
     albero = ast.parse(testo)
     righe = testo.splitlines()
 
-    def esentato(nodo):
-        """`# b17-ok: <motivo>` sulla riga esenta un uso LEGITTIMO, e obbliga a dire perché.
+    # Righe esentate da `# b17-ok: <motivo>`: si prende l'ISTRUZIONE che contiene il marcatore
+    # e si esentano tutte le sue righe.
+    #
+    # Rilievo GPT-5.5: una guardia su tutto il modulo diventa fragile se un domani serve `\\d`
+    # o `isdigit()` su testo che non è un campo numerico — fallirebbe su codice corretto. Ma
+    # restringerla alla singola funzione era il difetto del giro prima. La valvola è la stessa
+    # forma che il repo usa già per i blind-except: l'eccezione si permette **dichiarandola**,
+    # così resta visibile in review invece di sparire allargando la maglia.
+    #
+    # E va agganciata all'ISTRUZIONE, non al nodo: la prima stesura guardava l'intervallo del
+    # solo `Constant`, quindi un marcatore sulla riga di chiusura di un'espressione multilinea
+    # non lo esentava — cioè la valvola non funzionava proprio nel caso multilinea per cui era
+    # stata allargata. Scoperto sabotando, non ragionando.
+    esenti = set()
+    for stmt in ast.walk(albero):
+        if not isinstance(stmt, ast.stmt):
+            continue
+        prima, ultima = stmt.lineno, getattr(stmt, "end_lineno", None) or stmt.lineno
+        span = range(prima, ultima + 1)
+        if any("# b17-ok:" in righe[i - 1] for i in span if 0 < i <= len(righe)):
+            esenti.update(span)
 
-        Rilievo GPT-5.5: una guardia su tutto il modulo diventa fragile se un domani serve
-        `\\d` o `isdigit()` su testo che non è un campo numerico — fallirebbe su codice
-        corretto. Ma restringerla alla singola funzione era il difetto precedente. La via
-        d'uscita è la stessa che il repo usa già per i blind-except: si permette l'eccezione
-        **dichiarandola**, così resta visibile in review invece di sparire allargando la maglia.
-        """
-        riga = righe[nodo.lineno - 1] if 0 < nodo.lineno <= len(righe) else ""
-        return "# b17-ok:" in riga
+    def esentato(nodo):
+        return nodo.lineno in esenti
 
     docstring = {n.value for n in ast.walk(albero)
                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
 
-    chiamate_isdigit = [n.func.attr for n in ast.walk(albero)
+    # Si riporta la RIGA, non il solo nome (rilievo GPT-5.5): un messaggio che dice
+    # «trovato isdigit» senza dire dove costringe a cercarlo a mano nel modulo.
+    chiamate_isdigit = [f"riga {n.lineno}" for n in ast.walk(albero)
                         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                         and n.func.attr == "isdigit" and not esentato(n)]
     assert not chiamate_isdigit, (
         "`str.isdigit()` è Unicode-aware: accetta «٥», «५», «５» — è metà del difetto B17. "
-        "Se l'uso è legittimo, annotalo con `# b17-ok: <motivo>`"
+        f"Trovato in: {chiamate_isdigit}. Se l'uso è legittimo, annotalo con "
+        "`# b17-ok: <motivo>`"
     )
 
-    letterali_con_d = [n.value for n in ast.walk(albero)
+    letterali_con_d = [f"riga {n.lineno}: {n.value!r}" for n in ast.walk(albero)
                        if isinstance(n, ast.Constant) and isinstance(n.value, str)
                        and n not in docstring and r"\d" in n.value and not esentato(n)]
     assert not letterali_con_d, (
         rf"`\d` in Python matcha TUTTE le cifre Unicode: è l'altra metà di B17. "
-        rf"Letterali trovati: {letterali_con_d}. Se l'uso è legittimo (testo non numerico), "
+        rf"Trovato in: {letterali_con_d}. Se l'uso è legittimo (testo non numerico), "
         rf"annotalo con `# b17-ok: <motivo>`"
     )
 
