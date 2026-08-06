@@ -126,11 +126,13 @@ def test_retrocompat_dizionario_mercati_agnostico_live(tmp_path):
 
 def test_source_language_none_comportamento_legacy_mercati(tmp_path):
     # Senza `source_language` (""), il filtro mercati è inerte: EN e IT matchano la stessa frase
-    # con mercati DIVERSI → ambiguità (fail-closed, D2) → riga SCARTATA (MARKET_MAPPING_MISSING),
-    # esattamente il comportamento storico prima di 5c (il dizionario non tira a indovinare).
+    # con mercati DIVERSI → ambiguità (fail-closed, D2) → riga SCARTATA, esattamente il
+    # comportamento storico prima di 5c (il dizionario non tira a indovinare).
+    # #282 A2: il codice è `MARKET_MAPPING_AMBIGUOUS`; prima l'ambiguità arrivava col codice del
+    # caso opposto. Ciò che questo test difende — riga scartata — è invariato.
     cp.save_parser(_parser(), str(tmp_path))
     res = signal_router.resolve_row(_MSG, _cfg(""), chat_id="42", parsers_dir=str(tmp_path))
-    assert not res.placeable and res.status == "MARKET_MAPPING_MISSING"
+    assert not res.placeable and res.status == "MARKET_MAPPING_AMBIGUOUS"
 
 
 def test_source_language_globale_malformata_fail_safe_mercati(tmp_path):

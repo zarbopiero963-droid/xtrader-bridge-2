@@ -169,7 +169,8 @@ def test_end_to_end_agnostico_fail_closed_su_ambiguita():
 def test_end_to_end_agnostico_il_gate_MERCATI_resta_coperto():
     # Il compagno del test sopra, perché spostando quello si perderebbe la copertura del gate
     # MERCATI: con nomi NON ambigui (una sola lingua nel dizionario nomi) la catena arriva fino
-    # ai mercati, e lì la frase «gg» in due lingue resta ambigua → `MARKET_MAPPING_MISSING`.
+    # ai mercati, e lì la frase «gg» in due lingue resta ambigua → `MARKET_MAPPING_AMBIGUOUS`
+    # (#282 A2: prima arrivava come `MARKET_MAPPING_MISSING`, insieme alla causa opposta).
     # Così entrambe le guardie restano esercitate, ciascuna sul suo stadio.
     cfg = _cfg()
     cfg["name_mappings"] = {"P": [r for r in _NAME_ROWS if r["language"] == "EN"]}
@@ -177,7 +178,7 @@ def test_end_to_end_agnostico_il_gate_MERCATI_resta_coperto():
         _parser(), _MSG, name_mapping_profiles=nm.entries_for_profiles(cfg, ["P"]),
         market_mapping_profiles=mms.entries_for_profiles(cfg, ["M"]), source_language="")
     assert not r.placeable
-    assert r.status == "MARKET_MAPPING_MISSING"
+    assert r.status == "MARKET_MAPPING_AMBIGUOUS"
 
 
 def test_end_to_end_bettype_canonico_invariato(tmp_path):

@@ -1374,7 +1374,16 @@ Sezioni (colonna destra, dall'alto):
     soddisfa la condizione di gate «contiene: GOL ANNULLATO»` — **codice nuovo**, prima era
     `NO_CONTENT_MATCH` col motivo sbagliato;
   - `⛔ Non pronto (MAPPING_MISSING) · EventName non traducibile: …` (Dizionario nomi);
-  - `⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: …` (Dizionario mercati);
+  - `⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: nessuna frase combacia e
+    nessun mercato dalle regole-colonna` (Dizionario mercati: manca una voce);
+  - `⛔ Non pronto (MARKET_MAPPING_AMBIGUOUS) · mercato ambiguo: più frasi del dizionario mercati
+    combaciano indicando coppie mercato/selezione diverse — togli o rendi distinguibile una delle
+    voci in conflitto: «Entrambe le squadre a segno / Sì», «1º tempo - Totale goal 0,5 / Over 0,5
+    goal»` — **codice nuovo (#282)**, prima le due cause condividevano `MARKET_MAPPING_MISSING`
+    e un motivo che le elencava con un «o». Sono **opposte**: qui si **toglie** una voce, sopra
+    se ne **aggiunge** una. È l'unico motivo di stato che elenca dei valori presi dal
+    dizionario dell'utente: le coppie in conflitto sono le righe da correggere, e passano dalla
+    stessa sanificazione del testo delle condizioni (control-char, bidi override, `«»`);
   - `⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)`;
   - `⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti dalla
     Modalità: gli ID si prendono dal «Catalogo Betfair», i nomi si estraggono dal messaggio ·
