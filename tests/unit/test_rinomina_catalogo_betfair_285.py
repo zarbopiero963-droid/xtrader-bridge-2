@@ -231,7 +231,12 @@ def test_nessuna_variante_della_famiglia_e_rimasta_viva():
                     # Valvola esplicita, come il `# b17-ok:` della #294: un'occorrenza è
                     # esente solo se ACCANTO c'è la motivazione scritta. Un'esenzione per
                     # file nasconderebbe le altre occorrenze dello stesso file.
-                    if any(MARCATORE_OK in r for r in righe[i:i + 8]):
+                    #
+                    # Finestra STRETTA (rilievo GPT-5.5 sulla #297): con 8 righe il marcatore
+                    # di un'occorrenza legittima poteva coprirne una NON motivata più in
+                    # basso nello stesso blocco — un falso negativo silenzioso. Misurata la
+                    # distanza reale dell'unica esenzione esistente: 2 righe. Tre bastano.
+                    if any(MARCATORE_OK in r for r in righe[i:i + 3]):
                         continue
                     rimasti.append(f"{relativo}:{i + 1}: «{variante}»")
 
