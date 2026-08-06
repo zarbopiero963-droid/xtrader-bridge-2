@@ -185,6 +185,14 @@ un parser custom può estrarre testo arbitrario):
   saprebbe interpretarlo: XTrader legge solo numeri ASCII, quindi un valore non-ASCII non deve
   mai raggiungere il CSV.
 
+  Dalla **B17** la regola vale su **due strati, non uno**. Prima era solo la validazione a
+  essere ASCII-stretta: la normalizzazione del separatore decimale a monte
+  (`custom_pipeline._decimal_sep_to_point`) accettava cifre Unicode, quindi `"١,٥"` diventava
+  `"١.٥"` e `"1.234,٥٦"` diventava `"1234.٥٦"` — una stringa che non è un numero usciva **con
+  l'aria di esserlo**, e non finiva nel CSV solo perché *un altro* strato la fermava. Ora anche
+  il normalizzatore lascia invariato ciò che non è un decimale ASCII, e la classe di cifre è
+  quella condivisa (`numbers_re.DIGIT`) invece di essere riscritta lì.
+
 ## Regole di scrittura
 
 - Encoding **UTF-8 con BOM** (`utf-8-sig`), come negli esempi reali.

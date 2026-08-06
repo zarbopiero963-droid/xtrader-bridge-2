@@ -145,23 +145,31 @@ def test_una_config_esistente_con_chat_id_non_ascii_da_un_errore_esplicito():
     assert esempi, "l'errore deve suggerire un ID che la validazione stessa accetterebbe"
 
 
-def test_il_normalizzatore_migliaia_resta_scartato_a_valle():
-    """Il secondo sanity check di Fugu: `custom_pipeline._decimal_sep_to_point` accetta cifre
-    non-ASCII (usa `\\d` e `str.isdigit()`, entrambi Unicode) e NON è stato toccato in questo fix.
+def test_il_normalizzatore_migliaia_ora_non_tocca_le_cifre_non_ascii():
+    """RIORIENTATO da B17/PR-Q — e il rosso che ha portato qui era **previsto da questo stesso
+    test**, che si chiudeva con: *«se un domani quel confine si spostasse, questo test diventa
+    rosso e la decisione va rivista»*. Il confine si è spostato: la decisione è rivista.
 
-    La ragione è qui, eseguibile invece che affermata in un commento: il validatore a valle usa
-    `numbers_re.SIGNED_DECIMAL` (`[0-9]`) e scarta comunque il risultato, quindi cambiarlo non
-    modificherebbe alcun comportamento osservabile. Se un domani quel confine si spostasse,
-    questo test diventa rosso e la decisione va rivista."""
+    **Prima**: `_decimal_sep_to_point` accettava cifre non-ASCII (`\\d` e `str.isdigit()`, entrambi
+    Unicode-aware) e `"١.٢٣٤,٥٦"` usciva come `"١٢٣٤.٥٦"` — normalizzato, con l'aria di un numero.
+    Era innocuo **solo** perché il validatore a valle lo scartava comunque, e questo test
+    verificava proprio quello: che l'innocuità fosse reale e non supposta.
+
+    **Ora** il normalizzatore lo lascia invariato, e il validatore continua a scartarlo. Il test
+    non è stato indebolito per farlo passare: pretende **entrambe** le cose, quindi è
+    strettamente più forte di prima — due strati fail-closed invece di uno. Se domani qualcuno
+    consumasse il valore normalizzato senza passare dal validatore, non troverebbe più una
+    stringa travestita da numero."""
     import re
 
     from xtrader_bridge import numbers_re
     from xtrader_bridge.custom_pipeline import _decimal_sep_to_point
 
     uscita = _decimal_sep_to_point("١.٢٣٤,٥٦")
-    assert uscita == "١٢٣٤.٥٦"            # normalizza, come per gli ASCII
+
+    assert uscita == "١.٢٣٤,٥٦", "il normalizzatore non deve più toccare cifre non-ASCII"
     accettato = re.compile(r"^" + numbers_re.SIGNED_DECIMAL + r"$").fullmatch(uscita)
-    assert accettato is None, "il validatore deve continuare a scartarlo: è ciò che rende innocua la non-modifica"
+    assert accettato is None, "e il validatore deve comunque scartarlo: il secondo strato resta"
 
 
 # Separatori accettati dai due consumer, che NON coincidono: l'engine riconosce solo `-` e l'EN
