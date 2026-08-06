@@ -209,21 +209,37 @@ def test_le_immagini_esistono_e_hanno_un_alt():
         assert alt and len(alt.group(1)) > 15, "alt assente o troppo corto: %s" % src
 
 
-def test_nessuna_immagine_mostra_una_chiave_leggibile():
-    """La schermata del passo 5 è **vera**: conteneva la chiave in chiaro, ed è stata coperta.
+def test_il_riquadro_che_copriva_la_chiave_e_davvero_pieno():
+    """La schermata del passo 5 conteneva una API key **vera**, in chiaro.
 
-    Questo test non sa leggere dentro un JPEG — nessun test lo fa — ma può verificare la cosa
-    che rende quella copertura verificabile: che l'immagine sia stata **rigenerata** da noi e
-    non sia il file originale della fotocamera. Se un domani qualcuno rimette l'originale, il
-    peso torna quello di prima e questo test lo dice.
+    Nessun reviewer la guarderà mai: CodeRabbit esclude i `.jpg` per configurazione
+    (`!**/*.jpg`), e i due reviewer forti saltano i binari per costruzione. Su questa immagine
+    l'unico controllo possibile è quello automatico, e deve guardare **i pixel**, non il peso
+    del file: un originale ricompresso peserebbe meno e passerebbe una guardia sulla dimensione.
 
-    Il vero presidio resta umano e sta scritto in pagina: una chiave che si è vista si
-    **revoca**, non si oscura.
+    Qui si campiona l'area dove stava la chiave e si pretende che sia **uniforme**: se qualcuno
+    rimettesse una versione con il testo scoperto, lì dentro comparirebbero i pixel chiari delle
+    lettere e la deviazione salirebbe.
+
+    Resta vero che il presidio ultimo è umano ed è scritto in pagina: una chiave che si è vista
+    si **revoca**. Questo test impedisce solo che torni visibile per distrazione.
     """
-    chiave_mostrata = _ROOT / "website" / "static" / "img" / "apikey" / "06-chiave-mostrata.jpg"
-    assert chiave_mostrata.is_file(), "manca la schermata del passo 5"
-    # l'originale pesava ~245 kB; quella redatta, con i riquadri pieni, sta sotto i 150 kB
-    peso = chiave_mostrata.stat().st_size
-    assert peso < 160_000, (
-        "06-chiave-mostrata.jpg pesa %d byte: sembra l'originale NON redatto. La chiave che "
-        "conteneva va REVOCATA, non solo ricoperta" % peso)
+    Image = pytest.importorskip("PIL.Image", reason="Pillow assente: il controllo sui pixel "
+                                                   "gira dove le immagini si possono aprire")
+    percorso = _ROOT / "website" / "static" / "img" / "apikey" / "06-chiave-mostrata.jpg"
+    assert percorso.is_file(), "manca la schermata del passo 5"
+
+    img = Image.open(percorso).convert("L")
+    larghezza, altezza = img.size
+    # il riquadro nero sulla chiave, in frazioni della figura (indipendenti dalla risoluzione)
+    area = img.crop((int(larghezza * 0.27), int(altezza * 0.505),
+                     int(larghezza * 0.72), int(altezza * 0.535)))
+    valori = list(area.getdata())
+    media = sum(valori) / len(valori)
+    massimo = max(valori)
+    assert media < 60, (
+        "l'area dove stava la chiave non è più scura (media %.1f): sembra scoperta. Se la "
+        "chiave è tornata visibile va REVOCATA su platform.claude.com, non solo ricoperta"
+        % media)
+    assert massimo < 140, (
+        "nell'area della chiave ci sono pixel chiari (max %d): probabile testo leggibile" % massimo)
