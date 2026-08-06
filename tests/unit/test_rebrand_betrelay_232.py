@@ -259,25 +259,57 @@ def test_il_preflight_del_percorso_csv_blocca_l_avvio_e_precede_il_listener():
     `_start` è GUI/thread-coupled e non istanziabile headless: si pinna il **wiring**, stesso
     pattern già usato da `test_start_senza_parser_attivo_e_bloccante`. La logica pura di
     `csv_path_problem` è coperta a parte in `test_config_basic`.
+
+    **Legge la STRUTTURA via AST, non una finestra di testo** (rilievo GPT-5.5 sulla #299, ed era
+    giusto). La prima stesura cercava `"return"` entro 400 caratteri dal guard: passa anche se
+    quel `return` è finito in un **ramo diverso** lì vicino — cioè un falso VERDE proprio sulla
+    proprietà che il test esiste per difendere. Qui il `return` deve stare nel **corpo dell'`if`
+    che testa il risultato del pre-flight**, e non c'è prossimità testuale che possa simularlo.
     """
+    import ast
     import inspect
+    import textwrap
 
     from xtrader_bridge import app
 
-    src = inspect.getsource(app.App._start)
-    assert "csv_path_problem" in src, "il pre-flight del percorso CSV è sparito da _start"
+    albero = ast.parse(textwrap.dedent(inspect.getsource(app.App._start)))
 
-    idx = src.index("csv_path_problem")
-    blocco = src[idx:idx + 400]
-    assert "Avvio annullato" in blocco, "il problema di percorso non è più segnalato all'utente"
-    assert "return" in blocco, (
-        "il pre-flight non è più BLOCCANTE: il listener partirebbe con un percorso inutilizzabile"
+    # ① l'assegnazione del pre-flight, e il nome della variabile che ne riceve l'esito
+    assegnazioni = [
+        n for n in ast.walk(albero)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(c, ast.Attribute) and c.attr == "csv_path_problem"
+                for c in ast.walk(n))
+    ]
+    assert assegnazioni, "il pre-flight del percorso CSV è sparito da _start"
+    esito = assegnazioni[0].targets[0]
+    assert isinstance(esito, ast.Name)
+
+    # ② l'`if` che testa QUELL'esito e che ritorna nel PROPRIO corpo (non in un ramo annidato)
+    guardie = [
+        n for n in ast.walk(albero)
+        if isinstance(n, ast.If) and isinstance(n.test, ast.Name) and n.test.id == esito.id
+        and any(isinstance(s, ast.Return) for s in n.body)
+    ]
+    assert guardie, (
+        "il pre-flight non è più BLOCCANTE: nessun `if` sull'esito di csv_path_problem contiene "
+        "un `return` nel proprio corpo, quindi il listener partirebbe con un percorso inutilizzabile"
+    )
+    guardia = guardie[0]
+
+    # ③ e l'utente viene informato del perché
+    messaggi = [c.value for c in ast.walk(guardia)
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+    assert any("Avvio annullato" in m for m in messaggi), (
+        "il problema di percorso non è più segnalato all'utente: l'avvio si fermerebbe in silenzio"
     )
 
-    # …e sta PRIMA dell'avvio vero. L'ancora deve esistere (niente fallback no-op che passerebbe
-    # in silenzio su un rename), e comparire DOPO il guard.
-    assert "_bot_thread" in src
-    assert idx < src.index("_bot_thread"), (
+    # ④ …e tutto questo PRIMA dell'avvio vero. L'ancora deve esistere (niente fallback no-op che
+    # passerebbe in silenzio su un rename) e comparire DOPO il guard.
+    righe_listener = [n.lineno for n in ast.walk(albero)
+                      if isinstance(n, ast.Attribute) and n.attr == "_bot_thread"]
+    assert righe_listener, "ancora `_bot_thread` non trovata in _start"
+    assert guardia.lineno < min(righe_listener), (
         "il pre-flight del percorso CSV è finito DOPO l'avvio del listener: il bridge andrebbe "
         "in stato ATTIVO prima di sapere se il CSV è scrivibile"
     )
