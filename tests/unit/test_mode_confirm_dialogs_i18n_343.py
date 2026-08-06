@@ -157,7 +157,7 @@ def test_round_trip_multi_signal_funzione_reale():
 def test_round_trip_corpi_conferma_en_es():
     """Round-trip dei corpi COLLAUDO/autostart in EN/ES + fallback IT (identità)."""
     i18n.set_language("EN")
-    assert i18n.tr(bridge_mode.COLLAUDO_CONFIRM_TEXT).startswith("You are enabling XTRADER TEST MODE")
+    assert i18n.tr(bridge_mode.COLLAUDO_CONFIRM_TEXT).startswith("You are enabling BETTING TOOLKIT TEST MODE")
     assert "real bets" in i18n.tr(_APP_KEYS[5])              # autostart auto body
     assert i18n.tr("START — MODALITÀ REALE") == "START — REAL MODE"
     i18n.set_language("ES")

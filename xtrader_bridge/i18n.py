@@ -114,7 +114,7 @@ _CATALOG = {
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Recognition",
         "🛡️ Sicurezza": "🛡️ Safety",
-        "✅ Conferme XTrader": "✅ XTrader confirmations",
+        "✅ Conferme XTrader": "✅ Betting Toolkit confirmations",
         "📡 Chat ascoltate": "📡 Monitored chats",
         "🚦 Salute": "🚦 Health",
         "📡 Stato": "📡 Status",
@@ -150,7 +150,7 @@ _CATALOG = {
             "🕵️ Log full message text (debug; OFF = hash + 1st line only)",
         "🔢 Max segnali attivi (modalità coda multi-riga)":
             "🔢 Max active signals (multi-row queue mode)",
-        "💬 Chat notifiche XTrader": "💬 XTrader notifications chat",
+        "💬 Chat notifiche XTrader": "💬 Betting Toolkit notifications chat",
         "⏳ Timeout conferma (sec)": "⏳ Confirmation timeout (sec)",
         "✅ Parole conferma (separate da virgola)":
             "✅ Confirmation words (comma-separated)",
@@ -167,12 +167,12 @@ _CATALOG = {
         "⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV "
         "operativo e XTrader può piazzare scommesse REALI.":
             "⚠️ REAL MODE ACTIVE — valid signals are written to the operational CSV "
-            "and XTrader can place REAL bets.",
+            "and Betting Toolkit can place REAL bets.",
         "🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: "
         "XTrader deve essere in Modalità Simulazione "
         "(nessuna scommessa reale).":
-            "🔬 XTRADER TEST MODE — the operational CSV IS written: "
-            "XTrader must be in Simulation Mode (no real bets).",
+            "🔬 BETTING TOOLKIT TEST MODE — the operational CSV IS written: "
+            "Betting Toolkit must be in Simulation Mode (no real bets).",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Received",
         "✅ Scritti": "✅ Written",
@@ -418,7 +418,7 @@ _CATALOG = {
         "Percorso del CSV letto da XTrader (identico nella "
         "sorgente segnali di XTrader). La scrittura di prova "
         "crea SOLO l'header e non tocca mai un CSV operativo.":
-            "Path of the CSV read by XTrader (identical to XTrader's signal source). The "
+            "Path of the CSV read by Betting Toolkit (identical to Betting Toolkit's signal source). The "
             "test write creates ONLY the header and never touches an operational CSV.",
         "Nessun Parser Personalizzato attivo: configuralo nella "
         "scheda 🧩 Parser e riapri il wizard.":
@@ -542,7 +542,7 @@ _CATALOG = {
         "Avvio annullato: correggi le sorgenti.": "Start cancelled: fix the sources.",
         "⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.": "⏸️ Automatic start cancelled: no ACTIVE source chat.",
         "⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON processerà alcun segnale finché non attivi almeno una chat.": "⚠️ No ACTIVE source chat: the listener starts but will NOT process any signal until you activate at least one chat.",
-        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ The XTrader notifications Chat coincides with a source chat: change it (signals would be mistaken for confirmations). Start cancelled.",
+        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ The Betting Toolkit notifications Chat coincides with a source chat: change it (signals would be mistaken for confirmations). Start cancelled.",
         "⏸️ Avvio automatico in modalità reale annullato.": "⏸️ Automatic start in real mode cancelled.",
         "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Automatic listener start (auto_start_listener enabled).",
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Start in real mode cancelled.",
@@ -574,7 +574,7 @@ _CATALOG = {
         # di ESITO CONFERMA veri (outcome.*_log, confirmation_removed/ignored_log) restano IT.
         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Message ignored: too old (probably a backlog after a disconnection).",
         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza (configura chat/sorgenti, poi salva).": "⚠️ Live config without chat filter: message ignored for safety (configure chats/sources, then save).",
-        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ The XTrader notifications Chat coincides with an allowed source: ambiguous config, message IGNORED (neither signal nor confirmation). Fix xtrader_notification_chat_id (it must be a separate chat).",
+        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ The Betting Toolkit notifications Chat coincides with an allowed source: ambiguous config, message IGNORED (neither signal nor confirmation). Fix xtrader_notification_chat_id (it must be a separate chat).",
         "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.": "⚠️ Unknown routing outcome ({decision}): message ignored for safety.",
         "⚠️ Segnale scartato ({source}/{status}): {detail}": "⚠️ Signal discarded ({source}/{status}): {detail}",
         "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ CSV write failed: {exc}. Signal not recorded (retryable).",
@@ -582,8 +582,8 @@ _CATALOG = {
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ CSV update after confirmation failed: {exc}. Retrying shortly.",
         "❌ Errore imprevisto nel gestore messaggi: {exc}": "❌ Unexpected error in the message handler: {exc}",
         "errore sconosciuto": "unknown error",
-        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ XTrader confirmation for an already expired/removed signal: CSV unchanged.",
-        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ XTrader confirmation for an already removed signal: CSV realigned.",
+        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ Betting Toolkit confirmation for an already expired/removed signal: CSV unchanged.",
+        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ Betting Toolkit confirmation for an already removed signal: CSV realigned.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ CSV update on expiry failed: {exc}. Retrying shortly.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} expired signal(s) removed from the CSV",
         # Log RESILIENZA runtime (#343 slice 4n): riconnessione/backoff + recovery CSV.
@@ -771,23 +771,23 @@ _CATALOG = {
         "XTrader potrà piazzare scommesse REALI.\n\n"
         "Per confermare digita:  {phrase}":
             "WARNING: you are about to enable REAL MODE.\n"
-            "XTrader will be able to place REAL bets.\n\n"
+            "Betting Toolkit will be able to place REAL bets.\n\n"
             "To confirm type:  {phrase}",
-        "Conferma MODALITÀ COLLAUDO": "Confirm XTRADER TEST MODE",
+        "Conferma MODALITÀ COLLAUDO": "Confirm BETTING TOOLKIT TEST MODE",
         "Stai attivando la MODALITÀ COLLAUDO XTRADER:\n"
         "il CSV operativo verrà scritto e XTrader lo importerà.\n\n"
         "XTrader è impostato in Modalità Simulazione?\n"
         "(Se è in reale, le scommesse sarebbero VERE.)":
-            "You are enabling XTRADER TEST MODE:\n"
-            "the operational CSV will be written and XTrader will import it.\n\n"
-            "Is XTrader set to Simulation Mode?\n"
+            "You are enabling BETTING TOOLKIT TEST MODE:\n"
+            "the operational CSV will be written and Betting Toolkit will import it.\n\n"
+            "Is Betting Toolkit set to Simulation Mode?\n"
             "(If it is in real mode, the bets would be REAL.)",
         "Conferma modalità MULTI-segnale": "Confirm MULTI-signal mode",
         "Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
         "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
         "simultanee (tetto attuale: {max_active} righe attive). Confermi?":
             "You are enabling a MULTI-signal queue mode: the CSV may hold SEVERAL active "
-            "rows at once, so XTrader can place SEVERAL simultaneous bets (current cap: "
+            "rows at once, so Betting Toolkit can place SEVERAL simultaneous bets (current cap: "
             "{max_active} active rows). Confirm?",
         "Avvio automatico — MODALITÀ REALE": "Automatic start — REAL MODE",
         "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
@@ -805,8 +805,8 @@ _CATALOG = {
         # `set_language`). {path}=percorso file (valore di dominio interpolato). «CSV»/«XTrader» =
         # termini prodotto invariati; il dialog «già in esecuzione» all'avvio resta IT (renderizza
         # PRIMA di set_language). NB: le operazioni sul CSV e i pattern *.csv sono INVARIATI.
-        "Scegli il file CSV per XTrader": "Choose the CSV file for XTrader",
-        "Crea un nuovo CSV per XTrader (solo header)": "Create a new CSV for XTrader (header only)",
+        "Scegli il file CSV per XTrader": "Choose the CSV file for Betting Toolkit",
+        "Crea un nuovo CSV per XTrader (solo header)": "Create a new CSV for Betting Toolkit (header only)",
         "Tutti i file": "All files",
         "Testo": "Text",
         "Bridge avviato": "Bridge started",
@@ -820,7 +820,7 @@ _CATALOG = {
         "Sovrascrivere il segnale attivo?": "Overwrite the active signal?",
         "{path} contiene un segnale attivo non ancora letto da XTrader.\n\n"
         "Sovrascriverlo con un CSV vuoto (solo header)?":
-            "{path} contains an active signal not yet read by XTrader.\n\n"
+            "{path} contains an active signal not yet read by Betting Toolkit.\n\n"
             "Overwrite it with an empty CSV (header only)?",
         "Audit modalità reale": "Real mode audit",
         "Nessun evento di attivazione modalità reale nei log.":
@@ -847,13 +847,19 @@ _CATALOG = {
         "🧪 Simulazione Bridge — NON scrive il CSV operativo":
             "🧪 Bridge Simulation — does NOT write the operational CSV",
         "🔬 Collaudo XTrader — scrive il CSV (XTrader in simulazione)":
-            "🔬 XTrader Test — writes the CSV (XTrader in simulation)",
+            "🔬 Betting Toolkit Test — writes the CSV (Betting Toolkit in simulation)",
         "⚠️ Reale — scommesse vere (richiede conferma)":
             "⚠️ Live — real bets (requires confirmation)",
         "Ultimo messaggio": "Last message",
+        # #286: le sorelle di «Ultimo messaggio» erano wrappate in `tr()` ma mai a
+        # catalogo, quindi restavano ITALIANE in EN/ES. Trovate dalla guardia che
+        # itera `app._LAST_FIELDS` invece di cercare letterali dentro `tr()`.
+        "Ultimo CSV": "Last CSV",
+        "Ultimo errore": "Last error",
+        "Ultima conferma XTrader": "Last Betting Toolkit confirmation",
         "Ultimo segnale": "Last signal",
         "CSV scrivibile": "CSV writable",
-        "Conferme XTrader": "XTrader confirmations",
+        "Conferme XTrader": "Betting Toolkit confirmations",
         "Dizionari": "Dictionaries",
         "connesso, in ascolto": "connected, listening",
         "riconnessione in corso (backoff)": "reconnecting (backoff)",
@@ -905,7 +911,7 @@ _CATALOG = {
         "⚙️ Generale": "⚙️ General",
         "🎯 Riconoscimento": "🎯 Reconocimiento",
         "🛡️ Sicurezza": "🛡️ Seguridad",
-        "✅ Conferme XTrader": "✅ Confirmaciones XTrader",
+        "✅ Conferme XTrader": "✅ Confirmaciones Betting Toolkit",
         "📡 Chat ascoltate": "📡 Chats escuchados",
         "🚦 Salute": "🚦 Salud",
         "📡 Stato": "📡 Estado",
@@ -940,7 +946,7 @@ _CATALOG = {
             "🕵️ Registrar el texto completo de los mensajes (debug; OFF = solo hash + 1ª línea)",
         "🔢 Max segnali attivi (modalità coda multi-riga)":
             "🔢 Máx. señales activas (modo cola multi-fila)",
-        "💬 Chat notifiche XTrader": "💬 Chat de notificaciones XTrader",
+        "💬 Chat notifiche XTrader": "💬 Chat de notificaciones Betting Toolkit",
         "⏳ Timeout conferma (sec)": "⏳ Timeout de confirmación (seg)",
         "✅ Parole conferma (separate da virgola)":
             "✅ Palabras de confirmación (separadas por comas)",
@@ -953,12 +959,12 @@ _CATALOG = {
         "⚠️ MODALITÀ REALE ATTIVA — i segnali validi vengono scritti nel CSV "
         "operativo e XTrader può piazzare scommesse REALI.":
             "⚠️ MODO REAL ACTIVO — las señales válidas se escriben en el CSV "
-            "operativo y XTrader puede realizar apuestas REALES.",
+            "operativo y Betting Toolkit puede realizar apuestas REALES.",
         "🔬 MODALITÀ COLLAUDO XTRADER — il CSV operativo VIENE scritto: "
         "XTrader deve essere in Modalità Simulazione "
         "(nessuna scommessa reale).":
-            "🔬 MODO DE PRUEBA XTRADER — el CSV operativo SE escribe: "
-            "XTrader debe estar en Modo Simulación (sin apuestas reales).",
+            "🔬 MODO DE PRUEBA BETTING TOOLKIT — el CSV operativo SE escribe: "
+            "Betting Toolkit debe estar en Modo Simulación (sin apuestas reales).",
         # Contatori Dashboard (chiavi in dashboard_stats.COUNTERS)
         "📥 Ricevuti": "📥 Recibidos",
         "✅ Scritti": "✅ Escritos",
@@ -1202,7 +1208,7 @@ _CATALOG = {
         "Percorso del CSV letto da XTrader (identico nella "
         "sorgente segnali di XTrader). La scrittura di prova "
         "crea SOLO l'header e non tocca mai un CSV operativo.":
-            "Ruta del CSV leído por XTrader (idéntica a la fuente de señales de XTrader). "
+            "Ruta del CSV leído por Betting Toolkit (idéntica a la fuente de señales de Betting Toolkit). "
             "La escritura de prueba crea SOLO el encabezado y nunca toca un CSV operativo.",
         "Nessun Parser Personalizzato attivo: configuralo nella "
         "scheda 🧩 Parser e riapri il wizard.":
@@ -1318,7 +1324,7 @@ _CATALOG = {
         "Avvio annullato: correggi le sorgenti.": "Inicio cancelado: corrige las fuentes.",
         "⏸️ Avvio automatico annullato: nessuna chat sorgente ATTIVA.": "⏸️ Inicio automático cancelado: ninguna chat fuente ACTIVA.",
         "⚠️ Nessuna chat sorgente ATTIVA: il listener parte ma NON processerà alcun segnale finché non attivi almeno una chat.": "⚠️ Ninguna chat fuente ACTIVA: el listener se inicia pero NO procesará ninguna señal hasta que actives al menos una chat.",
-        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ La Chat de notificaciones XTrader coincide con una chat fuente: cámbiala (las señales se confundirían con confirmaciones). Inicio cancelado.",
+        "❌ La Chat notifiche XTrader coincide con una chat sorgente: cambiala (i segnali verrebbero scambiati per conferme). Avvio annullato.": "❌ La Chat de notificaciones Betting Toolkit coincide con una chat fuente: cámbiala (las señales se confundirían con confirmaciones). Inicio cancelado.",
         "⏸️ Avvio automatico in modalità reale annullato.": "⏸️ Inicio automático en modo real cancelado.",
         "▶️ Avvio automatico del listener (auto_start_listener attivo).": "▶️ Inicio automático del listener (auto_start_listener activo).",
         "⏸️ Avvio in modalità reale annullato.": "⏸️ Inicio en modo real cancelado.",
@@ -1347,7 +1353,7 @@ _CATALOG = {
         # Log ESITO elaborazione messaggio/segnale (#343 slice 4m) — vedi nota nel blocco EN.
         "⏳ Messaggio ignorato: troppo vecchio (probabile arretrato dopo una disconnessione).": "⏳ Mensaje ignorado: demasiado antiguo (probablemente atrasado tras una desconexión).",
         "⚠️ Config live senza filtro chat: messaggio ignorato per sicurezza (configura chat/sorgenti, poi salva).": "⚠️ Config en vivo sin filtro de chat: mensaje ignorado por seguridad (configura chats/fuentes y luego guarda).",
-        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ La Chat de notificaciones XTrader coincide con una fuente permitida: config ambigua, mensaje IGNORADO (ni señal ni confirmación). Corrige xtrader_notification_chat_id (debe ser una chat separada).",
+        "❌ La Chat notifiche XTrader coincide con una sorgente ammessa: config ambigua, messaggio IGNORATO (né segnale né conferma). Correggi xtrader_notification_chat_id (dev'essere una chat separata).": "❌ La Chat de notificaciones Betting Toolkit coincide con una fuente permitida: config ambigua, mensaje IGNORADO (ni señal ni confirmación). Corrige xtrader_notification_chat_id (debe ser una chat separada).",
         "⚠️ Esito instradamento sconosciuto ({decision}): messaggio ignorato per sicurezza.": "⚠️ Resultado de enrutamiento desconocido ({decision}): mensaje ignorado por seguridad.",
         "⚠️ Segnale scartato ({source}/{status}): {detail}": "⚠️ Señal descartada ({source}/{status}): {detail}",
         "❌ Scrittura CSV fallita: {exc}. Segnale non registrato (riprovabile).": "❌ Escritura CSV fallida: {exc}. Señal no registrada (reintentable).",
@@ -1355,8 +1361,8 @@ _CATALOG = {
         "❌ Aggiornamento CSV dopo conferma fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV tras confirmación fallida: {exc}. Reintento en breve.",
         "❌ Errore imprevisto nel gestore messaggi: {exc}": "❌ Error inesperado en el gestor de mensajes: {exc}",
         "errore sconosciuto": "error desconocido",
-        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ Confirmación de XTrader para una señal ya vencida/eliminada: CSV sin cambios.",
-        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ Confirmación de XTrader para una señal ya eliminada: CSV realineado.",
+        "ℹ️ Conferma XTrader per un segnale già scaduto/rimosso: CSV invariato.": "ℹ️ Confirmación de Betting Toolkit para una señal ya vencida/eliminada: CSV sin cambios.",
+        "ℹ️ Conferma XTrader per un segnale già rimosso: CSV riallineato.": "ℹ️ Confirmación de Betting Toolkit para una señal ya eliminada: CSV realineado.",
         "❌ Aggiornamento CSV alla scadenza fallito: {exc}. Riprovo a breve.": "❌ Actualización del CSV al vencimiento fallida: {exc}. Reintento en breve.",
         "🗑️  {n} segnale/i scaduto/i rimosso/i dal CSV": "🗑️  {n} señal(es) vencida(s) eliminada(s) del CSV",
         # Log RESILIENZA runtime (#343 slice 4n) — vedi nota nel blocco EN.
@@ -1498,23 +1504,23 @@ _CATALOG = {
         "XTrader potrà piazzare scommesse REALI.\n\n"
         "Per confermare digita:  {phrase}":
             "ATENCIÓN: estás a punto de activar el MODO REAL.\n"
-            "XTrader podrá realizar apuestas REALES.\n\n"
+            "Betting Toolkit podrá realizar apuestas REALES.\n\n"
             "Para confirmar escribe:  {phrase}",
-        "Conferma MODALITÀ COLLAUDO": "Confirmar MODO DE PRUEBA XTRADER",
+        "Conferma MODALITÀ COLLAUDO": "Confirmar MODO DE PRUEBA BETTING TOOLKIT",
         "Stai attivando la MODALITÀ COLLAUDO XTRADER:\n"
         "il CSV operativo verrà scritto e XTrader lo importerà.\n\n"
         "XTrader è impostato in Modalità Simulazione?\n"
         "(Se è in reale, le scommesse sarebbero VERE.)":
-            "Estás activando el MODO DE PRUEBA XTRADER:\n"
-            "el CSV operativo se escribirá y XTrader lo importará.\n\n"
-            "¿XTrader está configurado en Modo Simulación?\n"
+            "Estás activando el MODO DE PRUEBA BETTING TOOLKIT:\n"
+            "el CSV operativo se escribirá y Betting Toolkit lo importará.\n\n"
+            "¿Betting Toolkit está configurado en Modo Simulación?\n"
             "(Si está en modo real, las apuestas serían REALES.)",
         "Conferma modalità MULTI-segnale": "Confirmar modo MULTI-señal",
         "Stai attivando una modalità coda MULTI-segnale: nel CSV potranno esserci PIÙ "
         "righe attive contemporaneamente, quindi XTrader può piazzare PIÙ scommesse "
         "simultanee (tetto attuale: {max_active} righe attive). Confermi?":
             "Estás activando un modo de cola MULTI-señal: el CSV podrá tener VARIAS filas "
-            "activas a la vez, por lo que XTrader puede realizar VARIAS apuestas simultáneas "
+            "activas a la vez, por lo que Betting Toolkit puede realizar VARIAS apuestas simultáneas "
             "(tope actual: {max_active} filas activas). ¿Confirmar?",
         "Avvio automatico — MODALITÀ REALE": "Inicio automático — MODO REAL",
         "L'avvio automatico è attivo in MODALITÀ REALE: il bridge "
@@ -1529,8 +1535,8 @@ _CATALOG = {
             "en cuanto lleguen.\n\n¿Iniciar ahora el listener?",
         # Dialoghi GUI di AZIONE FILE (#343 slice 4z) — vedi nota nel blocco EN. {path}=percorso;
         # «CSV»/«XTrader» invariati; dialog «già in esecuzione» all'avvio resta IT (pre set_language).
-        "Scegli il file CSV per XTrader": "Elige el archivo CSV para XTrader",
-        "Crea un nuovo CSV per XTrader (solo header)": "Crea un nuevo CSV para XTrader (solo encabezado)",
+        "Scegli il file CSV per XTrader": "Elige el archivo CSV para Betting Toolkit",
+        "Crea un nuovo CSV per XTrader (solo header)": "Crea un nuevo CSV para Betting Toolkit (solo encabezado)",
         "Tutti i file": "Todos los archivos",
         "Testo": "Texto",
         "Bridge avviato": "Bridge iniciado",
@@ -1544,7 +1550,7 @@ _CATALOG = {
         "Sovrascrivere il segnale attivo?": "¿Sobrescribir la señal activa?",
         "{path} contiene un segnale attivo non ancora letto da XTrader.\n\n"
         "Sovrascriverlo con un CSV vuoto (solo header)?":
-            "{path} contiene una señal activa aún no leída por XTrader.\n\n"
+            "{path} contiene una señal activa aún no leída por Betting Toolkit.\n\n"
             "¿Sobrescribirlo con un CSV vacío (solo encabezado)?",
         "Audit modalità reale": "Auditoría del modo real",
         "Nessun evento di attivazione modalità reale nei log.":
@@ -1565,13 +1571,17 @@ _CATALOG = {
         "🧪 Simulazione Bridge — NON scrive il CSV operativo":
             "🧪 Simulación Bridge — NO escribe el CSV operativo",
         "🔬 Collaudo XTrader — scrive il CSV (XTrader in simulazione)":
-            "🔬 Prueba XTrader — escribe el CSV (XTrader en simulación)",
+            "🔬 Prueba Betting Toolkit — escribe el CSV (Betting Toolkit en simulación)",
         "⚠️ Reale — scommesse vere (richiede conferma)":
             "⚠️ Real — apuestas reales (requiere confirmación)",
         "Ultimo messaggio": "Último mensaje",
+        # #286: vedi la nota nel blocco EN — stesse tre lacune.
+        "Ultimo CSV": "Último CSV",
+        "Ultimo errore": "Último error",
+        "Ultima conferma XTrader": "Última confirmación de Betting Toolkit",
         "Ultimo segnale": "Última señal",
         "CSV scrivibile": "CSV escribible",
-        "Conferme XTrader": "Confirmaciones XTrader",
+        "Conferme XTrader": "Confirmaciones Betting Toolkit",
         "Dizionari": "Diccionarios",
         "connesso, in ascolto": "conectado, escuchando",
         "riconnessione in corso (backoff)": "reconectando (backoff)",

@@ -79,7 +79,7 @@ def test_banner_collaudo_localizzato_a_runtime(app_mod):
     assert not app._real_banner.packed                      # rosso spento in COLLAUDO
     assert app._collaudo_banner.packed
     assert app._collaudo_banner.text == i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT)
-    assert app._collaudo_banner.text.startswith("🔬 MODO DE PRUEBA XTRADER")
+    assert app._collaudo_banner.text.startswith("🔬 MODO DE PRUEBA BETTING TOOLKIT")
 
 
 def test_banner_reale_italiano_default(app_mod):

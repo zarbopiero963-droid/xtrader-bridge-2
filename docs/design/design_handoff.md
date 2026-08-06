@@ -520,8 +520,14 @@ Dalla **slice 4 — banner di modalità** sono localizzati i due **banner persis
 sicurezza**: il **banner ROSSO «⚠️ MODALITÀ REALE ATTIVA…»** (`real_mode.BANNER_TEXT`) e il
 **banner AMBRA «🔬 MODALITÀ COLLAUDO XTRADER…»** (`bridge_mode.COLLAUDO_BANNER_TEXT`), resi in
 `app.py` via `i18n.tr(...)` sulla costante. Traduzioni (catalogo `i18n.py`): EN «⚠️ REAL MODE
-ACTIVE …» / «🔬 XTRADER TEST MODE …», ES «⚠️ MODO REAL ACTIVO …» / «🔬 MODO DE PRUEBA XTRADER
-…». La **semantica di rischio è preservata** in tutte le lingue: emoji ⚠️/🔬 invariate, colori
+ACTIVE …» / «🔬 BETTING TOOLKIT TEST MODE …», ES «⚠️ MODO REAL ACTIVO …» / «🔬 MODO DE
+PRUEBA BETTING TOOLKIT …». **Nome del prodotto di destinazione (#286).** In IT si chiama **XTrader**, in EN/ES
+**Betting Toolkit** — è lo *stesso* software con nomi diversi per mercato
+(BETTINGTOOLKIT.COM/.ES/.LAT). Le **chiavi** del catalogo sono le stringhe italiane, quindi
+nell'interfaccia italiana resta «XTrader» e cambia solo il valore tradotto. Da non confondere
+col nome di **questo** programma, che è **BetRelay** (#232) ed è uguale in tutte le lingue.
+
+La **semantica di rischio è preservata** in tutte le lingue: emoji ⚠️/🔬 invariate, colori
 banner invariati (rosso REALE ha priorità sull'ambra COLLAUDO), parole-rischio conservate
 (REAL/REALES, TEST/PRUEBA). La **decisione** di mostrare il banner (`real_mode.banner_active`
 / `bridge_mode.banners_for`) è invariata: cambia solo il testo mostrato. IT resta il
@@ -739,8 +745,8 @@ rosso Reale).
 
 > **#269 (localizzazione dei semafori).** Etichette **e dettagli** sono ora localizzati in
 > EN/ES — prima l'intera scheda restava in italiano in tutte le lingue. Le etichette diventano
-> *Last message* · *Last signal* · *CSV writable* · *XTrader confirmations* · *Dictionaries*
-> (ES: *Último mensaje* · *Última señal* · *CSV escribible* · *Confirmaciones XTrader* ·
+> *Last message* · *Last signal* · *CSV writable* · *Betting Toolkit confirmations* · *Dictionaries*
+> (ES: *Último mensaje* · *Última señal* · *CSV escribible* · *Confirmaciones de Betting Toolkit* ·
 > *Diccionarios*); *Telegram* e *Parser Personalizzato* restano invariati come termini
 > prodotto. Sono tradotti anche i dettagli statici — p.es. «OFFLINE — premi AVVIA per
 > ascoltare» → *OFFLINE — press START to listen* / *OFFLINE — pulsa INICIAR para escuchar*.

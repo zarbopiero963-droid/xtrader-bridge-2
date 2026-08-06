@@ -273,17 +273,17 @@ def test_banner_modalita_tradotti_en_es():
     i18n.set_language("EN")
     assert i18n.tr(real_mode.BANNER_TEXT) == (
         "⚠️ REAL MODE ACTIVE — valid signals are written to the operational CSV "
-        "and XTrader can place REAL bets.")
+        "and Betting Toolkit can place REAL bets.")
     assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT) == (
-        "🔬 XTRADER TEST MODE — the operational CSV IS written: "
-        "XTrader must be in Simulation Mode (no real bets).")
+        "🔬 BETTING TOOLKIT TEST MODE — the operational CSV IS written: "
+        "Betting Toolkit must be in Simulation Mode (no real bets).")
     i18n.set_language("ES")
     assert i18n.tr(real_mode.BANNER_TEXT) == (
         "⚠️ MODO REAL ACTIVO — las señales válidas se escriben en el CSV "
-        "operativo y XTrader puede realizar apuestas REALES.")
+        "operativo y Betting Toolkit puede realizar apuestas REALES.")
     assert i18n.tr(bridge_mode.COLLAUDO_BANNER_TEXT) == (
-        "🔬 MODO DE PRUEBA XTRADER — el CSV operativo SE escribe: "
-        "XTrader debe estar en Modo Simulación (sin apuestas reales).")
+        "🔬 MODO DE PRUEBA BETTING TOOLKIT — el CSV operativo SE escribe: "
+        "Betting Toolkit debe estar en Modo Simulación (sin apuestas reales).")
     # la warning-emoji e il rischio «real» restano visibili in entrambe le lingue
     for lang in ("EN", "ES"):
         i18n.set_language(lang)

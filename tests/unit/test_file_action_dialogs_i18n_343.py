@@ -122,7 +122,7 @@ def test_round_trip_en_es():
     assert i18n.tr("Bridge avviato") == "Bridge started"
     assert i18n.tr("Tutti i file") == "All files"
     assert i18n.tr(_BODY_OVERWRITE_SIGNAL).format(path="/x/a.csv") == (
-        "/x/a.csv contains an active signal not yet read by XTrader.\n\n"
+        "/x/a.csv contains an active signal not yet read by Betting Toolkit.\n\n"
         "Overwrite it with an empty CSV (header only)?")
     i18n.set_language("ES")
     assert i18n.tr("Sovrascrivere il file esistente?") == "¿Sobrescribir el archivo existente?"
