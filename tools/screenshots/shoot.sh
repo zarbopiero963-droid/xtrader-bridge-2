@@ -11,6 +11,17 @@
 #   en  366 93 273 482
 #   es  366 93 278 482
 #
+# ⚠️ QUEI VALORI SONO STANTII (verificato il 2026-08-06). Erano calibrati quando la tabview
+# di configurazione aveva QUATTRO schede; oggi ce n'è una quinta, «Licenza», e su una macchina
+# senza licenza attiva la fascia rossa «bridge bloccato» sposta tutto in basso di ~33 px. Con
+# i valori sopra i click cadono a vuoto e si ottengono TRE COPIE della stessa schermata —
+# misurato: tre file identici, 55 132 byte l'uno. Il sintomo è insidioso perché lo script
+# stampa comunque «OK», quindi va guardato il risultato, non l'esito.
+#
+# Vanno RI-MISURATE nell'ambiente in cui si scatta: con e senza licenza il layout differisce,
+# quindi non esiste una terna giusta per entrambi i casi. Vedi la nota in
+# docs/assets/screenshots/linux-xvfb/README.md.
+#
 # Prerequisiti: Xvfb :99 attivo, deps di tools/screenshots/README.md, lanciato dalla
 # radice del repo. Il token nella config d'esempio è FITTIZIO: l'app non si connette.
 #
@@ -98,9 +109,9 @@ DISPLAY=:99 python3 main.py > "$RUNDIR/app.log" 2>&1 &
 APP_PID=$!
 sleep 14
 
-W="$(DISPLAY=:99 xdotool search --name "Signal Bridge" | tail -1)"
+W="$(DISPLAY=:99 xdotool search --name "BetRelay" | tail -1)"
 if [ -z "$W" ]; then
-  echo "Finestra «Signal Bridge» non trovata. Ultime righe del log:" >&2
+  echo "Finestra «BetRelay» non trovata. Ultime righe del log:" >&2
   tail -20 "$RUNDIR/app.log" >&2
   exit 1
 fi

@@ -26,7 +26,7 @@ Seminala con i valori d'esempio usati in tutte le guide:
   "app_language": "it",
   "bot_token": "123456789:AAExempio-Token-NON-Reale-0000",
   "chat_id": "-1001234567890",
-  "csv_path": "C:\\XTrader\\segnali.csv",
+  "csv_path": "C:\\BetRelay\\segnali.csv",
   "clear_delay": 90,
   "provider": "TelegramBot",
   "dry_run": true

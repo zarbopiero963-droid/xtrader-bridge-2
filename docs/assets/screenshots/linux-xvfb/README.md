@@ -15,6 +15,30 @@ d'esempio** delle guide: token **fittizio**, chat `-1001234567890`, percorso
 > La descrizione qui sopra **non** è stata aggiornata di proposito: deve dire cosa le
 > immagini mostrano *davvero*, non cosa vorremmo mostrassero.
 
+### Perché non sono ancora rigenerate — due ostacoli misurati, non ipotizzati
+
+Tentata la rigenerazione con la pipeline documentata (Xvfb + `shoot.sh`). La pipeline **ora
+funziona** — il difetto che la bloccava del tutto è corretto, vedi sotto — ma le immagini
+prodotte **non sono utilizzabili in una guida**, per due ragioni distinte:
+
+1. **La fascia rossa della licenza.** Su una macchina senza licenza attiva l'app mostra in
+   cima `🔒 Licenza non valida: bridge bloccato` e il pulsante **AVVIA disabilitato**. Ogni
+   scatto porterebbe quel banner: una schermata di **errore** dentro una guida che spiega
+   l'uso normale. Le immagini attuali sono precedenti al sistema di licenze e infatti non ce
+   l'hanno. Serve un ambiente **con licenza attiva** — non è una cosa che si aggira scrivendo
+   codice: la firma Ed25519 è area dichiarata sana dall'audit, e fabbricare una licenza per
+   fare una foto è esattamente ciò che non si fa.
+
+2. **Le coordinate dei click sono stantie.** `shoot.sh` clicca le tab a coordinate fisse,
+   calibrate quando la tabview aveva **quattro** schede (Generale · Riconoscimento · Sicurezza
+   · Conferme XTrader). Oggi ce n'è una quinta, **Licenza**, e il banner sposta tutto in basso
+   di ~33 px: i click cadono a vuoto e si ottengono **tre copie della stessa schermata**
+   (verificato: tre file identici, 55 132 byte l'uno). Le coordinate vanno ri-misurate
+   **nell'ambiente in cui si scatta**, perché con e senza licenza il layout differisce.
+
+Finché entrambi non sono risolti, rigenerare produrrebbe immagini **peggiori** di queste:
+sbagliate sul nome, e per giunta in stato d'errore.
+
 Servono alle **tre sezioni per software** del sito — *BetRelay per XTrader* (IT), *for
 BETTINGTOOLKIT.COM* (EN), *para BETTINGTOOLKIT.ES / .LAT* (ES) — secondo la regola in
 [`docs/policy_lingue_sito.md`](../../../policy_lingue_sito.md): **il testo si traduce in tutte le
