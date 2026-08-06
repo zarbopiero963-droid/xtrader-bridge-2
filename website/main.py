@@ -346,7 +346,8 @@ _PAGES = {"/": "index.html", "/demo": "demo.html", "/faq": "faq.html",
           "/documentazione": "documentazione.html",
           "/demo/xtrader": "demo-xtrader.html",
           "/privacy": "privacy.html",
-          "/gioco-responsabile": "gioco-responsabile.html"}
+          "/gioco-responsabile": "gioco-responsabile.html",
+          "/guida/api-key-anthropic": "api-key-anthropic.html"}
 for route, fname in _PAGES.items():
     def _make(fn: str):
         async def _page() -> FileResponse:

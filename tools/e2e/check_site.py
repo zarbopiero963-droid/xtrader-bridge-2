@@ -54,6 +54,7 @@ PAGINE = [
     ("/documentazione", "Documentazione"),
     ("/privacy", "Privacy"),
     ("/gioco-responsabile", "Gioco responsabile · 18+"),
+    ("/guida/api-key-anthropic", "Guida API key Anthropic"),
 ]
 
 # Disclaimer di non-affiliazione (docs/policy_lingue_sito.md §7). Il browser headless

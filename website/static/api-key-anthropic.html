@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guida — Ottenere la API key Anthropic per l'assistente | BetRelay</title>
+<meta name="description" content="Guida passo-passo: creare l'account sulla Console Anthropic, aggiungere credito, generare la API key e incollarla in BetRelay per attivare l'assistente 🤖.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .steps{counter-reset:step;margin-top:26px}
+  .step{
+    display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:start;
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:22px 24px;margin-bottom:18px;
+  }
+  @media (max-width:820px){.step{grid-template-columns:1fr}}
+  .step .num{
+    counter-increment:step;display:inline-flex;align-items:center;justify-content:center;
+    width:30px;height:30px;border-radius:50%;background:var(--cyan);color:#06121a;
+    font-weight:800;font-size:.92rem;margin-right:10px;flex:none;
+  }
+  .step .num::before{content:counter(step)}
+  .step h2{font-size:1.1rem;display:flex;align-items:center;margin-bottom:10px;text-wrap:balance}
+  .step p{color:var(--muted);font-size:.94rem;margin-bottom:10px}
+  .step p b{color:var(--text)}
+  .step code{font-family:var(--mono);font-size:.85em;background:#0c0f14;border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+  .shot{background:#0c0f14;border:1px solid var(--border);border-radius:12px;padding:8px;overflow:hidden}
+  .shot img{display:block;width:100%;height:auto;border-radius:8px}
+  .shot figcaption{color:var(--muted);font-size:.76rem;padding:8px 4px 2px;text-align:center}
+  .attesa{
+    background:#0c0f14;border:1px dashed var(--border);border-radius:12px;
+    min-height:150px;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:.82rem;text-align:center;padding:18px;line-height:1.5;
+  }
+  .warn{border-left:3px solid var(--red-txt);background:#1b1216;border-radius:8px;padding:12px 16px;margin:10px 0}
+  .warn b{color:var(--red-txt)}
+  .warn p{color:#d6b9bd;font-size:.9rem;margin:0}
+  .tip{border-left:3px solid var(--green-txt);background:#101a12;border-radius:8px;padding:12px 16px;margin:10px 0}
+  .tip b{color:var(--green-txt)}
+  .tip p{color:#b8ccbc;font-size:.9rem;margin:0}
+  .shots-note{border-left:3px solid var(--cyan);background:#0b1418;border-radius:8px;padding:12px 16px;margin:18px 0 0}
+  .shots-note b{color:var(--cyan)}
+  .shots-note p{color:#a9c3cc;font-size:.9rem;margin:0}
+</style>
+</head>
+<body>
+<nav class="nav"><div class="nav-in">
+  <a class="brand" href="/">📡 BetRelay</a>
+  <div class="nav-links">
+    <a href="/" data-i18n="nav.home">Home</a>
+    <a href="/demo" data-i18n="nav.demo">Demo interattiva</a>
+    <a href="/documentazione" data-i18n="nav.docs">Documentazione</a>
+    <a href="/faq" data-i18n="nav.faq">FAQ</a>
+    <a href="/contatti" data-i18n="nav.contact">Contatti</a>
+  </div>
+  <div class="lang-sw" role="group" aria-label="Lingua / Language / Idioma">
+    <button data-lang="it" aria-pressed="false">IT</button>
+    <button data-lang="en" aria-pressed="false">EN</button>
+    <button data-lang="es" aria-pressed="false">ES</button>
+  </div>
+</div></nav>
+
+<main><div class="wrap">
+  <h1 style="font-size:1.7rem;text-wrap:balance" data-i18n="apikey.h1">Ottenere la API key Anthropic per l'assistente</h1>
+  <p class="secsub" style="margin-top:8px" data-i18n="apikey.lead">L'assistente <b>🤖</b> di BetRelay ti spiega ogni campo del programma, prova i tuoi messaggi col parser e ti dice perché un segnale è stato scartato. Per farlo parla con un modello di <b>Anthropic</b>, e quindi ha bisogno di una <b>API key</b> tua. Sono dieci minuti, si fa una volta sola, e <b>il resto di BetRelay funziona benissimo anche senza</b>: l'assistente è un aiuto, non un requisito.</p>
+
+  <div class="warn" style="margin-top:18px">
+    <b data-i18n="apikey.warn.claude.h">Non è l'abbonamento a Claude.</b>
+    <p data-i18n="apikey.warn.claude.p">Se paghi già Claude Pro o Max, quella è l'app di chat: <b>non</b> comprende l'uso da programma. La chiave si prende sulla <b>Console per sviluppatori</b>, è un account separato e si paga <b>a consumo</b>. Sono due cose diverse che si pagano due volte — meglio saperlo prima che dopo.</p>
+  </div>
+
+  <div class="shots-note">
+    <b data-i18n="apikey.shots.h">Le schermate sono in inglese.</b>
+    <p data-i18n="apikey.shots.lang">La Console Anthropic è in inglese e non esiste in italiano: le schermate qui sotto sono quelle vere, quindi in inglese. Il testo di questa guida è tradotto, i pulsanti no — quando ne cito uno lo scrivo <b>esattamente come appare a schermo</b>, con la traduzione fra parentesi.</p>
+  </div>
+
+  <div class="steps">
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s1.h"><span class="num"></span> Apri la Console e crea l'account</h2>
+        <p data-i18n="apikey.s1.p1">L'indirizzo è <code>platform.claude.com</code>. Se ti ricordi <code>console.anthropic.com</code> non sbagli, ma è cambiato: quel vecchio indirizzo oggi rimanda qui.</p>
+        <p data-i18n="apikey.s1.p2">Registrati con email o con un account Google. Se hai già un account Claude puoi usare lo stesso accesso, ma <b>la Console resta separata</b>: entrarci non attiva niente e non costa niente finché non generi una chiave e la usi.</p>
+      </div>
+      <div class="attesa" data-i18n="apikey.s1.attesa">📸 Schermata in arrivo<br>La pagina di ingresso di platform.claude.com</div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s2.h"><span class="num"></span> Guardati intorno: Billing e API keys</h2>
+        <p data-i18n="apikey.s2.p1">Fatto l'accesso, le due voci che ti servono sono <b>Billing</b> (fatturazione, cioè il credito) e <b>API keys</b> (le chiavi). Le trovi nelle impostazioni dell'account.</p>
+        <p data-i18n="apikey.s2.p2">L'ordine giusto è questo: <b>prima il credito, poi la chiave</b>. Al contrario funziona lo stesso, ma ti ritrovi con una chiave che non risponde e non capisci perché — vedi il passo 3.</p>
+      </div>
+      <div class="attesa" data-i18n="apikey.s2.attesa">📸 Schermata in arrivo<br>La Console dopo l'accesso, con il menu delle impostazioni</div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s3.h"><span class="num"></span> Aggiungi credito — il passo che saltano tutti</h2>
+        <p data-i18n="apikey.s3.p1">Vai su <b>Billing</b> e aggiungi credito. Senza, la chiave viene creata regolarmente ma <b>ogni richiesta viene rifiutata</b>: l'assistente resta <b>🔴 in ERRORE</b> e nel messaggio compare <code>credit balance is too low</code>.</p>
+        <p data-i18n="apikey.s3.p2">È il modo più comune di perdere mezz'ora: la chiave sembra giusta, l'hai incollata bene, e non funziona lo stesso. <b>È il credito, non la chiave.</b></p>
+        <div class="tip">
+          <b data-i18n="apikey.s3.tip.h">Quanto mettere.</b>
+          <p data-i18n="apikey.s3.tip.p">Il minimo basta e avanza. L'assistente scambia poche righe di testo per volta: una conversazione di configurazione costa <b>frazioni di centesimo</b>. Il credito si consuma per quello che usi, non a canone.</p>
+        </div>
+      </div>
+      <div class="attesa" data-i18n="apikey.s3.attesa">📸 Schermata in arrivo<br>La pagina Billing con il pulsante per aggiungere credito</div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s4.h"><span class="num"></span> Crea la chiave</h2>
+        <p data-i18n="apikey.s4.p1">Apri <b>API keys</b> (l'indirizzo diretto è <code>platform.claude.com/settings/keys</code>) e premi il pulsante per crearne una nuova.</p>
+        <p data-i18n="apikey.s4.p2">Ti chiede un <b>nome</b> — mettici <code>BetRelay</code>, così fra sei mesi sai a cosa serve — e una <b>scadenza</b>. Se scegli una scadenza, segnatela: il giorno che scade l'assistente smette di rispondere e il motivo non è ovvio.</p>
+      </div>
+      <div class="attesa" data-i18n="apikey.s4.attesa">📸 Schermata in arrivo<br>L'elenco API keys con il pulsante di creazione</div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s5.h"><span class="num"></span> Copiala subito: te la mostra una volta sola</h2>
+        <p data-i18n="apikey.s5.p1">Appena creata, la chiave compare per intero. Comincia con <code>sk-ant-</code> ed è lunga. <b>Copiala adesso</b>: chiusa quella finestra, Anthropic non te la rimostra più — nemmeno a te.</p>
+        <p data-i18n="apikey.s5.p2">Se la perdi non è un dramma: si cancella quella e se ne crea un'altra. Ma è tempo buttato, e nel frattempo l'assistente non parte.</p>
+        <div class="warn">
+          <b data-i18n="apikey.s5.warn.h">La chiave è una password, e questa spende soldi tuoi.</b>
+          <p data-i18n="apikey.s5.warn.p">Chi ce l'ha può usare il tuo credito. Non mandarla in chat, non metterla negli screenshot, non incollarla in un forum per chiedere aiuto. Se ti sfugge: torna su <b>API keys</b>, <b>revocala</b> e creane una nuova — la vecchia smette di funzionare all'istante.</p>
+        </div>
+      </div>
+      <div class="attesa" data-i18n="apikey.s5.attesa">📸 Schermata in arrivo<br>La chiave appena creata (oscurata: si vede la forma, non il valore)</div>
+    </section>
+
+    <section class="step">
+      <div>
+        <h2 data-i18n="apikey.s6.h"><span class="num"></span> Incollala in BetRelay</h2>
+        <p data-i18n="apikey.s6.p1">Apri BetRelay e vai nel tab <b>«🤖 Assistente»</b>. In alto c'è il campo <b>«API key Anthropic:»</b>: incolla la chiave e premi <b>«💾 Salva chiave»</b>.</p>
+        <p data-i18n="apikey.s6.p2">Il campo mostra pallini, non il testo, e <b>si svuota subito dopo il salvataggio</b>. Poi premi <b>«▶ Abilita»</b>: l'indicatore diventa <b>🟢 Assistente ATTIVO</b> e puoi scrivergli.</p>
+        <div class="tip">
+          <b data-i18n="apikey.s6.tip.h">Dove finisce la chiave.</b>
+          <p data-i18n="apikey.s6.tip.p">Nel <b>keyring di Windows</b> (Gestione credenziali), mai in <code>config.json</code>. Nei log e nella cronologia della chat compare sempre mascherata: BetRelay la conosce, non la scrive da nessuna parte in chiaro.</p>
+        </div>
+      </div>
+      <div class="attesa" data-i18n="apikey.s6.attesa">📸 Schermata in arrivo<br>Il tab «🤖 Assistente» di BetRelay con il campo della chiave</div>
+    </section>
+
+  </div>
+
+  <h2 class="sec" data-i18n="apikey.cost.h">Quanto costa davvero</h2>
+  <p class="secsub" data-i18n="apikey.cost.p">Si paga a <b>consumo</b>, sul testo scambiato. L'assistente di BetRelay fa conversazioni corte — gli chiedi cosa manca per partire, gli fai provare un messaggio, ti spiega un semaforo — e ogni scambio costa una frazione di centesimo. Non c'è canone: se non lo usi per un mese, quel mese non paghi. Il credito che carichi è un tetto: finito quello, l'assistente si ferma e <b>il resto del bridge continua a funzionare come sempre</b>. Non esiste un modo per cui BetRelay spenda i tuoi soldi senza che tu stia scrivendo nella chat dell'assistente.</p>
+
+  <h2 class="sec" data-i18n="apikey.trouble.h">Se smette di funzionare</h2>
+  <div class="card">
+    <p data-i18n="apikey.trouble.credit"><b>«credit balance is too low»</b> — è finito il credito. Torna su <b>Billing</b> e ricarica. La chiave è ancora valida.</p>
+    <p data-i18n="apikey.trouble.auth"><b>Errore di autenticazione</b> — la chiave è sbagliata, revocata o scaduta. Creane una nuova e reincollala: il campo va riempito di nuovo, non si «aggiorna» da solo.</p>
+    <p data-i18n="apikey.trouble.keyring"><b>«Keyring non disponibile: chiave NON salvata»</b> — Windows non ha messo a disposizione la Gestione credenziali. BetRelay <b>non</b> ripiega scrivendo la chiave in chiaro: preferisce non salvarla.</p>
+    <p data-i18n="apikey.trouble.rest">In tutti e tre i casi <b>il bridge continua a funzionare</b>: Telegram, parser, CSV e limiti di sicurezza non dipendono dall'assistente.</p>
+  </div>
+
+  <p class="secsub" style="margin-top:22px;font-size:.85rem" data-i18n="apikey.disclaimer">BetRelay non è affiliata ad Anthropic né a Claude, e non rivende il loro servizio: la chiave la prendi tu, direttamente da loro, e il rapporto — credito, fatturazione, condizioni d'uso — resta fra te e Anthropic. Qui trovi solo le istruzioni per non perderci tempo.</p>
+
+  <div class="cta-row">
+    <a class="btn primary" href="/documentazione" data-i18n="apikey.cta.docs">← Torna alla documentazione</a>
+    <a class="btn ghost" href="/faq" data-i18n="apikey.cta.faq">Domande frequenti</a>
+  </div>
+</div></main>
+
+<footer><div class="wrap">
+  <span>© 2026 BetRelay</span>
+  <span><a href="/contatti" data-i18n="footer.contact">Contatti e supporto</a></span>
+  <span><a href="/privacy" data-i18n="footer.privacy">Privacy</a></span>
+  <span><a href="/gioco-responsabile" data-i18n="footer.responsible">Gioco responsabile · 18+</a></span>
+  <span data-i18n="footer.age">18+ · Gioca responsabilmente.</span>
+  <span data-i18n="footer.independent">Progetto indipendente: BetRelay non è affiliato, associato, autorizzato né sponsorizzato da TradingSportivo (XTrader) né da Betting Toolkit (BETTINGTOOLKIT.COM / .ES / .LAT). XTrader, Betting Toolkit, Betfair, Telegram e i relativi marchi appartengono ai rispettivi proprietari e sono citati solo a scopo descrittivo, per indicare la compatibilità.</span>
+</div></footer>
+
+<script src="/static/i18n.js" defer></script>
+<script src="/static/chat.js" defer></script>
+</body>
+</html>

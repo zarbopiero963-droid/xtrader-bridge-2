@@ -137,6 +137,27 @@ proprietario da dichiarare in pagina — non un ripiego che l'agente possa prend
 Il contenuto esiste già in [`xtrader_integration.md`](xtrader_integration.md); manca la pagina.
 Oggi la card in `/documentazione` rimanda alla demo con la nota «in preparazione».
 
+### S17. Guida «API key Anthropic» ✅ scritta · ⏳ mancano gli screenshot
+Pagina `/guida/api-key-anthropic`, trilingue, linkata da `/documentazione`. Nasce dalla decisione
+del 6 agosto: **l'assistente 🤖 va a chi ha il bridge**, non resta strumento del solo proprietario
+— quindi ogni utente deve procurarsi una API key Anthropic propria e sapere quanto costa.
+
+Verificato invece che scritto a memoria: la Console **non è più** `console.anthropic.com`, che
+oggi risponde `301` verso **`platform.claude.com`**. Le chiavi stanno su
+`platform.claude.com/settings/keys`. Una guida scritta a ricordo avrebbe mandato l'utente su un
+indirizzo che rimbalza, con screenshot che non combaciano col testo.
+
+La pagina insiste su tre cose che costano soldi o tempo se taciute: che **non è l'abbonamento a
+Claude** (si pagherebbe due volte), che **senza credito la chiave non funziona** — errore
+`credit balance is too low`, capitato ai reviewer di questo stesso repository — e che la chiave
+è **una password che spende**, con la revoca spiegata.
+
+⏳ **Restano sei screenshot**, che non posso fare io: la Console è dietro il login e ricostruirla
+sarebbe fabbricare schermate (§2 della [policy lingue](policy_lingue_sito.md)). In pagina ci sono
+sei riquadri che dichiarano cosa ci andrà — sono insieme l'onestà verso il lettore e la lista di
+scatti. Un test conta che restino sei fra segnaposto e immagini: se un giorno se ne innestano
+cinque su sei, la suite lo dice.
+
 ### S8. Traduzioni EN/ES — ✅ guida bot fatta · ❌ restano le due demo
 `guida-bot.html` è **trilingue** (Issue #287): selettore IT/EN/ES, `i18n.js` caricato — prima non
 lo era, quindi i quattro `data-i18n` che il footer già aveva erano **morti** — e tutta la prosa
