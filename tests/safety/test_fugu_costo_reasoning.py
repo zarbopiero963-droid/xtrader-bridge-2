@@ -84,16 +84,106 @@ def test_fugu_spiega_nel_workflow_perche_non_e_low():
     )
 
 
-def test_fugu_riporta_i_token_di_REASONING_separati():
-    """I 9.600 token di reasoning erano invisibili nel report costi, che mostrava solo
-    `completion_tokens`. Senza quella riga il difetto ① era indistinguibile da «il modello
-    è verboso» — ed è per questo che è sopravvissuto. Il report deve separarli."""
-    src = _fugu()
+def _usage_note_reale():
+    """La `usage_note` VERA del workflow, estratta dall'heredoc via AST ed eseguita isolata.
 
-    assert "reasoning_tokens" in src, (
-        "il report costi deve esporre i token di reasoning separati dal testo: senza, "
-        "un ragionamento che esplode è indistinguibile da una review lunga"
+    Stessa tecnica di `_touches_core_reale` in `test_ai_audit_workflows.py`, e per la stessa
+    ragione (rilievo CodeRabbit su questa PR, fondato): la prima stesura di questo test
+    cercava la stringa `reasoning_tokens` nel sorgente — sarebbe passata anche se comparisse
+    solo in un **commento**, o in un'assegnazione mai usata. Cioè proprio il falso-verde che
+    il `CLAUDE.md` vieta: «i test devono esercitare funzioni reali del progetto».
+
+    Qui si misura il **comportamento**: dato un `usage`, cosa scrive nel report.
+    """
+    import ast
+    import re as _re
+
+    righe = _fugu().splitlines()
+    corpo, dentro, indent = [], False, ""
+    for r in righe:
+        m = _re.match(r"^(\s*)python3 <<'PY'\s*$", r)
+        if m and not dentro:
+            dentro, indent = True, m.group(1)
+            continue
+        if dentro:
+            if r.strip() == "PY":
+                break
+            corpo.append(r[len(indent):] if r.startswith(indent) else r)
+    assert corpo, "heredoc Python non individuato nel workflow"
+    albero = ast.parse("\n".join(corpo))
+    # Servono anche le costanti di prezzo che `usage_note` usa: si estraggono dallo stesso
+    # sorgente invece di ricopiarne i valori qui, altrimenti il test resterebbe verde con
+    # un listino stantio (e il costo riportato dal workflow sarebbe sbagliato senza che
+    # nessuno se ne accorga).
+    NECESSARIE = ("PRICE_INPUT_PER_MILLION", "PRICE_OUTPUT_PER_MILLION")
+    voluti = [n for n in albero.body
+              if (isinstance(n, ast.FunctionDef) and n.name == "usage_note")
+              or (isinstance(n, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id in NECESSARIE for t in n.targets))]
+    funzioni = [n for n in voluti if isinstance(n, ast.FunctionDef)]
+    assert len(funzioni) == 1, (
+        f"attesa una sola `usage_note` a livello modulo, trovate {len(funzioni)} — "
+        "il report costi è stato ristrutturato, aggiorna questo test"
     )
+    assert len(voluti) == len(funzioni) + len(NECESSARIE), (
+        "le costanti di prezzo non sono più assegnate a livello modulo: "
+        f"attese {NECESSARIE}, il costo nel report non sarebbe calcolabile"
+    )
+    # Le costanti leggono l'ambiente: si forniscono gli STESSI valori dichiarati nell'`env:`
+    # del workflow, così il prezzo esercitato è quello vero e non un default a zero.
+    import os as _os
+    prezzi = dict(_re.findall(r'^      (PRICE_\w+): "([\d.]+)"$', _fugu(), _re.M))
+    assert len(prezzi) >= 2, f"listino non leggibile dall'env del workflow: {prezzi}"
+    vecchio_env = {k: _os.environ.get(k) for k in prezzi}
+    _os.environ.update(prezzi)
+    try:
+        ns = {"os": _os}
+        exec(compile(ast.Module(body=voluti, type_ignores=[]), "fugu#usage_note", "exec"), ns)  # noqa: S102
+    finally:
+        for k, v in vecchio_env.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+    return ns["usage_note"]
+
+
+def test_usage_note_RENDE_i_token_di_reasoning():
+    """I 9.600 token di reasoning erano invisibili nel report, che mostrava solo
+    `completion_tokens`: un ragionamento esploso era indistinguibile da una review lunga, ed
+    è per questo che il difetto ① è sopravvissuto a lungo.
+
+    Si esercita la funzione vera con un `usage` realistico — quello della PR #292, dove Fugu
+    ha riportato 1.702 completion di cui 1.496 di reasoning.
+    """
+    usage_note = _usage_note_reale()
+
+    testo = usage_note(
+        {"prompt_tokens": 7899, "completion_tokens": 1702,
+         "completion_tokens_details": {"reasoning_tokens": 1496}},
+        "system", "user", "review",
+    )
+
+    assert "1496" in testo, f"il conteggio del reasoning non compare nel report: {testo!r}"
+    assert "87%" in testo, f"la percentuale non è calcolata correttamente: {testo!r}"
+    assert "1702" in testo, "il totale completion deve restare visibile"
+
+
+def test_usage_note_TACE_se_il_modello_non_riporta_reasoning():
+    """Contro-guardia: la riga in più non deve comparire quando il dato non c'è.
+
+    Serve perché `usage_note` è condivisa con le risposte che NON hanno il dettaglio (errori,
+    fallback, provider che non lo espongono): una riga «di cui reasoning: 0 (0%)» sarebbe una
+    misura inventata, non un'assenza dichiarata.
+    """
+    usage_note = _usage_note_reale()
+
+    testo = usage_note({"prompt_tokens": 100, "completion_tokens": 200}, "s", "u", "r")
+
+    assert "reasoning" not in testo.lower(), (
+        f"senza il dato il report non deve inventare una riga: {testo!r}"
+    )
+    assert "200" in testo, "il resto del report deve funzionare comunque"
 
 
 def test_fugu_chiama_il_modello_SOLO_sulla_label_finale():

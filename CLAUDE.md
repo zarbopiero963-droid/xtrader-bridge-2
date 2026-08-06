@@ -181,12 +181,15 @@ Non puoi saltare:
 ## FINAL AI REVIEW BEFORE MERGE — CANCELLO LABEL
 
 Due reviewer AI forti e costosi (Claude Fable 5, Fugu Ultra) **non** girano a
-ogni push come GPT-5.5/GLM. Spendono (chiamano il modello) **solo** in due casi:
+ogni push come GPT-5.5/GLM. **E dalla PR #292 non si comportano più allo stesso
+modo**: Fugu Ultra era da solo il **73%** della spesa di review misurata sulle PR
+#279/#280/#281, quindi ora spende **solo** sulla label finale. Fable 5 mantiene
+invece anche il gate a file core.
 
 1. **automaticamente** su un push che tocca **file core del bridge** (`main.py`,
    `xtrader_bridge/**`, `license_manager/**`, dipendenze
-   `requirements*`/`pyproject.toml`/`poetry.lock`)
-   — analizzano il push-range;
+   `requirements*`/`pyproject.toml`/`poetry.lock`) — analizza il push-range.
+   **Solo Claude Fable 5**: Fugu Ultra su un push esce senza spendere;
 2. **oppure** quando l'agente aggiunge la label finale (gate pre-merge sull'**intera
    PR**):
    - `final-fable-review` → `PR Review Claude Fable 5`

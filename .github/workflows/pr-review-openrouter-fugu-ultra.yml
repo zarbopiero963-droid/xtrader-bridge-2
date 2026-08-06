@@ -1,13 +1,16 @@
 name: PR Review OpenRouter Fugu Ultra
 
 # Review AI FORTE con Sakana Fugu Ultra via OpenRouter (endpoint chat/completions
-# stile OpenAI). È caro, quindi chiama il modello SOLO quando serve davvero:
-# - automaticamente su un push che tocca file CORE del bridge (main.py,
-#   xtrader_bridge/**, license_manager/**, dipendenze) → analizza il push-range;
-# - oppure quando viene aggiunta la label `final-fugu-review` (gate finale
-#   pre-merge) → analizza l'intera PR (base...head).
-# Su push che toccano solo workflow/docs/test il job parte ma NON spende (gate
-# costo nello script). Diff-only: niente checkout, niente esecuzione del codice
+# stile OpenAI). È il PIÙ CARO dei tre reviewer — da solo il 73% della spesa
+# misurata sulle PR #279/#280/#281 — quindi chiama il modello in UN SOLO caso:
+# - quando viene aggiunta la label `final-fugu-review` (gate finale pre-merge)
+#   → analizza l'intera PR (base...head).
+# Su QUALSIASI push il job parte (pubblica lo stato del check) ma NON spende:
+# non esiste più il gate a file core, che invece Fable 5 mantiene. La copertura
+# dei push intermedi resta a GPT-5.5 (automatico) e a Fable.
+# Eccezione fail-closed: un push su una PR dove la label finale è GIÀ presente
+# rende il gate STANTIO (la review si riferisce a un altro commit) → job ROSSO,
+# si risolve rimuovendo e riaggiungendo la label. Diff-only: niente checkout, niente esecuzione del codice
 # della PR. Redige i possibili segreti (inclusi nomi file e OUTPUT del modello)
 # prima dell'invio/pubblicazione e marca le aree sensibili. Reviewer OPZIONALE:
 # se il secret non è configurato il job esce con successo (skip). Vedi
@@ -518,7 +521,11 @@ jobs:
               # (remove + re-add), cioè la procedura che il CLAUDE.md già prescrive.
               FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fugu-review")
               etichette = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
-              gate_stantio = FINAL_LABEL in etichette
+              # SOLO su `synchronize` (rilievo GPT-5.5): e' l'unico evento in cui il head si e'
+              # davvero mosso. Su `reopened`/`ready_for_review`/rerun la label puo' essere
+              # presente ma il commit e' lo STESSO gia' revisionato: un rosso li' sarebbe un
+              # falso allarme, e un gate che grida al lupo viene ignorato quando serve.
+              gate_stantio = EVENT_ACTION == "synchronize" and FINAL_LABEL in etichette
               if gate_stantio:
                   print(
                       f"::error::{REVIEW_ID}: il head è cambiato DOPO che il gate finale era "
