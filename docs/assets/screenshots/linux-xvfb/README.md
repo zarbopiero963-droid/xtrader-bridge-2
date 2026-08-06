@@ -5,6 +5,16 @@ Screenshot **reali** della GUI catturati con la pipeline descritta in
 d'esempio** delle guide: token **fittizio**, chat `-1001234567890`, percorso
 `C:\XTrader\segnali.csv`. Nessun dato reale.
 
+> ⚠️ **Da rigenerare (#232).** Il default del programma è passato a
+> `C:\BetRelay\segnali.csv`, e la finestra si intitola ora **BetRelay** con header
+> **«📡 BetRelay»**. Queste immagini sono **precedenti** al rebrand: mostrano ancora il
+> percorso e il nome vecchi. Il testo delle guide è già aggiornato, quindi **finché non
+> si rigenerano, testo e immagini non concordano** — un utente nuovo potrebbe copiare
+> dalla schermata un percorso diverso da quello che il programma gli propone.
+>
+> La descrizione qui sopra **non** è stata aggiornata di proposito: deve dire cosa le
+> immagini mostrano *davvero*, non cosa vorremmo mostrassero.
+
 Servono alle **tre sezioni per software** del sito — *BetRelay per XTrader* (IT), *for
 BETTINGTOOLKIT.COM* (EN), *para BETTINGTOOLKIT.ES / .LAT* (ES) — secondo la regola in
 [`docs/policy_lingue_sito.md`](../../../policy_lingue_sito.md): **il testo si traduce in tutte le

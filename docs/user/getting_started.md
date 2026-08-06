@@ -1,6 +1,6 @@
-# Primi passi — configurare XTrader Signal Bridge
+# Primi passi — configurare BetRelay
 
-> Guida **utente**. XTrader Signal Bridge legge i segnali dalle chat Telegram che scegli, li
+> Guida **utente**. BetRelay legge i segnali dalle chat Telegram che scegli, li
 > trasforma in una riga CSV nel formato di XTrader e la scrive nel file che XTrader legge. Di
 > default parte in **Simulazione** (non scrive scommesse reali): è il modo sicuro per provare tutto.
 
@@ -22,10 +22,22 @@ Nella finestra principale, nella tabview di configurazione, apri **⚙️ Genera
 |---|---|
 | **🔑 Bot Token** | Il token del bot Telegram (da **@BotFather**). Senza, **AVVIA** è bloccato. È un segreto: viene salvato nel **keyring del sistema** (Windows Credential Manager). Solo se **non** è disponibile alcun keyring, ripiega sul token in chiaro in `config.json` con un **avviso** nel log. |
 | **💬 Chat ID** | L'ID della chat/canale **sorgente** dei segnali (es. `-1001234567890`). Definisce **quali** messaggi vengono accettati. |
-| **📄 CSV Path** | Il percorso del file CSV che **XTrader legge** (es. `C:\XTrader\segnali.csv`). La cartella deve esistere. |
+| **📄 CSV Path** | Il percorso del file CSV che **XTrader legge** (es. `C:\BetRelay\segnali.csv`). La cartella deve esistere. |
 | **⏱️ Timeout** | Dopo quanti secondi il CSV viene **svuotato** (torna a solo header) dopo un segnale. |
 
 Salva con **💾 Salva Config**.
+
+> ⚠️ **Il percorso proposto per default è cambiato** — era `C:\XTrader\segnali.csv`, ora è
+> `C:\BetRelay\segnali.csv` (#232). Riguarda **solo le installazioni nuove**: se hai già una
+> configurazione salvata, il tuo percorso resta quello che hai scelto e non viene toccato.
+>
+> Conta però una cosa sola, e vale in ogni caso: **il percorso qui e la *fonte* configurata dentro
+> XTrader devono puntare allo stesso file**. Se differiscono, il bridge scrive un CSV che XTrader
+> non legge — nessun errore, nessun segnale piazzato. Se reinstalli o riparti da una
+> configurazione azzerata, ricontrolla che i due combacino.
+>
+> La cartella `C:\BetRelay\` non viene creata dal programma: se non esiste, **▶ AVVIA si rifiuta di
+> partire** e ti dice quale cartella manca — non parte a vuoto.
 
 ## 3. Verifica con il **🧙 Wizard prima configurazione**
 

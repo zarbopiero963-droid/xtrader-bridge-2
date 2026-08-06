@@ -1,4 +1,10 @@
-# XTrader Signal Bridge
+# BetRelay
+
+> *Già **XTrader Signal Bridge**.* Il nome è cambiato nella #232 perché serviva un nome
+> neutro rispetto al software di destinazione: il bridge non serve più solo XTrader
+> (Italia), ma tutta la famiglia Betting Toolkit (`.COM` / `.ES` / `.LAT`). Chiamarlo
+> «XTrader Bridge» era ambiguo per chi usa Betting Toolkit. Il programma è lo stesso,
+> la configurazione esistente continua a funzionare senza migrazioni.
 
 > **Ponte automatico tra i segnali Telegram e XTrader: legge i messaggi di una
 > chat/canale, scrive il CSV nel formato esatto richiesto da XTrader e lo svuota
@@ -32,7 +38,7 @@
 
 ## Cos'è
 
-XTrader Signal Bridge è un programma desktop (Windows) che fa da **ponte** tra i
+BetRelay è un programma desktop (Windows) che fa da **ponte** tra i
 messaggi di una chat/canale Telegram e il software **XTrader** di TradingSportivo.
 
 Catena di funzionamento:
@@ -54,7 +60,7 @@ scrive il CSV operativo (vedi [Sicurezza](#sicurezza-simulazione-duplicati-e-lim
 Messaggio Telegram (chat/canale segnali)
         │
         ▼
-XTrader Signal Bridge (gira sul tuo PC)
+BetRelay (gira sul tuo PC)
    • riceve il messaggio via Bot API
    • DECIDE come instradarlo (`telegram_dispatch.decide`): scarta gli arretrati
      troppo vecchi, ignora se manca un filtro chat, manda gli ESITI della chat
@@ -109,11 +115,11 @@ es. `-1001234567890`).
 
 ### Passo 4 — Configura XTrader
 In XTrader, nella sezione **Segnali**, imposta come sorgente lo stesso file CSV
-(es. `C:\XTrader\segnali.csv`) e abilita il **refresh automatico** (consigliato
+(es. `C:\BetRelay\segnali.csv`) e abilita il **refresh automatico** (consigliato
 ogni 10–15 secondi). Per il collaudo, tieni XTrader in **Modalità Simulazione**.
 
 ### Passo 5 — Avvia il bridge
-1. Apri `XTrader-Signal-Bridge.exe`.
+1. Apri `BetRelay.exe`.
 2. Inserisci **Bot Token**, **Chat ID** e **CSV Path**.
 3. Clicca **💾 Salva Config**, poi **▶ AVVIA**.
 
@@ -274,7 +280,7 @@ La finestra principale espone i campi essenziali. Si salvano con **💾 Salva Co
 |---|---|---|---|
 | 🔑 **Bot Token** | `bot_token` | *(vuoto)* | Token del bot Telegram (@BotFather). Senza, START è bloccato. Mai mostrato nei log. Salvato nel **keyring del sistema** (Windows Credential Manager); **senza un backend keyring** ripiega sul token **in chiaro** in `config.json` con avviso nel log — vedi [Sicurezza](#sicurezza-simulazione-duplicati-e-limiti). |
 | 💬 **Chat ID** | `chat_id` | *(vuoto)* | ID della chat/canale sorgente. Definisce quali messaggi vengono accettati. |
-| 📄 **CSV Path** | `csv_path` | `C:\XTrader\segnali.csv` | File CSV che XTrader monitora. Obbligatorio. Puoi digitarlo, usare **«📁 Sfoglia…»** per selezionarne uno esistente, o **«📄 Crea CSV»** per generarne uno nuovo **vuoto** (solo header) nel formato XTrader; in tutti i casi alla scelta il percorso viene **salvato subito** (senza click extra su «Salva Config»). «Crea CSV» non sovrascrive un file estraneo senza conferma esplicita, e a bridge **AVVIATO** rifiuta di ricreare il CSV della sessione in corso — anche se lo indichi con un **nome diverso** che punta allo stesso file, es. un link o una *junction* (#194 B8: prima la guardia non li riconosceva e troncava il CSV vivo). Se `csv_path` è un link **simbolico** (o una junction), la scrittura **lo attraversa** e aggiorna il file puntato, che è quello che XTrader legge; gli **hard link** invece non sono attraversabili senza rinunciare alla scrittura atomica — limite dichiarato in [`docs/xtrader_csv_contract.md`](docs/xtrader_csv_contract.md). |
+| 📄 **CSV Path** | `csv_path` | `C:\BetRelay\segnali.csv` | File CSV che XTrader monitora. Obbligatorio. **Il default è cambiato con la rinomina in BetRelay (#232)**: era `C:\XTrader\segnali.csv`. Vale **solo per le installazioni nuove** — una configurazione già salvata conserva il suo percorso. In ogni caso ciò che conta è che questo percorso e la **fonte** impostata dentro XTrader indichino **lo stesso file**: se differiscono il bridge scrive un CSV che XTrader non legge, senza errori e senza segnali piazzati. La cartella non viene creata dal programma: se manca, **START si rifiuta di partire** dicendo quale cartella manca. Puoi digitarlo, usare **«📁 Sfoglia…»** per selezionarne uno esistente, o **«📄 Crea CSV»** per generarne uno nuovo **vuoto** (solo header) nel formato XTrader; in tutti i casi alla scelta il percorso viene **salvato subito** (senza click extra su «Salva Config»). «Crea CSV» non sovrascrive un file estraneo senza conferma esplicita, e a bridge **AVVIATO** rifiuta di ricreare il CSV della sessione in corso — anche se lo indichi con un **nome diverso** che punta allo stesso file, es. un link o una *junction* (#194 B8: prima la guardia non li riconosceva e troncava il CSV vivo). Se `csv_path` è un link **simbolico** (o una junction), la scrittura **lo attraversa** e aggiorna il file puntato, che è quello che XTrader legge; gli **hard link** invece non sono attraversabili senza rinunciare alla scrittura atomica — limite dichiarato in [`docs/xtrader_csv_contract.md`](docs/xtrader_csv_contract.md). |
 | ⏱️ **Timeout (sec)** | `clear_delay` | `90` | Dopo quanti secondi un segnale scade e il CSV viene svuotato. Deve essere un intero **> 0 e ≤ 86400** (24 h). Un valore enorme disattiverebbe di fatto lo svuotamento, lasciando un segnale stantio a vita (B1/B2 audit #114). |
 | 🏷️ **Provider** | `provider` | `TelegramBot` | Etichetta scritta nella colonna `Provider` del CSV (vedi nota sotto). Nell'anagrafica (🧰 Strumenti → 📇 Provider) ogni voce mostra **«🧩 N parser»** o **«— non usato»**, così si vede quali parser dipendono da un nome **prima** di rimuoverlo. |
 
@@ -621,7 +627,7 @@ Tutte queste protezioni sono **attive a runtime**:
 
 0. **Istanza singola (#311)** — il bridge può girare in **una sola istanza** alla volta:
    un secondo avvio (doppio click per errore, o avvio manuale con l'auto-start già
-   partito) mostra l'avviso **«XTrader Bridge è già in esecuzione»** ed esce subito,
+   partito) mostra l'avviso **«BetRelay è già in esecuzione»** ed esce subito,
    senza avviare listener né toccare il CSV dell'istanza attiva. Due istanze avrebbero
    contatori/dedupe/coda separati in memoria → **rischio doppia scommessa**. Il lock è
    un mutex di sistema su Windows (si libera da solo anche dopo un crash o un kill:
@@ -934,7 +940,7 @@ AVVIA, abbina l'opzione **`auto_start_listener`** (tab *Sicurezza*).
 
 ### Metodo 1 — Cartella «Esecuzione automatica» (semplice)
 1. Premi `Win + R`, scrivi `shell:startup` e premi Invio: si apre la cartella di avvio.
-2. Trascina lì un **collegamento** all'eseguibile del bridge (`XTrader-Signal-Bridge.exe`,
+2. Trascina lì un **collegamento** all'eseguibile del bridge (`BetRelay.exe`,
    lo stesso che scarichi/compili — vedi [Build dell'EXE](#build-dellexe-sviluppatori)):
    tasto destro sull'EXE → *Crea collegamento* → sposta il collegamento nella cartella.
 3. Al prossimo **accesso** a Windows (il **login** del tuo utente, non la sola
@@ -948,13 +954,13 @@ AVVIA, abbina l'opzione **`auto_start_listener`** (tab *Sicurezza*).
 Utile se vuoi che parta **all'accesso** anche in scenari in cui la cartella Startup
 non basta.
 1. Apri **Utilità di pianificazione** (*Task Scheduler*).
-2. *Crea attività di base…* → nome a piacere (es. «XTrader Bridge»).
+2. *Crea attività di base…* → nome a piacere (es. «BetRelay»).
 3. **Attivazione**: «**All'accesso**». **Non** usare «All'avvio del computer»: il
    bridge è un'app con interfaccia, ha bisogno di una **sessione utente interattiva**
    per mostrare la finestra (e la conferma in modalità reale) e per leggere le
    impostazioni del **tuo** profilo (`%APPDATA%`); avviato prima del login non
    avrebbe GUI né il profilo giusto.
-4. **Azione**: «Avvia programma» → seleziona `XTrader-Signal-Bridge.exe`.
+4. **Azione**: «Avvia programma» → seleziona `BetRelay.exe`.
 5. Fine. Opzionale: nelle proprietà dell'attività spunta «Esegui con i privilegi più
    elevati» solo se necessario.
 
@@ -1033,7 +1039,7 @@ simulazione. Per scrivere davvero metti `dry_run=false`.
 
 La compilazione avviene via **GitHub Actions** su Windows:
 
-1. **Manuale**: **Actions → «Build XTrader Signal Bridge EXE» → «Run workflow»** (scegli il
+1. **Manuale**: **Actions → «Build BetRelay EXE» → «Run workflow»** (scegli il
    branch). Oppure **automatico** su un **tag `v*`** (release). *Non* parte più a ogni push
    su `main`: eviti di consumare inutilmente la quota storage artifact di GitHub. I **test su
    Windows** girano nel workflow dedicato `windows-tests.yml` — **non più a ogni push/PR**
@@ -1044,27 +1050,27 @@ La compilazione avviene via **GitHub Actions** su Windows:
    la **compilazione dell'EXE** è manuale/tag.
 2. Actions esegue i test (bloccanti), poi compila l'EXE.
 3. **Actions → la run → Artifacts**.
-4. Scarica `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`.
-5. Dentro trovi `XTrader-Signal-Bridge.exe` pronto all'uso.
+4. Scarica `BetRelay-Windows-v<versione>-<data>.zip`.
+5. Dentro trovi `BetRelay.exe` pronto all'uso.
 
 In locale (dev): `python main.py` avvia la GUI; `python -m pytest -q -m "not manual"`
 esegue la suite offline.
 
 ### Build Linux (AppImage) — #36
 
-Lo **stesso** workflow «Build XTrader Signal Bridge EXE» costruisce **anche** l'app per
+Lo **stesso** workflow «Build BetRelay EXE» costruisce **anche** l'app per
 **Linux** in un job parallelo (`build-linux`, `ubuntu-latest`), **additivo** e senza toccare
 la build Windows. La logica del bridge è identica su Windows e Linux (i rami POSIX esistono
 già); la suite gira verde su Linux, poi il binario **PyInstaller onefile** viene impacchettato
 in un **AppImage** (`appimagetool` pinnato + verifica `sha256`) e caricato negli **Artifacts**
-come `XTrader-Signal-Bridge-Linux-v<versione>-<data>`.
+come `BetRelay-Linux-v<versione>-<data>`.
 
 **Come si usa (scarica e apri):**
 1. Scarica l'artifact dagli **Actions → Artifacts** ed estrai lo zip di GitHub → ottieni
-   `XTrader-Signal-Bridge-Linux-v….AppImage`.
-2. Rendilo eseguibile **una volta**: `chmod +x XTrader-Signal-Bridge-Linux-v….AppImage`
+   `BetRelay-Linux-v….AppImage`.
+2. Rendilo eseguibile **una volta**: `chmod +x BetRelay-Linux-v….AppImage`
    (GitHub zippa gli artifact e non conserva il bit `+x` — è il flusso AppImage standard).
-3. **Doppio-click** o `./XTrader-Signal-Bridge-Linux-v….AppImage`. Un **solo file**, con icona
+3. **Doppio-click** o `./BetRelay-Linux-v….AppImage`. Un **solo file**, con icona
    e voce di menu, nessuna installazione. Su sistemi senza FUSE: `./…AppImage --appimage-extract-and-run`.
 
 L'icona del launcher (`packaging/appimage/app-icon.png`) è un **placeholder** sostituibile con
@@ -1124,11 +1130,11 @@ avvio più rapido, meno falsi positivi antivirus). In questa fase **additiva** l
 PyInstaller sopra **resta quella di release**; in parallelo c'è un workflow di **anteprima**
 Nuitka per validare il binario su Windows reale **prima** di ritirare PyInstaller:
 
-- **Actions → «Build XTrader Signal Bridge EXE (Nuitka, anteprima)» → «Run workflow»** (solo
+- **Actions → «Build BetRelay EXE (Nuitka, anteprima)» → «Run workflow»** (solo
   manuale: **non** parte sui tag e **non** crea Release, così non collide con la release
   PyInstaller).
-- Produce l'artifact `XTrader-Signal-Bridge-Nuitka-Windows-v<versione>-<data>` con dentro lo
-  stesso `XTrader-Signal-Bridge.exe`.
+- Produce l'artifact `BetRelay-Nuitka-Windows-v<versione>-<data>` con dentro lo
+  stesso `BetRelay.exe`.
 - **Smoke test consigliato** dopo il download: avvia l'EXE, verifica che la GUI parta, che il
   dizionario (`data/dizionario_xtrader.csv`) sia leggibile (lookup alias→XTrader funzionante)
   e che un segnale di prova generi il CSV atteso.
@@ -1299,5 +1305,5 @@ xtrader-bridge/
 Sviluppato su misura per l'uso con **XTrader** di
 [TradingSportivo.club](https://assistenza.tradingsportivo.club/).
 
-*XTrader Signal Bridge — ponte tra segnali Telegram e XTrader. Il merge resta
+*BetRelay — ponte tra segnali Telegram e XTrader. Il merge resta
 sempre manuale del proprietario.*

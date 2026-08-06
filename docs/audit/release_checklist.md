@@ -1,4 +1,4 @@
-# Checklist di release — XTrader Signal Bridge
+# Checklist di release — BetRelay
 
 > PR-20 (PHASE 9). Passi da eseguire **prima** di distribuire una versione. Il merge
 > e la pubblicazione restano **manuali del proprietario**. Spunta ogni voce solo dopo
@@ -39,9 +39,9 @@
 > (non più a ogni push su `main`, per non consumare la quota storage artifact).
 
 - [ ] Il workflow `build.yaml` completa senza errori.
-- [ ] L'artifact versionato `XTrader-Signal-Bridge-Windows-v<versione>-<data>.zip`
+- [ ] L'artifact versionato `BetRelay-Windows-v<versione>-<data>.zip`
       è presente e scaricabile.
-- [ ] L'EXE interno si chiama `XTrader-Signal-Bridge.exe` (nome stabile).
+- [ ] L'EXE interno si chiama `BetRelay.exe` (nome stabile).
 - [ ] L'EXE si avvia su Windows 10/11 senza terminale nero (`--windowed`).
 - [ ] L'EXE **non** contiene token o config personali.
 - [ ] L'EXE salva la config in `%APPDATA%\XTraderBridge\` e la ricarica al riavvio.

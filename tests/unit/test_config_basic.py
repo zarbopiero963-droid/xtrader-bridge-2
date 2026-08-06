@@ -872,7 +872,7 @@ def test_config_version_aggiunto_e_persistito_da_config_legacy(tmp_path):
 
 def test_legacy_path_da_executable_se_frozen(monkeypatch, tmp_path):
     # Nell'EXE PyInstaller il legacy config va cercato accanto a sys.executable.
-    exe = tmp_path / "app" / "XTrader-Signal-Bridge.exe"
+    exe = tmp_path / "app" / "BetRelay.exe"
     monkeypatch.setattr(config_store.sys, "frozen", True, raising=False)
     monkeypatch.setattr(config_store.sys, "executable", str(exe), raising=False)
     p = config_store.legacy_config_path()
@@ -1164,7 +1164,7 @@ def test_csv_path_problem(tmp_path):
     assert config_store.csv_path_problem("") != ""
     assert config_store.csv_path_problem("   ") != ""
     assert config_store.csv_path_problem(None) != ""
-    # cartella padre INESISTENTE (es. il default C:\XTrader\ assente) → problema
+    # cartella padre INESISTENTE (es. il default C:\BetRelay\ assente) → problema
     missing = str(tmp_path / "non_esiste" / "segnali.csv")
     prob = config_store.csv_path_problem(missing)
     assert prob and "non esiste" in prob

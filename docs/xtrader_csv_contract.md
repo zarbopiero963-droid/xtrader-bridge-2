@@ -1,4 +1,4 @@
-# Contratto CSV XTrader — XTrader Signal Bridge
+# Contratto CSV XTrader — BetRelay
 
 > Documento ufficiale (PR-01). Definisce il formato CSV che il bridge scrive per
 > XTrader, **basato sui CSV di esempio reali forniti dal team XTrader**. È la fonte

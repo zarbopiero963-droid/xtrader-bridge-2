@@ -1,4 +1,4 @@
-# Guide utente — XTrader Signal Bridge
+# Guide utente — BetRelay
 
 Guide pensate per **chi usa** il bridge (non per chi lo sviluppa). Spiegano in linguaggio semplice
 come configurarlo e usarlo in sicurezza.

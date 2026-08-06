@@ -1,4 +1,4 @@
-name: Build XTrader Signal Bridge EXE
+name: Build BetRelay EXE
 
 on:
   # Build EXE NON automatico a ogni push su main: un EXE (~decine di MB, retention 30gg)
@@ -194,12 +194,12 @@ jobs:
         date=$(date -u +%Y%m%d)
         echo "version=$ver"          >> "$GITHUB_OUTPUT"
         echo "build_date=$date"      >> "$GITHUB_OUTPUT"
-        echo "artifact=XTrader-Signal-Bridge-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+        echo "artifact=BetRelay-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
 
     - name: Compila EXE con PyInstaller
       run: >
         pyinstaller --onefile --windowed
-        --name "XTrader-Signal-Bridge"
+        --name "BetRelay"
         --paths .
         --collect-submodules xtrader_bridge
         --add-data "data/dizionario_xtrader.csv;data"
@@ -214,11 +214,11 @@ jobs:
 
     - name: Carica EXE come Artifact (sempre scaricabile)
       # Nome artifact versionato (versione + data build) per tracciabilità; il file
-      # .exe interno resta `XTrader-Signal-Bridge.exe` così l'utente lo ritrova uguale.
+      # .exe interno resta `BetRelay.exe` così l'utente lo ritrova uguale.
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
         name: ${{ steps.meta.outputs.artifact }}
-        path: dist/XTrader-Signal-Bridge.exe
+        path: dist/BetRelay.exe
         # Retention breve: l'EXE è un output di build usa-e-scarica; tenerlo 30gg riempiva la
         # quota storage. Gli EXE di RELEASE restano comunque nelle GitHub Releases (storage
         # separato, non-scadente). Pulizia extra: workflow `cleanup-artifacts.yml`.
@@ -231,7 +231,7 @@ jobs:
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844  # v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: dist/XTrader-Signal-Bridge.exe
+        files: dist/BetRelay.exe
 
   # ── Build Linux (#36 PR-A) ─────────────────────────────────────────────────────
   # Job PARALLELO e ADDITIVO al build Windows sopra (che resta INVARIATO): produce un
@@ -403,7 +403,7 @@ jobs:
         date=$(date -u +%Y%m%d)
         echo "version=$ver"     >> "$GITHUB_OUTPUT"
         echo "build_date=$date" >> "$GITHUB_OUTPUT"
-        echo "artifact=XTrader-Signal-Bridge-Linux-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+        echo "artifact=BetRelay-Linux-v${ver}-${date}" >> "$GITHUB_OUTPUT"
 
     - name: Compila binario Linux con PyInstaller
       # onefile self-contained. Differenze dal job Windows: `--add-data` usa `:` come
@@ -411,7 +411,7 @@ jobs:
       # ha effetto → omessa. Tutto il resto (paths, submodules, data, hidden-import) è identico.
       run: >
         pyinstaller --onefile
-        --name "XTrader-Signal-Bridge"
+        --name "BetRelay"
         --paths .
         --collect-submodules xtrader_bridge
         --add-data "data/dizionario_xtrader.csv:data"
@@ -429,7 +429,7 @@ jobs:
       # Struttura AppImage standard: AppRun (launcher) + <icona>.png + <app>.desktop nella root,
       # binario in usr/bin.
       run: |
-        APP="XTrader-Signal-Bridge"
+        APP="BetRelay"
         mkdir -p AppDir/usr/bin
         cp "dist/$APP" "AppDir/usr/bin/$APP"
         chmod +x "AppDir/usr/bin/$APP"

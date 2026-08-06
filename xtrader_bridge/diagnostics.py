@@ -23,7 +23,7 @@ import re
 
 from . import __version__, event_log, log_privacy
 
-_TITLE = "XTrader Signal Bridge — diagnostica"
+_TITLE = "BetRelay — diagnostica"
 
 #: Segnaposto che prende il posto dello username nei path del report.
 MASKED_USER = "<utente>"

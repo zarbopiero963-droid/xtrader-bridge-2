@@ -124,7 +124,7 @@ DEFAULTS = {
     "config_version":   CONFIG_VERSION,
     "bot_token":        "",
     "chat_id":          "",
-    "csv_path":         r"C:\XTrader\segnali.csv",
+    "csv_path":         r"C:\BetRelay\segnali.csv",
     "clear_delay":      90,
     "provider":         "TelegramBot",
     # Tema UI (#288 Delta 1): "dark" / "light". Default sicuro "dark" (tema storico
@@ -290,7 +290,7 @@ def legacy_config_path() -> str:
 
     Nell'EXE PyInstaller (`--onefile`) `__file__` punta al bundle temporaneo,
     quindi quando l'app è "frozen" usiamo la cartella di `sys.executable` (dove
-    sta davvero `XTrader-Signal-Bridge.exe`), così la migrazione trova il
+    sta davvero `BetRelay.exe`), così la migrazione trova il
     vecchio `config.json` accanto all'eseguibile.
     """
     if getattr(sys, "frozen", False):
@@ -312,7 +312,7 @@ def csv_path_problem(path) -> str:
     Controlla (senza creare nulla né aprire il file — l'I/O reale e gli errori di lock/permessi
     restano a `csv_writer.init_csv`): path non vuoto, la **cartella padre esiste** ed è una
     directory, e il path non è esso stesso una cartella. Serve a dare un errore CHIARO e azionabile
-    a START (es. default `C:\\XTrader\\segnali.csv` con la cartella mancante) invece di un generico
+    a START (es. default `C:\\BetRelay\\segnali.csv` con la cartella mancante) invece di un generico
     `FileNotFoundError` dall'inizializzazione del CSV."""
     p = str(path or "").strip()
     if not p:

@@ -23,7 +23,7 @@ def test_build_workflow_usa_la_versione_dal_package():
     # L'artifact è nominato dallo step meta (versionato), non con un nome fisso.
     assert "steps.meta.outputs.artifact" in text
     # Il file .exe interno resta a nome stabile.
-    assert "XTrader-Signal-Bridge.exe" in text
+    assert "BetRelay.exe" in text
     # Su windows-latest il print() di Python emette CRLF e $(...) lascia un \r:
     # la versione DEVE essere ripulita da CR/LF, altrimenti il nome artifact è
     # malformato (`...v0.1.0\r-<data>`). Verifichiamo lo strip difensivo.

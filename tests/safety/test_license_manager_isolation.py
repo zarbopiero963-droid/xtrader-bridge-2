@@ -107,7 +107,13 @@ def test_ast_detector_veritiero():
 # per riga, così una direttiva su una riga di continuazione non sfugge. Un workflow è «build del
 # bridge» se produce l'eseguibile personale o colleziona il package del bridge; il futuro workflow
 # DEDICATO del License Manager (PR 3b) non lo è (builda il PROPRIO eseguibile) → resta lecito.
-_BUILDS_BRIDGE = re.compile(r"XTrader-Signal-Bridge|--collect-submodules\s+xtrader_bridge",
+# #232: aggiunto «BetRelay», il nome NUOVO dell'EXE. Il vecchio RESTA nell'alternanza:
+# riconoscere PIÙ workflow come «build del bridge» è la direzione sicura — significa
+# applicare il controllo di isolamento anche a una build non ancora migrata. Toglierlo
+# avrebbe fatto sparire `build-nuitka.yaml` dal radar (misurato: non contiene
+# `--collect-submodules xtrader_bridge`, quindi il nome EXE è il suo UNICO appiglio) e la
+# guardia sarebbe rimasta VERDE non avendo più nulla da controllare.
+_BUILDS_BRIDGE = re.compile(r"BetRelay|XTrader-Signal-Bridge|--collect-submodules\s+xtrader_bridge",
                             re.IGNORECASE)
 # license_manager passato a una direttiva di PACKAGING (collect/include/hidden-import): l'unico modo
 # per trascinarlo nell'EXE. Una semplice menzione (commento) non conta.

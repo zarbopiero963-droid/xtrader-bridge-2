@@ -40,7 +40,7 @@ Controlli (sui workflow che invocano PyInstaller **per il bridge**, oggi `build.
 - nel bundle solo `data/dizionario_xtrader.csv` → `data`; nessun `--add-binary` (nessun
   payload binario extra) e `--collect-*` solo nelle coppie (opzione, pacchetto) ammesse;
 - nello stesso job, TUTTI i `python -m pytest` girano PRIMA della build;
-- artifact/release pubblicano esattamente il path `dist/XTrader-Signal-Bridge.exe`;
+- artifact/release pubblicano esattamente il path `dist/BetRelay.exe`;
 - `data/` non contiene file/percorsi sensibili (scansione ricorsiva).
 
 Hardening #296 (residui audit #242/PR#177, Codex):
@@ -70,7 +70,7 @@ _WORKFLOWS_DIR = os.path.join(_REPO_ROOT, ".github", "workflows")
 _DATA_DIR = os.path.join(_REPO_ROOT, "data")
 
 # Invarianti dell'EXE personale.
-_ALLOWED_EXE_NAME = "XTrader-Signal-Bridge"
+_ALLOWED_EXE_NAME = "BetRelay"
 _ALLOWED_EXE_PATH = "dist/" + _ALLOWED_EXE_NAME + ".exe"
 _ALLOWED_BUNDLE_SRC = "data/dizionario_xtrader.csv"
 _ALLOWED_BUNDLE_DEST = "data"
@@ -710,7 +710,7 @@ def test_build_linux_presente_e_sicuro():
 def test_build_linux_produce_appimage_pinnato():
     """#36 PR-B: il job `build-linux` costruisce un **AppImage** (single-file desktop-integrated)
     con `appimagetool` **PINNATO** (versione fissa + verifica `sha256`) e carica l'`.AppImage`,
-    NON il binario grezzo `dist/XTrader-Signal-Bridge`. Regressioni bloccate:
+    NON il binario grezzo `dist/BetRelay`. Regressioni bloccate:
     - appimagetool non pinnato/non verificato (rischio supply-chain);
     - upload del binario grezzo invece dell'AppImage."""
     body = next(b for name, b in _jobs(_read(_BUILD_YAML)) if name == "build-linux")
@@ -724,7 +724,7 @@ def test_build_linux_produce_appimage_pinnato():
     # l'artifact caricato è l'.AppImage, NON il binario grezzo
     assert re.search(r"(?m)^\s*path:.*\.AppImage", body), \
         "l'artifact Linux caricato dev'essere l'.AppImage"
-    assert not re.search(r"(?m)^\s*path:\s*dist/XTrader-Signal-Bridge\s*$", body), \
+    assert not re.search(r"(?m)^\s*path:\s*dist/BetRelay\s*$", body), \
         "non caricare il binario grezzo: l'artifact Linux è l'AppImage"
 
 
@@ -1050,7 +1050,7 @@ def test_data_dir_senza_file_sensibili():
 
 
 def test_artifact_e_release_solo_un_exe():
-    """build.yaml pubblica ESATTAMENTE il path `dist/XTrader-Signal-Bridge.exe` via artifact
+    """build.yaml pubblica ESATTAMENTE il path `dist/BetRelay.exe` via artifact
     (`path:`) e release (`files:`) — niente wildcard `dist/*.exe` né secondo EXE; nessun
     `dist/*.exe` estraneo in alcun workflow (Codex)."""
     text = _read(_BUILD_YAML)
@@ -1395,7 +1395,7 @@ def test_nuitka_test_prima_della_build():
 
 
 def test_nuitka_artifact_un_solo_exe_niente_release():
-    """build-nuitka.yaml pubblica come artifact ESATTAMENTE `dist/XTrader-Signal-Bridge.exe` e
+    """build-nuitka.yaml pubblica come artifact ESATTAMENTE `dist/BetRelay.exe` e
     NON crea Release in NESSUNA forma (fase additiva: niente collisione con la release
     PyInstaller sui tag). Il guardrail no-Release è ampio (CodeRabbit #366): copre le action di
     release note, la CLI `gh release create`, e qualsiasi `files:` (inline o blocco multilinea
@@ -1927,7 +1927,7 @@ def test_lm_is_license_manager_build_logica():
     scambia la build del bridge per LM (mutation-guard committato)."""
     assert _is_license_manager_build(
         "pyinstaller --onefile --name XTrader-License-Manager license_manager_main.py")
-    assert not _is_license_manager_build("pyinstaller --onefile --name XTrader-Signal-Bridge main.py")
+    assert not _is_license_manager_build("pyinstaller --onefile --name BetRelay main.py")
     # build mista (due script) è classificata come LM (contiene license_manager_main.py) → ESCE dal
     # gate bridge (`_build_commands*` usano `not _is_license_manager_build`) ed è coperta dal gate LM,
     # che ne fa fallire la forma-canonica (scripts != [license_manager_main.py]) → nessuna build

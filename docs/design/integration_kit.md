@@ -1,10 +1,10 @@
-# XTrader Signal Bridge — Kit di integrazione (design → CustomTkinter)
+# BetRelay — Kit di integrazione (design → CustomTkinter)
 
 > **Cos'è.** Un deliverable **di design**: fa da ponte 1:1 tra i mockup HTML e il codice
 > CustomTkinter esistente. Contiene i valori pronti (colori, dimensioni, mappa widget) così
 > l'applicazione delle patch è meccanica. **Non modifica il codice dell'app**: il merge resta
 > manuale del proprietario (vincolo del brief). Riferimenti al design: `XTrader Design System.dc.html`,
-> `XTrader States Mockup.dc.html`, prototipo `XTrader Bridge.dc.html`.
+> `XTrader States Mockup.dc.html`, prototipo `BetRelay.dc.html`.
 
 ---
 

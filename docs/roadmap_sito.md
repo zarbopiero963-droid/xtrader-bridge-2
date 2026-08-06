@@ -212,9 +212,13 @@ NSS, ClientHello post-quantum disattivato) — **senza mai** disattivare la veri
 Fra cui il **selettore Modalità bridge**. Finché non è risolta, gli screenshot EN/ES mostrano
 interfaccia mista — è dichiarato nel README della cartella, ma resta un difetto del prodotto.
 
-### S15. #232 — rebrand
-L'app si chiama ancora «XTrader Signal Bridge» nel titolo e ha l'icona standard. Il sito dice
-BetRelay, il programma no: chi scarica dopo aver visto il sito trova un nome diverso.
+### S15. #232 — rebrand · ✅ risolto per la parte del NOME (Strato 1)
+Era: *«l'app si chiama ancora XTrader Signal Bridge nel titolo; il sito dice BetRelay, il
+programma no: chi scarica dopo aver visto il sito trova un nome diverso»*.
+
+Il nome ora combacia: titolo finestra **BetRelay**, header **«📡 BetRelay»**, eseguibile
+`BetRelay.exe`. **Resta aperta l'icona**, ancora quella standard — e restano gli
+screenshot da rigenerare, che mostrano il titolo vecchio (vedi il README della cartella).
 
 ### S16. #266 — screenshot XTrader mancanti
 Tre voci P1 dove il sito mostra oggi materiale ricostruito.

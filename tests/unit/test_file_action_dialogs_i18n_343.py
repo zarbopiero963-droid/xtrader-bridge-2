@@ -111,9 +111,9 @@ def test_early_lock_dialog_resta_it_escluso():
     """Il dialog «già in esecuzione» all'avvio renderizza PRIMA di `set_language` (l'acquisizione
     del lock precede `i18n.set_language` in __init__) → resta IT e NON è a catalogo: localizzarlo
     non avrebbe effetto e mascherebbe la scelta di escluderlo."""
-    assert "XTrader Bridge è già in esecuzione." in _APP_SRC   # ancora presente, hardcoded IT
+    assert "BetRelay è già in esecuzione." in _APP_SRC   # ancora presente, hardcoded IT
     for lang in ("EN", "ES"):
-        assert "XTrader Bridge è già in esecuzione." not in i18n._CATALOG[lang]
+        assert "BetRelay è già in esecuzione." not in i18n._CATALOG[lang]
 
 
 def test_round_trip_en_es():

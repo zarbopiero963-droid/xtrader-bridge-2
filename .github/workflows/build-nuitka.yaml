@@ -1,4 +1,4 @@
-name: Build XTrader Signal Bridge EXE (Nuitka, anteprima)
+name: Build BetRelay EXE (Nuitka, anteprima)
 
 # Build EXE ANTEPRIMA con Nuitka, ADDITIVA e in parallelo alla build ufficiale PyInstaller
 # (build.yaml). Fase 6 slice 2: si introduce Nuitka SENZA rimuovere PyInstaller, che resta la
@@ -76,7 +76,7 @@ jobs:
         ver=$(python -c "import sys, xtrader_bridge as p; sys.stdout.write(p.__version__)" | tr -d '\r\n')
         [ -n "$ver" ] || { echo "::error::__version__ mancante"; exit 1; }
         date=$(date -u +%Y%m%d)
-        echo "artifact=XTrader-Signal-Bridge-Nuitka-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
+        echo "artifact=BetRelay-Nuitka-Windows-v${ver}-${date}" >> "$GITHUB_OUTPUT"
 
     - name: Compila EXE con Nuitka
       # Forma canonica CLI (modulo) analizzata dal gate di sicurezza:
@@ -101,15 +101,15 @@ jobs:
         --include-package-data=customtkinter
         --include-data-files=data/dizionario_xtrader.csv=data/dizionario_xtrader.csv
         --windows-console-mode=disable
-        --output-filename=XTrader-Signal-Bridge.exe
+        --output-filename=BetRelay.exe
         --output-dir=dist
         main.py
 
     - name: Carica EXE Nuitka come Artifact (anteprima, scaricabile)
       # Nome artifact versionato e con "Nuitka" per distinguerlo dall'EXE PyInstaller di
-      # release; il file .exe interno resta `XTrader-Signal-Bridge.exe`.
+      # release; il file .exe interno resta `BetRelay.exe`.
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
         name: ${{ steps.meta.outputs.artifact }}
-        path: dist/XTrader-Signal-Bridge.exe
+        path: dist/BetRelay.exe
         retention-days: 7

@@ -1,4 +1,4 @@
-"""XTrader Signal Bridge — package.
+"""BetRelay — package (già «XTrader Signal Bridge», rinominato nella #232).
 
 Separazione (PR-03):
 - `csv_writer`   : contratto CSV XTrader, costruzione/scrittura righe
@@ -9,7 +9,7 @@ Separazione (PR-03):
 """
 
 # Versione dell'app (PR-18): UNICA fonte di verità. Mostrata nel titolo della GUI
-# e usata dalla build per nominare l'artifact (l'EXE resta `XTrader-Signal-Bridge.exe`).
+# e usata dalla build per nominare l'artifact (l'EXE è `BetRelay.exe` dalla #232).
 # Schema semantico MAJOR.MINOR.PATCH; pre-1.0 = prototipo/sviluppo (roadmap in corso),
 # salirà a 1.0.0 alla release candidate (PR-20).
 __version__ = "0.1.0"

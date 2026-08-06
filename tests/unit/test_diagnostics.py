@@ -11,7 +11,7 @@ def test_report_contiene_titolo_versione_e_campi():
         ("Ricevuti", 5),
         ("Ultimo CSV", "C:/x/segnali.csv @ 10:00"),
     ])
-    assert "XTrader Signal Bridge — diagnostica" in report
+    assert "BetRelay — diagnostica" in report
     assert f"versione: {__version__}" in report
     assert "Stato: ATTIVO" in report
     assert "Ricevuti: 5" in report
