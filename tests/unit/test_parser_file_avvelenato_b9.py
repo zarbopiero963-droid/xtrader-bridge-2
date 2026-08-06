@@ -26,6 +26,7 @@ import os
 
 import pytest
 
+from tests.unit import json_patologico
 from xtrader_bridge import custom_parser as cp
 from xtrader_bridge import parser_builder, parser_io, parser_manager
 
@@ -36,7 +37,14 @@ from xtrader_bridge import parser_builder, parser_io, parser_manager
 # e tutti i siti la esercitano — invece di ricordarsi nove test da aggiornare.
 VELENI = {
     # RecursionError: json decodifica gli array ricorsivamente.
-    "annidamento_profondo": '{"rules": ' + "[" * 3000 + "]" * 3000 + "}",
+    # R5 della #211: la stessa costante `3000` era scritta a mano qui e in altri due file.
+    # Quei livelli sono patologici solo *relativamente* a `sys.getrecursionlimit()` (default
+    # 1000): col limite alzato il veleno smette di essere veleno, e
+    # `test_il_veleno_e_davvero_veleno` qui sotto va rosso — di proposito, perché è la
+    # guardia che lo dice invece di lasciare i test verdi senza esercitare nulla.
+    # La profondità ora arriva dalla fonte unica, dove resta FISSA: legarla al limite
+    # farebbe crescere senza tetto i frame C dello scanner (dettaglio misurato là).
+    "annidamento_profondo": json_patologico.json_annidato_liste("rules"),
     # OverflowError: `Infinity` è un letterale che json.loads accetta di default,
     # e `int(float("inf"))` solleva OverflowError — non ValueError.
     "version_infinita": '{"name": "X", "rules": [], "version": Infinity}',

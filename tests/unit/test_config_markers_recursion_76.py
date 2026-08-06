@@ -14,6 +14,9 @@ Funzioni REALI su file tmp, nessun mock."""
 
 import json
 
+import pytest
+
+from tests.unit import json_patologico
 from xtrader_bridge import config_store
 
 
@@ -65,14 +68,35 @@ def test_save_non_persiste_mai_i_marker(tmp_path):
 def test_json_annidato_patologico_recovery_non_crash(tmp_path):
     """FAIL-FIRST: pre-patch `json.load` sollevava RecursionError (fuori dalla tupla
     except) e l'avvio crashava; ora: backup `.bak` + default sicuri, come per ogni
-    altra corruzione."""
-    p = tmp_path / "config.json"
-    profondita = 3000                                   # oltre il recursion limit di json
-    p.write_text('{"a":' * profondita + "1" + "}" * profondita, encoding="utf-8")
+    altra corruzione.
 
-    cfg = config_store.load_config(str(p))              # NON deve sollevare
+    **R5 della #211 — il difetto non era la profondità, era l'asserzione.** `3000` livelli
+    non sono patologici in assoluto: lo sono *relativamente* a `sys.getrecursionlimit()`.
+    Misurato, alzando il limite a 6000 smettevano di esserlo e questo test andava ROSSO —
+    pur avendo `load_config` funzionato perfettamente. Un rosso senza un bug.
+
+    La profondità resta **fissa** (`json_patologico.PROFONDITA`), per una ragione misurata e
+    scritta lì: legarla al limite farebbe crescere senza tetto i frame C consumati dallo
+    scanner, e su Windows sarebbe un segfault del runner. Quello che cambia è **l'asserzione**:
+    l'invariante — l'avvio non crasha — si pretende sempre; il recovery (`.bak` + marker) è il
+    *come*, e ha senso pretenderlo solo dove l'input è davvero ostile, cosa che
+    `premessa_regge()` verifica invece di darla per scontata. Prima erano confusi, ed è per
+    questo che il test andava rosso quando invece stava andando tutto bene.
+    """
+    p = tmp_path / "config.json"
+    documento = json_patologico.json_annidato_oggetti("a")
+    p.write_text(documento, encoding="utf-8")
+
+    cfg = config_store.load_config(str(p))              # l'INVARIANTE: non deve sollevare
 
     assert isinstance(cfg, dict)
+
+    if not json_patologico.premessa_regge(documento):
+        # Ambiente esotico: il documento non è ostile qui, quindi non c'è alcun recovery da
+        # pretendere. Lo si dice invece di fallire — e invece di tacere fingendo copertura.
+        pytest.skip("questo interprete decodifica il documento: premessa di R5 non valida")
+
+    # …e solo con la premessa verificata, il MECCANISMO di recovery.
     assert cfg.get(config_store.POST_CORRUPTION_KEY) is True    # trattato da corruzione
     assert list(tmp_path.glob("*.bak*")), "file patologico messo in backup"
     assert not p.exists() or "a" not in json.dumps(cfg)[:20]    # non caricato com'era
