@@ -61,11 +61,25 @@ def test_nessun_valore_tradotto_nomina_piu_xtrader(lingua):
 
 
 @pytest.mark.parametrize("lingua", ["EN", "ES"])
-def test_il_nome_estero_compare_davvero(lingua):
-    """La metà che impedisce di «correggere» cancellando il nome invece di tradurlo: se
-    sparisse e basta, l'utente non saprebbe più di quale programma si parla."""
-    quanti = sum(1 for v in i18n._CATALOG[lingua].values() if NOME_ESTERO in str(v))
-    assert quanti >= 15, f"solo {quanti} valori {lingua} nominano «{NOME_ESTERO}»"
+def test_ogni_chiave_che_nomina_xtrader_ha_un_valore_che_nomina_betting_toolkit(lingua):
+    """La metà che impedisce di «correggere» **cancellando** il nome invece di tradurlo: se
+    sparisse e basta, l'utente non saprebbe più di quale programma si parla.
+
+    **Invariante derivato, non una soglia** (rilievo GPT-5.5 sulla #298, ed era giusto). La
+    prima stesura pretendeva `>= 15` valori: un numero arbitrario, che avrebbe dato falsi
+    rossi aggiungendo stringhe e falsi verdi togliendone. Qui la regola si deduce dal catalogo
+    stesso — *ogni chiave italiana che nomina XTrader deve avere un valore che nomina Betting
+    Toolkit* — quindi resta esatta comunque il catalogo cresca o si riduca, senza manutenzione.
+    """
+    orfane = [
+        k for k, v in i18n._CATALOG[lingua].items()
+        if ("XTrader" in k or "XTRADER" in k) and NOME_ESTERO.lower() not in str(v).lower()
+    ]
+    assert not orfane, (
+        f"chiavi {lingua} che nominano XTrader ma il cui valore NON nomina «{NOME_ESTERO}»: "
+        f"il nome è stato cancellato invece che tradotto:\n  "
+        + "\n  ".join(repr(k[:60]) for k in orfane)
+    )
 
 
 # ── ② l'italiano non cambia di un carattere ───────────────────────────────────────────
