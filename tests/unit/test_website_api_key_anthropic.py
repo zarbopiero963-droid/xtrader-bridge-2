@@ -247,8 +247,64 @@ def test_il_riquadro_che_copriva_la_chiave_e_davvero_pieno():
         "nell'area della chiave ci sono pixel chiari (max %d): probabile testo leggibile" % massimo)
 
 
+def _blocco_job(testo: str, nome: str) -> str:
+    """Il corpo del job `nome` dentro un workflow, per indentazione.
+
+    Niente PyYAML: non è una dipendenza del progetto (vedi `test_yaml_dei_workflow_ai_e_parsabile`,
+    che infatti lo salta), e una guardia che si salta è il difetto che questo file combatte.
+    """
+    righe = testo.splitlines()
+    for i, riga in enumerate(righe):
+        if re.match(r"^  %s:\s*$" % re.escape(nome), riga):
+            corpo = []
+            for successiva in righe[i + 1:]:
+                if successiva.strip() and not successiva.startswith("   "):
+                    break
+                corpo.append(successiva)
+            return "\n".join(corpo)
+    raise AssertionError("job «%s» non trovato nel workflow" % nome)
+
+
+def test_il_job_unit_installa_pillow_altrimenti_la_guardia_sui_pixel_e_decorativa():
+    """La CI deve installare Pillow, o il controllo sui pixel non gira mai.
+
+    Rilievo **indipendente di Claude Fable 5 e OpenRouter Fugu Ultra** sulla #300, entrambi con
+    le stesse parole: senza Pillow `importorskip` salta il test **in silenzio**, e quella è
+    l'unica guardia che guarda il *contenuto* dell'immagine invece dei suoi byte.
+
+    Perché serve, dato che c'è già lo `sha256`: le due guardie coprono cose diverse. Le impronte
+    beccano l'immagine cambiata **per distrazione**; non beccano chi cambia immagine **e**
+    impronta nello stesso commit — che è il caso in cui una schermata con la chiave scoperta
+    tornerebbe in pagina passando i test. Lì serve qualcosa che apra il file e guardi i pixel.
+
+    Perché l'install sta nel workflow e **non** in `requirements-dev.txt`: quel file scende in
+    `requirements-build.in` (`-r requirements-dev.txt`), quindi Pillow finirebbe nel lock hashato
+    dell'EXE — una libreria di immagini dentro l'eseguibile, che il programma non usa — e
+    renderebbe stantii i lock Windows/Linux, da rigenerare a mano su runner dedicati. Decisione
+    del proprietario del 6 agosto: pin esatto nel solo job che esegue il test.
+
+    Questo test esiste perché quella riga non sparisca in silenzio, che è esattamente il modo in
+    cui la guardia era sparita la prima volta.
+    """
+    workflow = (_ROOT / ".github" / "workflows" / "pr-checks.yml").read_text(encoding="utf-8")
+    unit = _blocco_job(workflow, "unit")
+
+    installa = re.search(r"pip install\s+[\"']?pillow==([0-9][0-9A-Za-z.\-]*)", unit, re.I)
+    assert installa, (
+        "il job `unit` di pr-checks.yml non installa più Pillow: il test sui pixel della "
+        "schermata che conteneva una API key vera tornerebbe a saltarsi IN SILENZIO in CI. "
+        "Se lo togli di proposito, togli anche il test sui pixel e dichiaralo nel PR.")
+
+    # Pinnato: sta fuori dal lock, quindi il pin esatto è tutta la protezione che ha contro una
+    # release upstream che cambia comportamento.
+    assert "pillow>=" not in unit.lower() and "pillow<" not in unit.lower(), (
+        "Pillow va pinnato con `==`: sta fuori da requirements-dev.lock, quindi un range lo "
+        "lascerebbe libero di cambiare da una notte all'altra")
+
+
 # I byte esatti delle otto schermate, così come sono state oscurate e verificate a mano.
-# Non è un vezzo: è l'unica guardia che gira **davvero in CI**. Vedi il test qui sotto.
+# Lo `sha256` qui sotto gira sempre; il controllo sui pixel più in alto gira perché il job
+# `unit` installa Pillow — e il test qui sopra pretende che continui a farlo.
 _IMPRONTE = {
     "01-console-accesso.jpg":
         "380a18a6d290667033cf20edff9a70b840e44847f384881cc3b14533307b2f2f",

@@ -80,6 +80,19 @@ jobs:
             requirements*.lock
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt -c requirements-dev.lock
+      # Pillow serve a UN solo test — quello che apre `06-chiave-mostrata.jpg` e verifica che il
+      # riquadro sopra la API key sia davvero pieno. Senza, `importorskip` lo salta IN SILENZIO
+      # e resta solo lo `sha256`, che vede i byte cambiati ma non il contenuto: chi aggiornasse
+      # immagine E impronta nello stesso commit rimetterebbe in pagina una chiave leggibile
+      # passando i test. Rilievo indipendente di Claude Fable 5 e Fugu Ultra sulla #300.
+      #
+      # Perché QUI e non in `requirements-dev.txt`: quel file scende in `requirements-build.in`
+      # (`-r requirements-dev.txt`), quindi Pillow entrerebbe nel lock HASHATO dell'EXE — una
+      # libreria di immagini dentro l'eseguibile, che il programma non usa — e renderebbe stantii
+      # i lock Windows/Linux, da rigenerare a mano su runner dedicati. Decisione del proprietario
+      # (6 agosto 2026). Pinnato con `==` perché, stando fuori dal lock, il pin è tutta la sua
+      # protezione. Un guard in `test_website_api_key_anthropic.py` pretende che questa riga resti.
+      - run: pip install "pillow==12.3.0"
       # Esclude il contract test: quella barriera è coperta dal job dedicato `contract`.
       - run: python -m pytest tests/unit --ignore=tests/unit/test_csv_contract.py -q -m "not manual"
 
