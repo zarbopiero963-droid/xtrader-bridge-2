@@ -78,40 +78,51 @@ def test_gli_ascii_si_comportano_esattamente_come_prima(grezzo, atteso):
 
 # ── Regola 3: la fonte stretta è UNA, e resta quella ───────────────────────────────────────
 
-def test_il_normalizzatore_usa_la_fonte_unica_e_non_una_copia():
+def test_nel_modulo_non_resta_nessuna_classe_di_cifre_unicode():
     """Il difetto non era «usare `\\d`»: era **riscrivere a mano** una classe di cifre che
     `numbers_re` definisce già. Riscritta ASCII resterebbe una seconda copia, divergente al
     primo cambio — la stessa Regola 3 che ha già morso tre volte in questo repo.
 
-    Il test guarda il sorgente perché ciò che si pretende è **da dove viene** la classe, non
-    cosa fa: due implementazioni corrette oggi darebbero lo stesso risultato e il test sarebbe
-    verde su entrambe, che è esattamente il falso verde da evitare.
+    **Guardia sul MODULO, non sulla funzione** (rilievo GPT-5.5 e Fable 5: la prima stesura era
+    fragile). Tre differenze che contano:
 
-    **Il docstring è escluso di proposito.** La prima stesura leggeva la funzione intera ed è
-    diventata rossa sul docstring che *cita* `isdigit()` per spiegare il difetto storico —
-    cioè puniva la documentazione del bug invece del bug. Una spiegazione scritta accanto al
-    codice è valore: la guardia deve vietare la **chiamata**, non la parola.
+    * legge il **file**, non `inspect.getsource` — un refactor che sposta la regex in una
+      costante a livello modulo non la fa più fallire a torto, e la copre comunque;
+    * cammina l'**AST** invece di `ast.unparse`, che è una resa testuale e può cambiare fra
+      versioni di Python: qui si guardano nodi, non stringhe rigenerate;
+    * **esclude docstring e commenti**: la prima stesura è diventata rossa sul docstring che
+      *cita* `isdigit()` per spiegare il difetto storico, cioè puniva la documentazione del bug
+      invece del bug. Si vieta la **chiamata**, non la parola.
     """
     import ast
-    import inspect
 
     from xtrader_bridge import custom_pipeline
 
-    albero = ast.parse(inspect.getsource(custom_pipeline._decimal_sep_to_point).lstrip())
-    corpo = albero.body[0].body
-    if (isinstance(corpo[0], ast.Expr) and isinstance(corpo[0].value, ast.Constant)
-            and isinstance(corpo[0].value.value, str)):
-        corpo = corpo[1:]                      # via il docstring: si giudica il codice
-    sorgente = "\n".join(ast.unparse(n) for n in corpo)
+    albero = ast.parse(open(custom_pipeline.__file__, encoding="utf-8").read())
 
-    assert "numbers_re." in sorgente, (
-        "la classe di cifre deve venire da `numbers_re`, non essere riscritta qui"
-    )
-    assert "isdigit()" not in sorgente, (
+    docstring = {n.value for n in ast.walk(albero)
+                 if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
+
+    chiamate_isdigit = [n for n in ast.walk(albero)
+                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr == "isdigit"]
+    assert not chiamate_isdigit, (
         "`str.isdigit()` è Unicode-aware: accetta «٥», «५», «５» — è metà del difetto B17"
     )
-    assert r"\d" not in sorgente, (
-        r"`\d` in Python matcha TUTTE le cifre Unicode: è l'altra metà di B17"
+
+    letterali_con_d = [n.value for n in ast.walk(albero)
+                       if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                       and n not in docstring and r"\d" in n.value]
+    assert not letterali_con_d, (
+        rf"`\d` in Python matcha TUTTE le cifre Unicode: è l'altra metà di B17. "
+        rf"Letterali trovati: {letterali_con_d}"
+    )
+
+    assert "numbers_re" in {n.id for n in ast.walk(albero) if isinstance(n, ast.Name)} | {
+        a.attr for a in ast.walk(albero) if isinstance(a, ast.Attribute)} | {
+        al.name for imp in ast.walk(albero) if isinstance(imp, ast.ImportFrom)
+        for al in imp.names}, (
+        "la classe di cifre deve venire da `numbers_re`, non essere riscritta qui"
     )
 
 
@@ -140,3 +151,58 @@ def test_il_confine_col_validatore_regge_ancora():
         assert accetta(uscita) is None, (
             f"{grezzo!r} → {uscita!r}: il validatore deve continuare a scartarlo"
         )
+
+
+# ── Regola 2-bis, sul serio: il PERCORSO REALE, non la funzione isolata ────────────────────
+#
+# I test sopra chiamano `_decimal_sep_to_point` da sola. Il difetto della #202 era invisibile
+# proprio così, e appariva solo passando per il chiamante. GPT-5.5 ha chiesto una prova
+# end-to-end sui tre casi che contano: qui si costruisce una riga con la pipeline vera e si
+# guarda cosa esce — status e valore — invece di fidarsi della funzione.
+
+def _parser_con_handicap(valore):
+    from xtrader_bridge.custom_parser import CustomParserDef, FieldRule
+
+    return CustomParserDef(name="B17", mode="NAME_ONLY", rules=[
+        FieldRule(target="Provider", fixed_value="TG"),
+        FieldRule(target="EventName", fixed_value="Milan v Inter", required=True),
+        FieldRule(target="MarketType", fixed_value="ASIAN_HANDICAP", required=True),
+        FieldRule(target="SelectionName", fixed_value="Milan", required=True),
+        FieldRule(target="BetType", fixed_value="PUNTA"),
+        FieldRule(target="Handicap", fixed_value=valore),
+    ])
+
+
+def _riga(valore):
+    from xtrader_bridge import custom_pipeline as pipe
+
+    return pipe.build_validated_row(_parser_con_handicap(valore), "msg",
+                                    provider="TG", require_price=False)
+
+
+def test_end_to_end_le_cifre_non_ascii_non_producono_una_riga():
+    """`"١,٥"` non deve diventare una riga piazzabile. Prima usciva `"١.٥"` dal normalizzatore
+    e veniva fermato dal validatore; ora è fermato da entrambi — ma ciò che conta per l'utente
+    è identico e va verificato QUI, alla fine del percorso: nessuna riga."""
+    from xtrader_bridge import custom_pipeline as pipe
+
+    res = _riga("١,٥")
+
+    assert res.status == pipe.INVALID_HANDICAP
+    assert not res.placeable, "un handicap non ASCII non deve produrre una scommessa"
+
+
+def test_end_to_end_i_migliaia_ascii_arrivano_normalizzati():
+    """Il controllo positivo, senza il quale il test sopra proverebbe solo che tutto è
+    rifiutato: `"1.234,56"` deve continuare ad attraversare la pipeline e uscire canonico."""
+    res = _riga("1.234,56")
+
+    assert res.row["Handicap"] == "1234.56"
+
+
+def test_end_to_end_handicap_negativo_con_virgola_resta_intatto():
+    """Il caso che un fail-closed scritto male romperebbe per primo: il segno. `"-1,5"` è un
+    Handicap legittimo e frequente — deve uscire `"-1.5"`, non invariato."""
+    res = _riga("-1,5")
+
+    assert res.row["Handicap"] == "-1.5"
