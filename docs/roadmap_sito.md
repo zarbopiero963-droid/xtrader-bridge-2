@@ -137,6 +137,39 @@ proprietario da dichiarare in pagina — non un ripiego che l'agente possa prend
 Il contenuto esiste già in [`xtrader_integration.md`](xtrader_integration.md); manca la pagina.
 Oggi la card in `/documentazione` rimanda alla demo con la nota «in preparazione».
 
+### S17. Guida «API key Anthropic» ✅ scritta e illustrata · ⏳ manca una sola schermata
+Pagina `/guida/api-key-anthropic`, trilingue, linkata da `/documentazione`. Nasce dalla decisione
+del 6 agosto: **l'assistente 🤖 va a chi ha il bridge**, non resta strumento del solo proprietario
+— quindi ogni utente deve procurarsi una API key Anthropic propria e sapere quanto costa.
+
+Verificato invece che scritto a memoria: la Console **non è più** `console.anthropic.com`, che
+oggi risponde `301` verso **`platform.claude.com`**. Le chiavi stanno su
+`platform.claude.com/settings/keys`. Una guida scritta a ricordo avrebbe mandato l'utente su un
+indirizzo che rimbalza, con screenshot che non combaciano col testo.
+
+La pagina insiste su tre cose che costano soldi o tempo se taciute: che **non è l'abbonamento a
+Claude** (si pagherebbe due volte), che **senza credito la chiave non funziona** — errore
+`credit balance is too low`, capitato ai reviewer di questo stesso repository — e che la chiave
+è **una password che spende**, con la revoca spiegata.
+
+**Le schermate della Console ci sono**: otto, fornite dal proprietario il 6 agosto — io non potevo
+farle, la Console è dietro il login e ricostruirla sarebbe fabbricare schermate (§2 della
+[policy lingue](policy_lingue_sito.md)). Sono state **oscurate** prima di entrare nel repository:
+nome, email, prefissi delle chiavi, carta e cronologia acquisti. Una conteneva una **API key vera
+in chiaro**, che il proprietario ha **revocato** — coprirla non sarebbe bastato, una chiave vista
+resta spendibile finché è viva. Gli originali non sono mai entrati nel repository.
+
+Le schermate mostrano che la Console **è tradotta** e segue la lingua del browser: quelle del
+proprietario sono **in italiano**. La pagina lo dice in tutte e tre le lingue invece di far credere
+che l'utente vedrà l'inglese.
+
+⏳ **Manca una sola schermata**: il pannello **«🤖 Assistente» di BetRelay** del passo 6, l'unica
+che richiede l'app in esecuzione. È in pagina come riquadro dichiarato.
+
+Sui `.jpg` la guardia è solo automatica — **CodeRabbit esclude le immagini** (`!**/*.jpg`) e i due
+reviewer forti saltano i binari — quindi due test le presidiano: lo `sha256` degli otto file
+(gira sempre, `hashlib` è standard) e, dove Pillow c'è, i pixel dell'area che copriva la chiave.
+
 ### S8. Traduzioni EN/ES — ✅ guida bot fatta · ❌ restano le due demo
 `guida-bot.html` è **trilingue** (Issue #287): selettore IT/EN/ES, `i18n.js` caricato — prima non
 lo era, quindi i quattro `data-i18n` che il footer già aveva erano **morti** — e tutta la prosa

@@ -1,0 +1,31 @@
+# Dipendenza della guardia sulle IMMAGINI — usata SOLO dal job `unit` di `pr-checks.yml`.
+#
+# Serve a un test solo: quello che apre `website/static/img/apikey/06-chiave-mostrata.jpg` e
+# verifica che il riquadro sopra la API key sia davvero pieno di nero. Quella schermata aveva
+# contenuto una chiave Anthropic **vera**, e sui `.jpg` non guarda nessun reviewer: CodeRabbit li
+# esclude per configurazione (`!**/*.jpg`) e i reviewer forti saltano i binari. La guardia lì è
+# solo automatica, quindi deve girare davvero — senza Pillow `importorskip` la saltava in
+# silenzio (rilievo indipendente di Claude Fable 5 e OpenRouter Fugu Ultra sulla #300).
+#
+# Perché un file a parte e NON `requirements-dev.txt` — stesso motivo di `requirements-lint.txt`:
+# `requirements-build.in` fa `-r requirements-dev.txt`, quindi tutto ciò che sta lì scende nel
+# lock HASHATO dell'EXE. Pillow finirebbe dentro l'eseguibile pur non servendo al programma, e
+# renderebbe stantii i lock Windows/Linux, da rigenerare a mano su runner dedicati. Decisione del
+# proprietario (6 agosto 2026).
+#
+# Perché con gli HASH, a differenza di `requirements-lint.txt`: il pin `==` dice QUALE versione,
+# non garantisce che il pacchetto scaricato sia quello. Stando fuori dal lock hashato del repo,
+# questa è la sua unica garanzia d'integrità — e una guardia anti-segreto merita la stessa cura
+# del resto della catena. La CI installa con `--require-hashes`.
+#
+# I tre hash sono le sole distribuzioni cp311 / linux-x86_64 di Pillow 12.3.0 (manylinux,
+# musllinux, sdist): il runner ubuntu ne userà una. Se un domani cambiasse tag di piattaforma, il
+# job diventa rosso — che è il modo giusto di accorgersene, non un guasto.
+#
+# Per aggiornare la versione: prendere i digest da https://pypi.org/pypi/pillow/<ver>/json
+# (campo `digests.sha256` delle distribuzioni cp311/linux + sdist) e sostituirli qui. Un test in
+# `tests/unit/test_website_api_key_anthropic.py` pretende pin `==` e almeno un `--hash`.
+pillow==12.3.0 \
+    --hash=sha256:23d27a3e0307ec2244cc51e7287b919aa68d097504ebe19df4e76a98a3eea5bd \
+    --hash=sha256:236ff70b9312fb68943c703aa842ca6a758abfa45ac187a5e7c1452e96ef72b5 \
+    --hash=sha256:3b8182a766685eaa002637e28b4ec8d6b18819a0c71f579bf0dbaa5830297cce

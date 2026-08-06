@@ -6,8 +6,14 @@
 > che uscirebbe, senza scrivere), **consulta** il dizionario (squadre/mercati/mapping), **spiega la
 > salute** (7 semafori) e **perché un segnale è stato scartato**, e può proporre alcune impostazioni
 > non critiche — sempre con una
-> **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio. È uno strumento
-> **personale del proprietario**, non una chat per utenti finali.
+> **tua conferma** prima di scrivere. Risponde nella **lingua** scelta all'avvio.
+>
+> ⚠️ **L'assistente è distribuito a chi ha il bridge**, non è più uno strumento del solo
+> proprietario (decisione del 6 agosto 2026). Questo significa che **ogni utente usa una API key
+> Anthropic propria**, paga il proprio consumo, e ha bisogno di sapere come ottenerla: la guida
+> pubblica è su **`/guida/api-key-anthropic`** del sito. Significa anche che il pannello è una
+> superficie **per utenti finali**: le sue etichette, oggi solo in italiano, sono un difetto
+> visibile a chi usa l'app in inglese o spagnolo.
 
 > 📸 *Gli screenshot verranno aggiunti in `docs/assets/screenshots/`. I «\[screenshot: …\]» indicano dove.*
 
@@ -17,7 +23,13 @@ Nella finestra principale, tabview di **monitoraggio**, tab **«🤖 Assistente�
 
 ## 1. Salva la API key Anthropic
 
-L'assistente parla con un modello Anthropic, quindi serve una **API key**. Incollala nel campo
+L'assistente parla con un modello Anthropic, quindi serve una **API key**. Se non ne hai una,
+la guida completa per crearla — account, credito, generazione, costi reali — è sul sito:
+**[`/guida/api-key-anthropic`](https://betrelay.net/guida/api-key-anthropic)**. In breve: si crea
+sulla Console per sviluppatori (`platform.claude.com`), è **separata dall'abbonamento a Claude** e
+si paga a consumo; **senza credito caricato la chiave non funziona**.
+
+Incollala nel campo
 mascherato **«API key Anthropic:»** e premi **«💾 Salva chiave»**: viene salvata **solo nel keyring
 del sistema** (mai in `config.json`, nei log o nella cronologia); il campo si svuota subito.
 

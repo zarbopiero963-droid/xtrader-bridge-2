@@ -143,7 +143,8 @@ def test_ogni_pagina_richiama_il_18plus_e_linka_le_due_pagine(pagina):
 # tradotte, aggiungerle qui è il modo di dichiararlo — come è appena successo per
 # `guida-bot.html` (Issue #287).
 _TRILINGUI = ("index.html", "faq.html", "contatti.html", "documentazione.html",
-              "privacy.html", "gioco-responsabile.html", "guida-bot.html")
+              "privacy.html", "gioco-responsabile.html", "guida-bot.html",
+              "api-key-anthropic.html")
 
 
 @pytest.mark.parametrize("pagina", _TRILINGUI)

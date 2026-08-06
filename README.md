@@ -1163,6 +1163,21 @@ sono espresse come file sorgente `.in` (vincoli "morbidi" top-level) da cui si g
 | `requirements-dev.txt` | `-r requirements.txt` + `pytest` (test) | sì |
 | `requirements-dev.lock` | **constraints pinnate** (`pkg==ver`, senza hash) per i **job di TEST** (P3-39 audit #76): generate con pip-compile su **Linux + Python 3.11** (stessa piattaforma dei job ubuntu). La CI installa `pip install -r requirements-dev.txt -c requirements-dev.lock`: una release breaking upstream **non** fa più rossi tutti i PR insieme — l'upgrade avviene solo rigenerando il lock in un PR dedicato. Usato come `-c` anche su `windows-tests` e `merge-simulation` (le constraints pinnano solo ciò che viene installato: eventuali transitive solo-Windows restano libere, best-effort). Il notturno `merge-simulation-hard` fa eccezione: buildando l'EXE usa il lock **hashato** `requirements-build.lock` (CI-1 audit #114) | **NO** — si rigenera: `pip-compile --strip-extras --no-annotate --output-file=requirements-dev.lock requirements-dev.txt` |
 
+> 🖼️ **Una sola eccezione dichiarata: `pillow`.** Sta in **`requirements-imgcheck.txt`**, installato
+> con `pip install --require-hashes -r requirements-imgcheck.txt` dal solo job `unit` di
+> `pr-checks.yml` — **non** in `requirements-dev.txt`. Stesso schema di `requirements-lint.txt`. Serve a un test solo —
+> quello che apre `website/static/img/apikey/06-chiave-mostrata.jpg` e verifica che il riquadro
+> sopra la API key sia davvero pieno di nero. Metterlo nella catena single-source lo farebbe
+> scendere in `requirements-build.in` (`-r requirements-dev.txt`) e quindi **dentro il lock hashato
+> dell'EXE**: una libreria di immagini nell'eseguibile, che il programma non usa, più i lock
+> Windows/Linux da rigenerare a mano. Decisione del proprietario (6 agosto 2026), dopo che Claude
+> Fable 5 e Fugu Ultra avevano rilevato — indipendentemente — che senza Pillow quella guardia si
+> saltava in silenzio in CI. Sta fuori dal lock, quindi il pin `==` è tutta la sua protezione; un
+> test in `tests/unit/test_website_api_key_anthropic.py` pretende che la riga resti, resti pinnata,
+> conservi gli `--hash` e stia **prima** del `pytest` (spostata dopo, Pillow arriverebbe a test già
+> eseguiti). Gli hash vivono in un requirements file perché `pip install pkg --hash=…` da riga di
+> comando non esiste: pip risponde `no such option: --hash`.
+>
 > ⚠️ Ogni lockfile va generato **sulla sua piattaforma**: gli hash/wheel devono corrispondere
 > a quelli che la build installa davvero. Il lock **Windows** si genera in CI su **Windows**
 > (*Generate Windows Lockfile*); il lock **Linux** in CI su **Linux** (*Generate Linux
