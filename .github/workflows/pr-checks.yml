@@ -92,7 +92,18 @@ jobs:
       # i lock Windows/Linux, da rigenerare a mano su runner dedicati. Decisione del proprietario
       # (6 agosto 2026). Pinnato con `==` perché, stando fuori dal lock, il pin è tutta la sua
       # protezione. Un guard in `test_website_api_key_anthropic.py` pretende che questa riga resti.
-      - run: pip install "pillow==12.3.0"
+      #
+      # Con gli HASH (rilievo GPT-5.5 #300): il pin `==` dice QUALE versione, non garantisce che il
+      # pacchetto scaricato sia quello — ed è la differenza per cui il resto del repo builda con
+      # `--require-hashes`. Gli hash stanno in `requirements-imgcheck.txt` perché `--hash` esiste
+      # SOLO dentro un requirements file: `pip install "pillow==…" --hash=…` esce con `no such
+      # option: --hash` (provato, non dedotto). Stesso schema di `requirements-lint.txt`: un file
+      # a parte, installato da un job solo, fuori dalla catena che finisce nel lock dell'EXE.
+      #
+      # DEVE stare PRIMA del pytest qui sotto (rilievo CodeRabbit #300): spostato dopo, Pillow
+      # arriverebbe a test già eseguiti e il controllo sui pixel tornerebbe a saltarsi in
+      # silenzio — con il guard verde. L'ordine è verificato dal test.
+      - run: pip install --require-hashes -r requirements-imgcheck.txt
       # Esclude il contract test: quella barriera è coperta dal job dedicato `contract`.
       - run: python -m pytest tests/unit --ignore=tests/unit/test_csv_contract.py -q -m "not manual"
 

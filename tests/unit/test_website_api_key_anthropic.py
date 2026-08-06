@@ -197,16 +197,36 @@ def test_ogni_passo_ha_una_figura_o_un_segnaposto_dichiarato():
 def test_le_immagini_esistono_e_hanno_un_alt():
     """Un `<img>` con il percorso sbagliato è un rettangolo vuoto in pagina, e nessun test di
     contenuto se ne accorge. L'`alt` serve a chi non vede le immagini — e su una guida fatta
-    di schermate è metà del contenuto."""
+    di schermate è metà del contenuto.
+
+    E dev'essere **tradotto** (rilievo CodeRabbit #300): `i18n.js` cambiava solo il contenuto dei
+    `[data-i18n]`, quindi per un utente EN o ES le immagini restavano descritte in italiano. Su
+    questa pagina è metà del testo che non cambiava lingua.
+    """
     html = _html()
+    dizionari = _dizionari()
     immagini = re.findall(r'<img[^>]+>', html)
     assert immagini, "la guida non ha più nessuna immagine"
     for tag in immagini:
         src = re.search(r'src="([^"]+)"', tag).group(1)
         percorso = _ROOT / "website" / src.lstrip("/")
         assert percorso.is_file(), "immagine mancante sul disco: %s" % src
-        alt = re.search(r'alt="([^"]*)"', tag)
+
+        # `(?<![-\w])alt=` e non `alt=`: `data-i18n-alt="…"` contiene la sottostringa `alt="`, e
+        # un match ingenuo leggerebbe la CHIAVE al posto della descrizione.
+        alt = re.search(r'(?<![-\w])alt="([^"]*)"', tag)
         assert alt and len(alt.group(1)) > 15, "alt assente o troppo corto: %s" % src
+
+        chiave = re.search(r'data-i18n-alt="([^"]+)"', tag)
+        assert chiave, (
+            "l'immagine %s non ha `data-i18n-alt`: il suo alt resterebbe in italiano per gli "
+            "utenti EN/ES" % src)
+        for lingua in ("en", "es"):
+            tradotto = dizionari[lingua].get(chiave.group(1))
+            assert tradotto and len(tradotto.strip()) > 15, (
+                "l'alt di %s non è tradotto in «%s» (chiave %s)" % (src, lingua, chiave.group(1)))
+            assert tradotto.strip() != alt.group(1).strip(), (
+                "l'alt di %s in «%s» è identico all'italiano" % (src, lingua))
 
 
 def test_il_riquadro_che_copriva_la_chiave_e_davvero_pieno():
@@ -265,6 +285,23 @@ def _blocco_job(testo: str, nome: str) -> str:
     raise AssertionError("job «%s» non trovato nel workflow" % nome)
 
 
+def _comandi_eseguiti(blocco: str) -> str:
+    """Il blocco senza i commenti YAML, con i `run: >` ricongiunti in una riga sola.
+
+    Rilievo GPT-5.5 (#300): cercare una stringa nel testo grezzo la trova anche dentro un
+    commento o uno step disattivato — cioè una CI che *sembra* installare Pillow e non lo fa.
+    È la stessa cecità che `test_dev_lockfile_76` ha già pagato sul guard delle constraints, e
+    la lezione lì era esattamente questa: guardare ciò che la shell riceve, non ciò che si legge.
+    """
+    ripulite = []
+    for riga in blocco.splitlines():
+        senza = re.sub(r"(^|\s)#.*$", "", riga)          # commento a inizio riga o dopo spazio
+        if senza.strip():
+            ripulite.append(senza)
+    # `run: >` è uno scalare *folded*: le righe successive più indentate sono UN comando solo.
+    return re.sub(r"run:\s*>[-+]?\s*\n", "run: ", "\n".join(ripulite))
+
+
 def test_il_job_unit_installa_pillow_altrimenti_la_guardia_sui_pixel_e_decorativa():
     """La CI deve installare Pillow, o il controllo sui pixel non gira mai.
 
@@ -287,19 +324,57 @@ def test_il_job_unit_installa_pillow_altrimenti_la_guardia_sui_pixel_e_decorativ
     cui la guardia era sparita la prima volta.
     """
     workflow = (_ROOT / ".github" / "workflows" / "pr-checks.yml").read_text(encoding="utf-8")
-    unit = _blocco_job(workflow, "unit")
+    unit = _comandi_eseguiti(_blocco_job(workflow, "unit"))
 
-    installa = re.search(r"pip install\s+[\"']?pillow==([0-9][0-9A-Za-z.\-]*)", unit, re.I)
-    assert installa, (
-        "il job `unit` di pr-checks.yml non installa più Pillow: il test sui pixel della "
-        "schermata che conteneva una API key vera tornerebbe a saltarsi IN SILENZIO in CI. "
-        "Se lo togli di proposito, togli anche il test sui pixel e dichiaralo nel PR.")
+    posa = unit.find("requirements-imgcheck.txt")
+    assert posa != -1, (
+        "il job `unit` di pr-checks.yml non installa più requirements-imgcheck.txt: il test sui "
+        "pixel della schermata che conteneva una API key vera tornerebbe a saltarsi IN SILENZIO "
+        "in CI. Se lo togli di proposito, togli anche il test sui pixel e dichiaralo nel PR.")
 
-    # Pinnato: sta fuori dal lock, quindi il pin esatto è tutta la protezione che ha contro una
-    # release upstream che cambia comportamento.
-    assert "pillow>=" not in unit.lower() and "pillow<" not in unit.lower(), (
-        "Pillow va pinnato con `==`: sta fuori da requirements-dev.lock, quindi un range lo "
-        "lascerebbe libero di cambiare da una notte all'altra")
+    assert re.search(r"pip install[^\n]*--require-hashes[^\n]*requirements-imgcheck\.txt", unit), (
+        "l'install di requirements-imgcheck.txt ha perso `--require-hashes`: senza, pip accetta "
+        "qualunque file il server gli dia, e questa dipendenza sta FUORI dal lock hashato del repo")
+
+    # L'ORDINE conta (rilievo CodeRabbit #300): l'install spostato sotto il pytest lascerebbe il
+    # guard verde e il test sui pixel saltato, che è precisamente il difetto da cui nasce tutto.
+    posa_pytest = unit.find("pytest tests/unit")
+    assert posa_pytest != -1, "il job `unit` non esegue più `pytest tests/unit`: workflow cambiato"
+    assert posa < posa_pytest, (
+        "l'install di Pillow viene DOPO `pytest tests/unit`: quando i test girano Pillow non c'è "
+        "ancora, quindi il controllo sui pixel si salta lo stesso — con questo guard verde")
+
+    # Il pin e i suoi hash stanno nello stesso file, così non possono divergere.
+    imgcheck = (_ROOT / "requirements-imgcheck.txt").read_text(encoding="utf-8")
+    versione = re.search(r"(?m)^pillow==([0-9][0-9A-Za-z.\-]*)", imgcheck)
+    assert versione, (
+        "requirements-imgcheck.txt non pinna più Pillow con `==`: sta fuori dal lock, quindi un "
+        "range lo lascerebbe libero di cambiare da una notte all'altra")
+    assert not re.search(r"(?mi)^pillow\s*[><~]", imgcheck), (
+        "requirements-imgcheck.txt usa un range invece di `==`")
+    assert len(re.findall(r"--hash=sha256:[0-9a-f]{64}\b", imgcheck)) >= 1, (
+        "requirements-imgcheck.txt ha perso gli `--hash`: con `--require-hashes` l'install "
+        "fallirebbe, e senza `--require-hashes` non ci sarebbe più alcuna garanzia d'integrità")
+
+
+def test_pillow_resta_fuori_dalla_catena_che_finisce_nell_exe():
+    """L'altra metà della decisione: Pillow **non** deve entrare nelle dipendenze dichiarate.
+
+    Rilievo GPT-5.5 (#300): «controllare che merge-simulation / build EXE non includano Pillow
+    transitivamente». È il motivo per cui l'install sta nel workflow — ma senza un test la scelta
+    resta un commento, e il primo che vorrà «sistemare» quell'anomalia sposterà la riga in
+    `requirements-dev.txt` in buona fede, portandosi dietro il lock hashato dell'EXE e i due
+    lockfile da rigenerare a mano.
+    """
+    for nome in ("requirements.in", "requirements.txt", "requirements-dev.txt",
+                 "requirements-build.in", "requirements-build-linux.in"):
+        testo = (_ROOT / nome).read_text(encoding="utf-8")
+        righe = [r for r in testo.splitlines()
+                 if r.strip() and not r.strip().startswith("#")]
+        assert not any(re.match(r"^\s*pillow\b", r, re.I) for r in righe), (
+            "%s dichiara Pillow: da lì scende in requirements-build.in (`-r requirements-dev.txt`) "
+            "e quindi nel lock HASHATO dell'EXE, che va rigenerato a mano su runner Windows/Linux. "
+            "Se la scelta è cambiata, aggiorna anche README e il commento in pr-checks.yml." % nome)
 
 
 # I byte esatti delle otto schermate, così come sono state oscurate e verificate a mano.

@@ -271,6 +271,47 @@ def controlla_guida_bot(pagina, base: str, es: Esito) -> None:
            "atteso %r, a schermo %r" % (titolo_it[:40], tornato[:40]))
 
 
+def controlla_alt_guida_apikey(pagina, base: str, es: Esito) -> None:
+    """Gli `alt` delle otto schermate devono cambiare lingua, non solo il testo intorno.
+
+    Rilievo CodeRabbit sulla #300: `i18n.js` traduceva il contenuto dei `[data-i18n]` e i
+    `placeholder`, non gli attributi `alt`. Su una guida fatta di schermate l'alt **è** il
+    contenuto per chi non vede le immagini, e restava in italiano per gli utenti EN/ES — cioè
+    metà pagina non tradotta, senza che niente lo segnalasse.
+
+    Un test unitario può solo verificare che i dizionari abbiano le voci; che il ciclo su
+    `[data-i18n-alt]` giri davvero lo dice solo un browser.
+    """
+    _apri(pagina, urljoin(base, "/guida/api-key-anthropic"), [])
+
+    def alt_correnti():
+        return pagina.eval_on_selector_all(
+            "img[data-i18n-alt]", "els => els.map(e => e.getAttribute('alt'))")
+
+    # Si parte da un italiano ESPLICITO: al primo caricamento la pagina segue la lingua del
+    # browser, quindi leggere "com'è arrivata" darebbe un confronto contro se stessa.
+    pagina.click('button[data-lang="it"]')
+    pagina.wait_for_timeout(300)
+    it = alt_correnti()
+    es.add("guida api key: le schermate hanno un alt tradotto", len(it) >= 8,
+           "immagini con data-i18n-alt: %d" % len(it))
+    if len(it) < 8:
+        return
+
+    for lingua in ("en", "es"):
+        pagina.click('button[data-lang="%s"]' % lingua)
+        pagina.wait_for_timeout(300)
+        adesso = alt_correnti()
+        pieni = all(a and len(a.strip()) > 15 for a in adesso)
+        es.add("  guida api key: gli alt cambiano in %s" % lingua.upper(),
+               adesso != it and len(adesso) == len(it) and pieni,
+               "primo alt: %r" % (adesso[0][:60] if adesso else ""))
+
+    pagina.click('button[data-lang="it"]')
+    pagina.wait_for_timeout(300)
+    es.add("  guida api key: gli alt tornano in italiano", alt_correnti() == it)
+
+
 def controlla_demo_bridge(pagina, base: str, es: Esito, errori: list[str], out: str) -> None:
     """Percorso reale: esplora liberamente → AVVIA → segnale di prova."""
     _apri(pagina, urljoin(base, "/demo"), errori)
@@ -401,6 +442,7 @@ def main() -> int:
             ("asset", lambda: controlla_asset(pagina, base, es)),
             ("lingue", lambda: controlla_lingue(pagina, base, es)),
             ("guida bot", lambda: controlla_guida_bot(pagina, base, es)),
+            ("alt guida api key", lambda: controlla_alt_guida_apikey(pagina, base, es)),
             ("demo BetRelay", lambda: controlla_demo_bridge(pagina, base, es, errori, args.out)),
             ("demo XTrader", lambda: controlla_demo_xtrader(pagina, base, es, errori, args.out)),
         ]

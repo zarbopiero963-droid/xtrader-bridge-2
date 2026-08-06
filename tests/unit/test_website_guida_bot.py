@@ -48,7 +48,9 @@ def _valore(dizionario: dict, chiave: str):
 
 def _chiavi(pagina: str) -> set:
     html = (_STATIC / pagina).read_text(encoding="utf-8")
-    return set(re.findall(r'data-i18n(?:-ph)?="([^"]+)"', html))
+    # `-alt` incluso (rilievo CodeRabbit #300): l'alt di un'immagine è contenuto quanto il
+    # testo, e una chiave nuova non deve sfuggire al gate solo perché sta in un attributo.
+    return set(re.findall(r'data-i18n(?:-ph|-alt)?="([^"]+)"', html))
 
 
 @pytest.mark.parametrize("pagina", _PAGINE)

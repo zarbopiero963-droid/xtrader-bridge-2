@@ -198,7 +198,15 @@
       "apikey.s1.cap": "The landing page: «Sviluppa sulla piattaforma Claude» (Build on the Claude platform)",
       "apikey.s2.cap": "The Dashboard: credit at the top, the menu on the left",
       "apikey.s3.cap1": "«Fatturazione» (Billing) → «Acquista crediti» (Buy credits)",
-      "apikey.s3.cap2": "5 USD + tax = 6.10 USD due",
+      "apikey.s3.cap2": "In this screenshot: 5 USD plus tax, 6.10 USD due. Your own total depends on your billing address — the Console shows it before you confirm.",
+      "apikey.alt.01": "platform.claude.com sign-in page with the Continue with Google and Continue with email buttons",
+      "apikey.alt.02": "Console dashboard showing the organisation credits, the month's spend and the side menu",
+      "apikey.alt.03": "API keys list with the Create key button at the top right",
+      "apikey.alt.04": "Create API key dialog with the name filled in and Anthropic's own security warning",
+      "apikey.alt.05": "Expiry dropdown with the options 3 hours, 1 day, 7 days, 30 days, custom, never",
+      "apikey.alt.06": "Save your API key window: the key value is covered by a black box",
+      "apikey.alt.07": "Billing page with the credit balance, the Buy credits button and the spend limits",
+      "apikey.alt.08": "Add credits dialog with the 5, 20 and 100 USD amounts and the total due including tax",
       "apikey.s3.auto.h": "Auto-recharge: think twice.",
       "apikey.s3.auto.p": "The Console offers to turn it on «to keep your API active when the balance reaches zero». Handy if you rely on the assistant daily; but it is a charge that fires on its own. For BetRelay <b>leave it off</b> and top up by hand when needed: it is a few euros a year, and this way there is no way to spend without noticing.",
       "apikey.s4.cap1": "The key list and «Crea chiave» (Create key)",
@@ -223,7 +231,7 @@
       "apikey.s3.p1": "Go to <b>«Fatturazione»</b> (<i>Billing</i>) and press <b>«Acquista crediti»</b> (<i>Buy credits</i>). Without credit the key is created just fine but <b>every request is refused</b>: the assistant stays <b>🔴 in ERROR</b> and the message reads <code>credit balance is too low</code>.",
       "apikey.s3.p2": "It is the most common way to lose half an hour: the key looks right, you pasted it correctly, and it still doesn't work. <b>It's the credit, not the key.</b>",
       "apikey.s3.tip.h": "What it costs to start.",
-      "apikey.s3.tip.p": "The minimum is <b>5 USD</b>, which with tax becomes <b>6.10 USD</b>. And that is a great deal for this use: the assistant exchanges a few lines at a time, a configuration conversation costs <b>fractions of a cent</b>. Note though that <b>credits expire one year after purchase</b>.",
+      "apikey.s3.tip.p": "The minimum is <b>5 USD</b>, plus whatever tax applies to your billing address — the Console shows the exact total before you confirm. And that is a great deal for this use: the assistant exchanges a few lines at a time, a configuration conversation costs <b>fractions of a cent</b>. Note though that <b>credits expire one year after purchase</b>.",
       "apikey.s4.h": "<span class=\"num\"></span> Create the key",
       "apikey.s4.p1": "Open <b>«Chiavi API»</b> (<i>API keys</i>) — the direct address is <code>platform.claude.com/settings/keys</code> — and press <b>«Crea chiave»</b> (<i>Create key</i>) at the top right.",
       "apikey.s4.p2": "In the <b>«Nome»</b> (Name) field write something that will still tell you what it is for in six months: <code>BetRelay</code> works well. Then the <b>«Scadenza»</b> (Expiry): the options are 3 hours, 1 day, 7 days, 30 days, custom, or <b>«Mai»</b> (Never).",
@@ -507,7 +515,15 @@
       "apikey.s1.cap": "La página de entrada: «Sviluppa sulla piattaforma Claude» (Crea en la plataforma Claude)",
       "apikey.s2.cap": "El Dashboard: arriba el crédito, a la izquierda el menú",
       "apikey.s3.cap1": "«Fatturazione» (Billing) → «Acquista crediti» (Comprar créditos)",
-      "apikey.s3.cap2": "5 USD + impuesto = 6,10 USD a pagar",
+      "apikey.s3.cap2": "En esta captura: 5 USD más impuesto, 6,10 USD a pagar. Tu total depende de tu dirección de facturación — la Consola te lo muestra antes de confirmar.",
+      "apikey.alt.01": "Página de acceso de platform.claude.com con los botones Continuar con Google y Continuar con el correo",
+      "apikey.alt.02": "Panel de la Consola con los créditos de la organización, el gasto del mes y el menú lateral",
+      "apikey.alt.03": "Lista de Claves API con el botón Crear clave arriba a la derecha",
+      "apikey.alt.04": "Diálogo Crear clave API con el nombre rellenado y el aviso de seguridad de la propia Anthropic",
+      "apikey.alt.05": "Menú desplegable de caducidad con las opciones 3 horas, 1 día, 7 días, 30 días, personalizado, nunca",
+      "apikey.alt.06": "Ventana Guarda tu clave API: el valor de la clave está tapado por un recuadro negro",
+      "apikey.alt.07": "Página de Facturación con el saldo de créditos, el botón Comprar créditos y los límites de gasto",
+      "apikey.alt.08": "Diálogo Añadir créditos con los importes de 5, 20 y 100 USD y el total a pagar con impuesto",
       "apikey.s3.auto.h": "La recarga automática: piénsalo dos veces.",
       "apikey.s3.auto.p": "La Consola propone activarla «para mantener tu API activa cuando el saldo llegue a cero». Cómoda si usas el asistente a diario; pero es un cargo que se dispara solo. Para BetRelay <b>déjala apagada</b> y recarga a mano cuando haga falta: son pocos euros al año, y así no hay forma de gastar sin darte cuenta.",
       "apikey.s4.cap1": "La lista de claves y «Crea chiave» (Crear clave)",
@@ -532,7 +548,7 @@
       "apikey.s3.p1": "Ve a <b>«Fatturazione»</b> (<i>Billing</i>) y pulsa <b>«Acquista crediti»</b> (<i>Comprar créditos</i>). Sin crédito la clave se crea sin problema pero <b>todas las peticiones se rechazan</b>: el asistente se queda <b>🔴 en ERROR</b> y en el mensaje aparece <code>credit balance is too low</code>.",
       "apikey.s3.p2": "Es la forma más común de perder media hora: la clave parece correcta, la has pegado bien, y aun así no funciona. <b>Es el crédito, no la clave.</b>",
       "apikey.s3.tip.h": "Cuánto cuesta empezar.",
-      "apikey.s3.tip.p": "El mínimo son <b>5 USD</b>, que con el impuesto quedan en <b>6,10 USD</b>. Y es muchísimo para este uso: el asistente intercambia pocas líneas cada vez, una conversación de configuración cuesta <b>fracciones de céntimo</b>. Eso sí, <b>los créditos caducan un año después de la compra</b>.",
+      "apikey.s3.tip.p": "El mínimo son <b>5 USD</b>, más el impuesto que corresponda a tu dirección de facturación — la Consola te muestra el total exacto antes de confirmar. Y es muchísimo para este uso: el asistente intercambia pocas líneas cada vez, una conversación de configuración cuesta <b>fracciones de céntimo</b>. Eso sí, <b>los créditos caducan un año después de la compra</b>.",
       "apikey.s4.h": "<span class=\"num\"></span> Crea la clave",
       "apikey.s4.p1": "Abre <b>«Chiavi API»</b> (<i>API keys</i>) — la dirección directa es <code>platform.claude.com/settings/keys</code> — y pulsa <b>«Crea chiave»</b> (<i>Crear clave</i>) arriba a la derecha.",
       "apikey.s4.p2": "En el campo <b>«Nome»</b> (Nombre) escribe algo que dentro de seis meses te siga diciendo para qué es: <code>BetRelay</code> va perfecto. Luego la <b>«Scadenza»</b> (Caducidad): las opciones son 3 horas, 1 día, 7 días, 30 días, personalizada, o <b>«Mai»</b> (Nunca).",
@@ -652,6 +668,17 @@
       if (p.dataset.i18nPhOrig === undefined) p.dataset.i18nPhOrig = p.getAttribute("placeholder") || "";
       var pv = (T[lang] || {})[k];
       p.setAttribute("placeholder", (lang === "it" || pv === undefined) ? p.dataset.i18nPhOrig : pv);
+    }
+    // `alt` delle immagini (rilievo CodeRabbit sulla #300). Stesso schema del placeholder qui
+    // sopra: su una guida fatta di schermate l'alt È il contenuto per chi non vede le immagini,
+    // e restava in italiano per gli utenti EN/ES — una traduzione a metà, che è il difetto che
+    // la policy lingue chiama «ripiego silenzioso».
+    var alts = document.querySelectorAll("[data-i18n-alt]");
+    for (var a = 0; a < alts.length; a++) {
+      var im = alts[a], ka = im.getAttribute("data-i18n-alt");
+      if (im.dataset.i18nAltOrig === undefined) im.dataset.i18nAltOrig = im.getAttribute("alt") || "";
+      var av = (T[lang] || {})[ka];
+      im.setAttribute("alt", (lang === "it" || av === undefined) ? im.dataset.i18nAltOrig : av);
     }
     var btns = document.querySelectorAll(".lang-sw button");
     for (var b = 0; b < btns.length; b++) {
