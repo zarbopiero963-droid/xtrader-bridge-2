@@ -542,3 +542,34 @@ def test_fable_la_label_appena_aggiunta_arma_anche_con_elenco_stantio(etichette)
 
     assert gate_finale_armato(
         "labeled", etichette, "final-fable-review", "final-fable-review") is True
+
+
+# ── Quali eventi possono arrivare: l'assunzione su cui poggia tutto il gate ────────────────
+
+#: Gli eventi PR ammessi dai due workflow. La logica di armamento è coerente **solo** con
+#: questo elenco: `labeled` è deciso dalla label dell'evento, `synchronize` non arma mai
+#: (Fable) o dichiara stantio (Fugu), e tutto il resto arma se la label finale c'è già.
+#: Aggiungerne altri cambia il significato di quel «tutto il resto» — per esempio `edited`
+#: (titolo/corpo modificati) o `unlabeled` (label RIMOSSA) farebbero partire una review
+#: finale che nessuno ha chiesto. Rilievo GPT-5.5 sulla #292.
+EVENTI_AMMESSI = ["opened", "synchronize", "reopened", "ready_for_review", "labeled"]
+
+
+@pytest.mark.parametrize("workflow,leggi", [("fugu", _fugu), ("fable", _fable)])
+def test_gli_eventi_che_possono_armare_sono_solo_quelli_previsti(workflow, leggi):
+    """Il gate non è ispezionabile solo dalla funzione: dipende da QUALI eventi GitHub può
+    consegnargli. Questo test blocca l'allargamento silenzioso del trigger.
+
+    Non è nato da un bug ma da un rischio, quindi non ha un fail-first: la dimostrazione che
+    morde è per sabotaggio — aggiungendo `edited` all'elenco del workflow, diventa rosso.
+    """
+    match = re.search(r"^    types: \[([^\]]+)\]$", leggi(), re.M)
+
+    assert match, f"{workflow}: elenco `types:` del trigger pull_request non trovato"
+    trovati = [x.strip() for x in match.group(1).split(",")]
+
+    assert trovati == EVENTI_AMMESSI, (
+        f"{workflow}: il trigger ammette {trovati}, atteso {EVENTI_AMMESSI}. Ogni evento in "
+        "più arriva a un gate che arma sulla sola PRESENZA della label finale: `edited` o "
+        "`unlabeled` farebbero partire una review finale mai richiesta."
+    )
