@@ -147,7 +147,7 @@ di configurazione avanzata.
 FINESTRA PRINCIPALE  (720×760, ridimensionabile in entrambi gli assi, min 720×600)
 │
 ├── Header
-│     ├─ Titolo "🤖  BetRelay"
+│     ├─ Titolo "📡  BetRelay"
 │     ├─ Toggle tema chiaro/scuro (icona 🌙/☀️, #288 Delta 1)
 │     ├─ Indicatore stato (OFFLINE / ATTIVO / RICONNESSIONE…)
 │     └─ Indicatore righe attive (N/M)
@@ -328,7 +328,7 @@ proprietario la finestra risultava piccola e bloccata), minimo **720×600**. Il 
 sulla larghezza minima: oltre, i contenitori si allargano; sotto non si può scendere.
 
 ### 6.1 Header
-- Titolo grande: **"🤖  BetRelay"** (font ~20, bold), su frame scuro
+- Titolo grande: **"📡  BetRelay"** (font ~20, bold), su frame scuro
   (`#1a1a2e`, angoli arrotondati). Testo titolo in ciano (`#4fc3f7`).
 - **Indicatore di stato** (a destra): pallino + testo, vedi §8.
 - **Indicatore righe attive** (arancione): "N/M", vedi §8.

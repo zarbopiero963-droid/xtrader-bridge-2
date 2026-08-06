@@ -156,6 +156,37 @@ def test_la_guardia_non_e_diventata_onnivora():
     )
 
 
+def test_il_handoff_cita_lo_stesso_header_del_codice():
+    """Rilievo Claude Fable 5 sulla #299: il handoff diceva ancora «🤖 BetRelay» mentre
+    `app.py` era già passato a «📡». Drift documentale **nel documento che è il gate**.
+
+    `design_handoff.md` cita l'header **verbatim** in due punti — è il suo scopo: chi fa il
+    design lo legge per sapere cosa disegnare. Se diverge dal codice, disegna un'altra app.
+    Il gate del `CLAUDE.md` pretende che l'handoff sia aggiornato; questo test pretende che
+    sia aggiornato **con il valore giusto**, che è la parte che un gate umano si perde.
+    """
+    import inspect
+    import pathlib
+
+    from xtrader_bridge import app
+
+    sorgente_app = inspect.getsource(app)
+    header = next((r for r in sorgente_app.splitlines() if "BetRelay" in r and "text=" in r), "")
+    assert "📡" in header, f"header nel codice senza l'emoji attesa: {header.strip()!r}"
+
+    handoff = (pathlib.Path(app.__file__).parent.parent
+               / "docs" / "design" / "design_handoff.md")
+    if not handoff.exists():
+        pytest.skip("design_handoff.md non presente in questo albero")
+
+    testo = handoff.read_text(encoding="utf-8")
+    assert "🤖  BetRelay" not in testo, (
+        "il design handoff cita ancora «🤖  BetRelay» mentre il codice usa «📡»: chi fa il "
+        "design disegnerebbe un header che l'app non ha"
+    )
+    assert "📡  BetRelay" in testo, "il design handoff non cita l'header attuale"
+
+
 # ── ④ il nome dell'EXE nei workflow di build ──────────────────────────────────────────
 
 @pytest.mark.parametrize("workflow", ["build.yaml", "build-nuitka.yaml"])
