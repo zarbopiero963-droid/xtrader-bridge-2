@@ -234,7 +234,9 @@ def test_il_riquadro_che_copriva_la_chiave_e_davvero_pieno():
     # il riquadro nero sulla chiave, in frazioni della figura (indipendenti dalla risoluzione)
     area = img.crop((int(larghezza * 0.27), int(altezza * 0.505),
                      int(larghezza * 0.72), int(altezza * 0.535)))
-    valori = list(area.getdata())
+    # `tobytes()` e non `getdata()`: su un'immagine «L» è un byte per pixel, e non è deprecato
+    # (Pillow toglie `getdata` nella 14). Stesso dato, senza un warning che sporca la suite.
+    valori = list(area.tobytes())
     media = sum(valori) / len(valori)
     massimo = max(valori)
     assert media < 60, (
@@ -243,3 +245,62 @@ def test_il_riquadro_che_copriva_la_chiave_e_davvero_pieno():
         % media)
     assert massimo < 140, (
         "nell'area della chiave ci sono pixel chiari (max %d): probabile testo leggibile" % massimo)
+
+
+# I byte esatti delle otto schermate, così come sono state oscurate e verificate a mano.
+# Non è un vezzo: è l'unica guardia che gira **davvero in CI**. Vedi il test qui sotto.
+_IMPRONTE = {
+    "01-console-accesso.jpg":
+        "380a18a6d290667033cf20edff9a70b840e44847f384881cc3b14533307b2f2f",
+    "02-console-dashboard.jpg":
+        "e16329f9a4018d827440cf7118f713cacced124499ed3573be5ba713379c0b50",
+    "03-chiavi-api.jpg":
+        "8cb95efbb712128624be691c70b07e79f285219b7d4a1b7ad491a97ef95ef0bc",
+    "04-crea-chiave.jpg":
+        "209f09af63fa9c688c9cd3a026c6bbfa6b90a672fd08794ad333cb2c25f6932a",
+    "05-scadenza.jpg":
+        "171dfac0ca8d4abb4bbc466e49f00e5bad6072269876476ffd87863208e99d24",
+    "06-chiave-mostrata.jpg":
+        "4cee9f653841edc1d77049c94ae1d1e891fc980cd88a7a365b7f8ac5f3bd121b",
+    "07-fatturazione.jpg":
+        "46172b7b9d06efb56b9eab7e45bf4090219bd2c44c3aacf9c835519e08cc2ed6",
+    "08-aggiungi-crediti.jpg":
+        "c09ee9a6ca31ac277c91769eb6e407de7c281a25cf4f9b5b6ed9572d2359b65d",
+}
+
+
+def test_le_schermate_sono_esattamente_quelle_oscurate():
+    """Le immagini oscurate sono immutabili, e questo è il controllo che gira **in CI**.
+
+    Il test sui pixel qui sopra apre il file con Pillow, e Pillow **non è fra le dipendenze di
+    test** (`requirements-dev.txt` non lo nomina): in CI `importorskip` lo salta in silenzio.
+    Una guardia che si salta senza dirlo protegge esattamente nulla — ed è il difetto contro
+    cui è nato metà di questo file. Qui invece si confronta lo `sha256` dei byte con la stringa
+    scritta sopra: `hashlib` è nella libreria standard, quindi gira **sempre**, ovunque.
+
+    Cosa becca: la sostituzione di una schermata oscurata con l'originale scoperto, la
+    ricompressione «innocua» che riscopre il testo sotto, l'aggiunta di una nona immagine mai
+    ispezionata, la sparizione di una delle otto. Per cambiare una figura davvero si aggiorna
+    l'impronta **nello stesso commit**: allora la modifica è deliberata e la si vede nel diff,
+    che è il punto.
+    """
+    import hashlib
+
+    cartella = _ROOT / "website" / "static" / "img" / "apikey"
+    assert cartella.is_dir(), "la cartella delle schermate non c'è più"
+
+    sul_disco = sorted(p.name for p in cartella.iterdir() if p.is_file())
+    assert sul_disco == sorted(_IMPRONTE), (
+        "le schermate sul disco non sono più quelle attese.\n"
+        "sul disco: %s\nattese:    %s\n"
+        "Se ne hai aggiunta o rimossa una di proposito, aggiorna _IMPRONTE nello stesso commit."
+        % (sul_disco, sorted(_IMPRONTE)))
+
+    for nome, atteso in sorted(_IMPRONTE.items()):
+        letto = hashlib.sha256((cartella / nome).read_bytes()).hexdigest()
+        assert letto == atteso, (
+            "la schermata «%s» non è più quella oscurata e verificata.\n"
+            "atteso %s\nletto  %s\n"
+            "Se il cambio è voluto, RIGUARDA l'immagine prima di aggiornare l'impronta: su "
+            "queste figure c'era una API key vera, e nessun reviewer AI guarda i .jpg."
+            % (nome, atteso, letto))
