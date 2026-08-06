@@ -62,7 +62,7 @@ jobs:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
       # Il gate di spesa non si fida del solo `EVENT_ACTION`: verifica che fra le label
-      # della PR ci sia davvero quella finale (vedi `gate_finale_armato` più sotto).
+      # della PR ci sia davvero quella finale (vedi `decisione_gate` più sotto).
       FINAL_LABEL: final-fable-review
       LABELS_PRESENTI: ${{ toJSON(github.event.pull_request.labels.*.name) }}
       # La label DELL'EVENTO (vuota se non è un evento `labeled`): l'elenco sopra da solo

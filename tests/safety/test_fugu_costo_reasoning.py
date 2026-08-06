@@ -238,14 +238,22 @@ def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
     esattamente il difetto della #274 («un reviewer che non ha interrogato il modello risulta
     success come uno che ha revisionato»).
     """
-    src = _fugu()
+    # Rilievo CodeRabbit, fondato: le due assert precedenti cercavano `LABELS_PRESENTI` e
+    # `sys.exit(1)` nel sorgente, ma entrambe compaiono ALTROVE (`leggi_etichette`, i rami
+    # fail-closed sulla label). Restavano verdi anche cancellando il ramo stantio: un test
+    # che non può fallire sul vecchio comportamento non è un test. Ancorato all'AST, come
+    # il gemello `test_fable_lo_stantio_e_fail_closed`.
+    import ast
 
-    assert "LABELS_PRESENTI" in src or "gate_stantio" in src, (
-        "il workflow deve accorgersi di un push arrivato DOPO la label finale: altrimenti "
-        "lascia un check verde su un head che nessun reviewer forte ha letto"
-    )
-    assert "sys.exit(1)" in src, (
-        "il gate stantio dev'essere fail-closed (job rosso), non un avviso che nessuno legge"
+    albero = ast.parse(extract_heredocs(_fugu())[0])
+    rami = [n for n in ast.walk(albero)
+            if isinstance(n, ast.If)
+            and ast.unparse(n.test).replace('"', "'") == "esito_gate == 'stantio'"]
+
+    assert len(rami) == 1, f"atteso un solo ramo stantio, trovati {len(rami)}"
+    corpo = ast.unparse(rami[0])
+    assert "::error::" in corpo and "sys.exit(1)" in corpo, (
+        "il gate stantio dev'essere ROSSO: un avviso su un check verde non lo legge nessuno"
     )
 
 
@@ -298,14 +306,19 @@ def test_decisione_gate_su_ogni_evento(evento, armato, atteso):
     assert decisione_gate(evento, etichette, "final-fugu-review", label_evento) == atteso
 
 
-def test_decisione_gate_e_pura():
+def test_decisione_gate_e_pura(monkeypatch):
     """Contro-guardia: la decisione non deve dipendere dall'ambiente o da stato globale,
-    altrimenti il test sopra proverebbe qualcosa di diverso da ciò che gira in CI."""
+    altrimenti il test sopra proverebbe qualcosa di diverso da ciò che gira in CI.
+
+    `monkeypatch` e non `os.environ` diretto (rilievo CodeRabbit): scrivendo nell'ambiente
+    senza ripulirlo, i valori sopravvivevano per tutta la sessione pytest e potevano cambiare
+    l'esito di qualunque test successivo che li legge — un test che sporca gli altri.
+    """
     decisione_gate = _funzione_dal_workflow("decisione_gate")
 
     prima = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
-    os.environ["LABELS_PRESENTI"] = "niente"
-    os.environ["EVENT_ACTION"] = "labeled"
+    monkeypatch.setenv("LABELS_PRESENTI", "niente")
+    monkeypatch.setenv("EVENT_ACTION", "labeled")
     dopo = decisione_gate("synchronize", ["final-fugu-review"], "final-fugu-review")
 
     assert prima == dopo == "stantio", "la decisione legge l'ambiente invece dei suoi argomenti"
@@ -373,7 +386,7 @@ def _funzione_da_fable(nome):
     ("fable", _fable),
 ])
 def test_le_etichette_arrivano_DAVVERO_dall_env_del_job(workflow, leggi):
-    """`decisione_gate`/`gate_finale_armato` ricevono le label come argomento, quindi i test
+    """Le due `decisione_gate` ricevono le label come argomento, quindi i test
     di comportamento qui sopra restano verdi anche se l'`env:` che le fornisce sparisce — e
     il gate, in CI, non si armerebbe più (Fugu non spenderebbe MAI, Fable salterebbe il gate
     finale in silenzio). Serve un'ancora sulla DICHIARAZIONE.
@@ -720,3 +733,56 @@ def test_le_label_arrivano_come_JSON_non_come_stringa_con_virgole(workflow, legg
     assert "join(github.event.pull_request.labels" not in testo, (
         f"{workflow}: rimasto il vecchio join non escapato"
     )
+
+
+# ── Le due frontiere dell'estrattore, chiuse su rilievo CodeRabbit ─────────────────────────
+#
+# `workflow_ast.py` è la fonte unica da cui i test di sicurezza ricavano il codice che gira
+# davvero nei workflow. Se sbaglia a delimitare o a scegliere la funzione, tutto ciò che ci
+# sta sopra valida qualcosa di diverso da ciò che GitHub esegue — e resta verde mentendo.
+
+def test_estrattore_non_chiude_su_un_PY_indentato_nel_corpo():
+    """Prima bastava una riga il cui `.strip()` fosse `PY`: una riga di codice Python
+    indentata chiamata `PY` (assegnazione, etichetta, qualunque cosa) troncava il blocco, e i
+    test validavano un workflow tagliato credendolo intero."""
+    finto = (
+        "    run: |\n"
+        "      python3 <<'PY'\n"
+        "      x = 1\n"
+        "          PY\n"          # ← indentata: è corpo, non chiusura
+        "      y = 2\n"
+        "      PY\n"
+    )
+
+    blocchi = extract_heredocs(finto)
+
+    assert len(blocchi) == 1
+    assert "y = 2" in blocchi[0], (
+        "il blocco è stato troncato su una riga `PY` indentata: il resto dello script "
+        "sarebbe invisibile ai test di sicurezza"
+    )
+
+
+def test_estrattore_solleva_su_heredoc_non_terminato():
+    """Prima un blocco che arrivava a fine file senza chiusura veniva restituito **monco**,
+    in silenzio. Meglio un errore rumoroso di una validazione parziale che sembra completa."""
+    import pytest as _pytest
+
+    troncato = "    run: |\n      python3 <<'PY'\n      x = 1\n"
+
+    with _pytest.raises(ValueError, match="non terminato"):
+        extract_heredocs(troncato)
+
+
+def test_estrattore_rifiuta_due_definizioni_omonime():
+    """Python lega il nome all'ULTIMA definizione; l'helper restituiva la PRIMA. Con due
+    funzioni omonime il test avrebbe esercitato un'implementazione che il workflow non usa."""
+    import pytest as _pytest
+
+    sorgente = "def f():\n    return 'prima'\n\n\ndef f():\n    return 'seconda'\n"
+
+    with _pytest.raises(AssertionError, match="trovate 2"):
+        extract_func(sorgente, "f", {})
+
+    # …e con una sola definizione continua a funzionare.
+    assert extract_func("def f():\n    return 'sola'\n", "f", {})() == "sola"

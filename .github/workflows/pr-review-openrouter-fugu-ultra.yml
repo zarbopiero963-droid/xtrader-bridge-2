@@ -3,7 +3,9 @@ name: PR Review OpenRouter Fugu Ultra
 # Review AI FORTE con Sakana Fugu Ultra via OpenRouter (endpoint chat/completions
 # stile OpenAI). È il PIÙ CARO dei tre reviewer — da solo il 73% della spesa
 # misurata sulle PR #279/#280/#281 — quindi chiama il modello in UN SOLO caso:
-# - quando viene aggiunta la label `final-fugu-review` (gate finale pre-merge)
+# - quando viene aggiunta la label `final-fugu-review`, oppure quando quella label è
+#   GIÀ presente e arriva `opened`/`reopened`/`ready_for_review` — GitHub non emette
+#   `labeled` per una PR aperta con le label addosso (gate finale pre-merge)
 #   → analizza l'intera PR (base...head).
 # Su QUALSIASI push il job parte (pubblica lo stato del check) ma NON spende:
 # non esiste più il gate a file core, che invece Fable 5 mantiene. La copertura
@@ -36,9 +38,9 @@ jobs:
     timeout-minutes: 15
 
     # Parte su ogni push della PR interna non-draft, MA la chiamata al modello
-    # (il costo) avviene solo se il push tocca file CORE del bridge oppure se è
-    # stata aggiunta la label finale (gate costo nello script). Sui trigger a
-    # label accetta solo `final-fugu-review` (ignora altre label come
+    # (il costo) avviene SOLO col gate finale a label (dalla #292 non esiste più
+    # alcun gate a file core qui: quello resta a Fable 5). Sui trigger a label
+    # accetta solo `final-fugu-review` (ignora altre label come
     # manual-review-required per non rilanciare inutilmente).
     if: >
       github.event.pull_request.draft == false &&

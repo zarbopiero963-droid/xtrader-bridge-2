@@ -17,7 +17,15 @@ import re
 
 
 def extract_heredocs(text):
-    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell."""
+    """Estrae i blocchi ``python3 <<'PY' ... PY`` come li vede la shell.
+
+    Il delimitatore di chiusura è riconosciuto **solo** con l'indentazione esatta di
+    apertura, e un blocco che arriva a fine file senza chiusura **solleva** invece di essere
+    restituito monco (rilievo CodeRabbit sulla #292). Prima bastava una riga il cui
+    `.strip()` fosse `PY` — quindi una riga di codice Python indentata chiamata `PY` avrebbe
+    troncato il blocco, e i test di sicurezza avrebbero validato un workflow tagliato
+    credendolo intero. Un test che valida meno di ciò che gira è un falso verde.
+    """
     lines = text.splitlines()
     blocks = []
     i = 0
@@ -25,14 +33,24 @@ def extract_heredocs(text):
         m = re.match(r"^(\s*)python3 <<'PY'\s*$", lines[i])
         if m:
             indent = m.group(1)
+            chiusura = f"{indent}PY"
             body = []
             i += 1
-            while i < len(lines) and lines[i].strip() != "PY":
+            chiuso = False
+            while i < len(lines):
                 line = lines[i]
+                if line == chiusura:
+                    chiuso = True
+                    break
                 if line.startswith(indent):
                     line = line[len(indent):]
                 body.append(line)
                 i += 1
+            if not chiuso:
+                raise ValueError(
+                    "heredoc Python non terminato: manca la riga di chiusura `PY` con "
+                    f"l'indentazione di apertura ({len(indent)} spazi)"
+                )
             blocks.append("\n".join(body))
         i += 1
     return blocks
@@ -41,12 +59,22 @@ def extract_heredocs(text):
 def extract_func(src, fname, stubs):
     """Estrae UNA funzione dal sorgente heredoc dedentato ed esegue solo quel nodo,
     in un namespace con gli stub passati (safe_display/redact/is_critical), così può
-    essere esercitata offline senza far girare il resto dello script (rete/API)."""
+    essere esercitata offline senza far girare il resto dello script (rete/API).
+
+    Pretende **esattamente una** definizione a livello modulo (rilievo CodeRabbit sulla
+    #292): Python lega il nome all'ULTIMA definizione, mentre questo helper restituiva la
+    PRIMA. Con due definizioni omonime il test avrebbe esercitato un'implementazione diversa
+    da quella che gira nel workflow — verde su codice che non è quello eseguito.
+    """
     tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == fname:
-            mod = ast.Module(body=[node], type_ignores=[])
-            ns = dict(stubs)
-            exec(compile(mod, "<heredoc>", "exec"), ns)  # noqa: S102 — sorgente del repo, test
-            return ns[fname]
-    raise AssertionError(f"{fname} non trovata nel sorgente di {src[:40]!r}…")
+    trovate = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fname]
+    if len(trovate) != 1:
+        raise AssertionError(
+            f"attesa UNA definizione di {fname} a livello modulo, trovate {len(trovate)}: "
+            "con più definizioni il test eserciterebbe un'implementazione diversa da quella "
+            "che Python lega al nome (l'ultima)"
+        )
+    mod = ast.Module(body=[trovate[0]], type_ignores=[])
+    ns = dict(stubs)
+    exec(compile(mod, "<heredoc>", "exec"), ns)  # noqa: S102 — sorgente del repo, test
+    return ns[fname]
