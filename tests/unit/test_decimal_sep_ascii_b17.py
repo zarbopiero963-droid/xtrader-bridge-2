@@ -98,24 +98,41 @@ def test_nel_modulo_non_resta_nessuna_classe_di_cifre_unicode():
 
     from xtrader_bridge import custom_pipeline
 
-    albero = ast.parse(open(custom_pipeline.__file__, encoding="utf-8").read())
+    with open(custom_pipeline.__file__, encoding="utf-8") as fh:
+        testo = fh.read()
+    albero = ast.parse(testo)
+    righe = testo.splitlines()
+
+    def esentato(nodo):
+        """`# b17-ok: <motivo>` sulla riga esenta un uso LEGITTIMO, e obbliga a dire perché.
+
+        Rilievo GPT-5.5: una guardia su tutto il modulo diventa fragile se un domani serve
+        `\\d` o `isdigit()` su testo che non è un campo numerico — fallirebbe su codice
+        corretto. Ma restringerla alla singola funzione era il difetto precedente. La via
+        d'uscita è la stessa che il repo usa già per i blind-except: si permette l'eccezione
+        **dichiarandola**, così resta visibile in review invece di sparire allargando la maglia.
+        """
+        riga = righe[nodo.lineno - 1] if 0 < nodo.lineno <= len(righe) else ""
+        return "# b17-ok:" in riga
 
     docstring = {n.value for n in ast.walk(albero)
                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
 
-    chiamate_isdigit = [n for n in ast.walk(albero)
+    chiamate_isdigit = [n.func.attr for n in ast.walk(albero)
                         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                        and n.func.attr == "isdigit"]
+                        and n.func.attr == "isdigit" and not esentato(n)]
     assert not chiamate_isdigit, (
-        "`str.isdigit()` è Unicode-aware: accetta «٥», «५», «５» — è metà del difetto B17"
+        "`str.isdigit()` è Unicode-aware: accetta «٥», «५», «５» — è metà del difetto B17. "
+        "Se l'uso è legittimo, annotalo con `# b17-ok: <motivo>`"
     )
 
     letterali_con_d = [n.value for n in ast.walk(albero)
                        if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                       and n not in docstring and r"\d" in n.value]
+                       and n not in docstring and r"\d" in n.value and not esentato(n)]
     assert not letterali_con_d, (
         rf"`\d` in Python matcha TUTTE le cifre Unicode: è l'altra metà di B17. "
-        rf"Letterali trovati: {letterali_con_d}"
+        rf"Letterali trovati: {letterali_con_d}. Se l'uso è legittimo (testo non numerico), "
+        rf"annotalo con `# b17-ok: <motivo>`"
     )
 
     assert "numbers_re" in {n.id for n in ast.walk(albero) if isinstance(n, ast.Name)} | {
@@ -192,17 +209,49 @@ def test_end_to_end_le_cifre_non_ascii_non_producono_una_riga():
     assert not res.placeable, "un handicap non ASCII non deve produrre una scommessa"
 
 
-def test_end_to_end_i_migliaia_ascii_arrivano_normalizzati():
-    """Il controllo positivo, senza il quale il test sopra proverebbe solo che tutto è
-    rifiutato: `"1.234,56"` deve continuare ad attraversare la pipeline e uscire canonico."""
-    res = _riga("1.234,56")
+def test_end_to_end_una_virgola_decimale_produce_una_riga_piazzabile():
+    """Il controllo POSITIVO, senza il quale i test di rifiuto proverebbero solo che tutto
+    viene scartato: un handicap realistico con la virgola deve attraversare la pipeline e
+    uscire piazzabile."""
+    from xtrader_bridge import validator
 
-    assert res.row["Handicap"] == "1234.56"
+    res = _riga("1,5")
+
+    assert res.row["Handicap"] == "1.5"
+    assert res.status == validator.VALID
+    assert res.placeable
 
 
 def test_end_to_end_handicap_negativo_con_virgola_resta_intatto():
     """Il caso che un fail-closed scritto male romperebbe per primo: il segno. `"-1,5"` è un
-    Handicap legittimo e frequente — deve uscire `"-1.5"`, non invariato."""
+    Handicap legittimo e frequente — deve uscire `"-1.5"` e restare piazzabile."""
+    from xtrader_bridge import validator
+
     res = _riga("-1,5")
 
     assert res.row["Handicap"] == "-1.5"
+    assert res.status == validator.VALID
+    assert res.placeable
+
+
+def test_end_to_end_i_migliaia_si_normalizzano_ma_e_il_RANGE_a_fermarli():
+    """`"1.234,56"` mette in luce una distinzione che il rilievo di GPT-5.5 ha fatto emergere e
+    che la prima stesura di questo test aveva sbagliato.
+
+    La normalizzazione **funziona** — il valore esce `"1234.56"`, cioè B17 fa il suo lavoro — ma
+    la riga **non è piazzabile**, perché un handicap di 1234 sbatte contro il tetto di range.
+    Sono due gate diversi, e vanno distinti: se un domani il valore uscisse `"1.234,56"` sarebbe
+    una regressione della normalizzazione, mentre restare non-piazzabile è corretto.
+
+    La prima stesura asseriva solo `row["Handicap"]` e sarebbe stata **verde dichiarando un
+    end-to-end riuscito che non lo è**: esattamente il caso che GPT-5.5 descriveva — «se la row
+    venisse popolata ma marcata non piazzabile, il test non intercetterebbe la regressione».
+    L'ho scoperto misurando invece di assumere.
+    """
+    from xtrader_bridge import custom_pipeline as pipe
+
+    res = _riga("1.234,56")
+
+    assert res.row["Handicap"] == "1234.56"      # il separatore migliaia È stato interpretato
+    assert res.status == pipe.INVALID_HANDICAP   # e il tetto di range lo ferma, come deve
+    assert not res.placeable
