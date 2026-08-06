@@ -106,17 +106,33 @@ def test_il_wizard_delega_e_non_reimplementa():
     Il Wizard deve **delegare** alla regola che esiste. Il test guarda il sorgente perché ciò
     che si pretende è *da dove viene la regola*: due implementazioni corrette darebbero lo
     stesso risultato e un test comportamentale sarebbe verde su entrambe.
+
+    **Perché legge sia `Attribute` sia `Name`** (rilievo GPT-5.5 sulla PR #295, misurato). La
+    prima stesura raccoglieva solo `n.func.attr`, cioè le sole chiamate *qualificate*
+    `source_manager.is_valid_chat_id(...)`. Ma `from .source_manager import is_valid_chat_id`
+    seguito da `is_valid_chat_id(cid)` soddisfa **esattamente lo stesso invariante** — è la
+    stessa unica regola — e produce un `ast.Name`: il test sarebbe andato ROSSO su un refactor
+    legittimo. Un test strutturale deve vincolare *da dove viene la regola*, non lo stile di
+    import con cui la si raggiunge; altrimenti il prossimo che tocca il file lo vede fallire
+    senza aver rotto nulla, e la lezione che impara è che il test va aggirato.
     """
     import ast
     import inspect
 
     albero = ast.parse(inspect.getsource(wizard.check_chat).lstrip())
 
-    chiamate = {n.func.attr for n in ast.walk(albero)
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    chiamate = set()
+    for n in ast.walk(albero):
+        if not isinstance(n, ast.Call):
+            continue
+        if isinstance(n.func, ast.Attribute):        # source_manager.is_valid_chat_id(...)
+            chiamate.add(n.func.attr)
+        elif isinstance(n.func, ast.Name):           # is_valid_chat_id(...) importata a nome
+            chiamate.add(n.func.id)
 
     assert "is_valid_chat_id" in chiamate, (
-        "`check_chat` deve chiamare `source_manager.is_valid_chat_id`, non riscrivere la regola"
+        "`check_chat` deve chiamare `is_valid_chat_id` di `source_manager` — qualificata o "
+        "importata a nome, indifferente — invece di riscrivere la regola"
     )
     assert "isdigit" not in chiamate, (
         "`str.isdigit()` è Unicode-aware ed è la copia divergente da rimuovere"
