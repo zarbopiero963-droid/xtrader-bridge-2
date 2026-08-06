@@ -25,6 +25,7 @@ from . import (
     dizionario,
     market_mapping_store,
     name_mapping_store,
+    numbers_re,
     recognition,
     validator,
     value_maps,
@@ -174,12 +175,11 @@ _PRICE_COLS = ("Price", "MinPrice", "MaxPrice")
 _DECIMAL_NORM_COLS = _PRICE_COLS + ("Handicap", "Points")
 
 
-# NOTA (#211 R2). Questo modulo importava `numbers_re` senza usarlo: il residuo di un
-# refactor a meta' che il CLAUDE.md cita per nome nella Regola 3 — «`numbers_re` corretto ma
-# non `custom_pipeline`» — e da cui nacque **B17** (`\d` Unicode-aware e `isdigit()` qui
-# sotto). L'import e' stato rimosso perche' morto, ma B17 NON e' chiuso: e' tracciato in
-# #194 PR-Q, parcheggiata per decisione del proprietario. Questa nota sostituisce l'import
-# come segnale, perche' un import inutilizzato non distingue una svista da un lavoro aperto.
+# B17 CHIUSO (PR-Q). Questo modulo era l'ultimo estraneo alla disciplina che `numbers_re`
+# enuncia nel proprio docstring — «le cifre sono ASCII `[0-9]` e NON `\d`» — ed era il caso
+# che il CLAUDE.md cita per nome nella Regola 3: «`numbers_re` corretto ma non
+# `custom_pipeline`». Ora la classe di cifre viene da lì (`numbers_re.DIGIT`) invece di essere
+# riscritta qui.
 def _decimal_sep_to_point(value) -> str:
     """Normalizza il separatore decimale a `.`, interpretando i formati con separatore delle
     migliaia (#184 low-pipeline-comma).
@@ -193,18 +193,34 @@ def _decimal_sep_to_point(value) -> str:
 
     Con il solo `,` è il decimale (`,`→`.`); con il solo `.` resta invariato (le quote tipiche
     `1.85` non cambiano); senza separatori, invariato. Un input non numerico resta tale (rifiutato
-    a valle)."""
+    a valle).
+
+    **Le cifre sono ASCII e basta** (B17). Prima entrambi i rami accettavano cifre Unicode —
+    `\\d` e `str.isdigit()` nel ramo misto, e nel ramo a sola virgola *nessun controllo affatto* —
+    quindi `"١,٥"` diventava `"١.٥"` e `"1.234,٥٦"` diventava `"1234.٥٦"`: una stringa che non è
+    un numero usciva con l'aria di esserlo. Non era raggiungibile, perché i validatori a valle
+    compongono `numbers_re.SIGNED_DECIMAL` e la scartavano comunque; ma la sicurezza non deve
+    dipendere dal fatto che *un altro* strato regga. Ora chi non è un decimale ASCII esce
+    **invariato**, e restano due strati fail-closed invece di uno.
+    """
     s = str(value).strip()
     last_comma, last_dot = s.rfind(","), s.rfind(".")
     if last_comma != -1 and last_dot != -1:
         dec_sep, th_sep = (",", ".") if last_comma > last_dot else (".", ",")
         int_part, dec_part = s.rsplit(dec_sep, 1)
-        grouped = re.fullmatch(r"\d{1,3}(?:" + re.escape(th_sep) + r"\d{3})+", int_part)
-        if grouped and dec_part.isdigit():
+        grouped = re.fullmatch(numbers_re.DIGIT + r"{1,3}(?:" + re.escape(th_sep)
+                               + numbers_re.DIGIT + r"{3})+", int_part)
+        if grouped and re.fullmatch(numbers_re.DIGIT + r"+", dec_part):
             return int_part.replace(th_sep, "") + "." + dec_part
         return s                                   # raggruppamento non valido → invariato (fail-closed)
-    if last_comma != -1:                          # solo virgola → decimale
-        return s.replace(",", ".")
+    if last_comma != -1:                          # solo virgola → decimale, se è un decimale
+        # In questo ramo c'è una virgola e nessun punto, quindi `SIGNED_DECIMAL` combacia
+        # esattamente con `[+-]?cifre,cifre`: nessuna forma nuova scritta a mano. Un doppio
+        # separatore (`"1,5,6"`) o una cifra non-ASCII non combaciano → invariato, e il
+        # validatore li scarta come prima.
+        if re.fullmatch(numbers_re.SIGNED_DECIMAL, s):
+            return s.replace(",", ".")
+        return s
     return s                                       # solo punto, o nessun separatore
 
 

@@ -16,15 +16,25 @@ Unicode, aprendo il fail-open #318 L2-1.
 
 import math
 
-# Numero decimale "puro": cifre con AL PIÙ una parte decimale separata da `.` o `,`
-# (niente "1.2.3"/esponenti). Senza segno.
-#
 # Cifre ASCII SOLTANTO (`[0-9]`, NON `\d`): #318 L2-1 (fail-OPEN). In Python `\d` matcha
 # TUTTE le cifre Unicode (arabo-indiane «١٩», devanagari «१९», fullwidth «１９»); poiché
 # `float("١٩") == 19.0`, un Price/Handicap/Points scritto con cifre non-ASCII superava la
 # validazione ed entrava nel CSV letto da XTrader (raggiungibile da un vero messaggio
 # Telegram via parser custom). `[0-9]` chiude il buco fail-closed su TUTTI i consumer
 # (validator/custom_pipeline/csv_writer/parser) da questa fonte unica.
+#
+# La classe è una COSTANTE a sé dalla B17: `custom_pipeline` era l'ultimo modulo che la
+# riscriveva a mano — e la riscriveva sbagliata, come `\d`. Correggerla lì lasciandola scritta
+# in due posti sarebbe stata la Regola 3 violata una quarta volta: due copie corrette oggi sono
+# due copie divergenti domani. Chi deve quantificare le cifre (`DIGIT + "{1,3}"`, `DIGIT + "+"`)
+# compone da qui invece di reinventare `[0-9]`.
+DIGIT = r"[0-9]"
+
+# Numero decimale "puro": cifre con AL PIÙ una parte decimale separata da `.` o `,`
+# (niente "1.2.3"/esponenti). Senza segno. COMPOSTO da `DIGIT` per la stessa ragione per cui
+# `SIGNED_DECIMAL` è composto da `DECIMAL`: l'anti-drift vale anche DENTRO il modulo che lo
+# predica. Il valore resta invariato — `(?:[0-9]+(?:[.,][0-9]+)?)` — e un test lo pretende,
+# perché cinque consumer lo compongono con le proprie ancore.
 #
 # I frammenti sono RACCHIUSI in un gruppo non catturante `(?:…)` (rilievo Fable 5 + GPT-5.5 su
 # #198). Cinque siti li compongono con le ancore — `signal_dedupe._HANDICAP_NUM`,
@@ -36,7 +46,7 @@ import math
 # Il gruppo qui rende la composizione sicura PER COSTRUZIONE in tutti i consumer, presenti e
 # futuri, invece di ripetere `(?:…)` in ogni sito (che sarebbe la stessa duplicazione che questo
 # modulo esiste per eliminare). Non cattura nulla: nessuna numerazione di gruppi cambia.
-DECIMAL = r"(?:[0-9]+(?:[.,][0-9]+)?)"
+DECIMAL = r"(?:" + DIGIT + r"+(?:[.,]" + DIGIT + r"+)?)"
 
 # Come `DECIMAL` ma con segno opzionale (es. Handicap "-1"/"+1,5", Price "1.85").
 # COMPOSTO da `DECIMAL` (non riscritto a mano) così un futuro cambio a `DECIMAL` non può
