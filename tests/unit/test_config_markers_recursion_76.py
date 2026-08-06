@@ -70,16 +70,18 @@ def test_json_annidato_patologico_recovery_non_crash(tmp_path):
     except) e l'avvio crashava; ora: backup `.bak` + default sicuri, come per ogni
     altra corruzione.
 
-    **R5 della #211 — perché la profondità non è più `3000`.** Quella costante non era una
-    proprietà del documento: era una scommessa su `sys.getrecursionlimit()`. Misurato,
-    alzando il limite a 6000, `3000` livelli smettevano di essere patologici e questo test
-    andava ROSSO — pur avendo `load_config` funzionato perfettamente. Un rosso senza un bug.
-    La profondità ora viene dalla fonte unica ed è **relativa all'interprete che gira**.
+    **R5 della #211 — il difetto non era la profondità, era l'asserzione.** `3000` livelli
+    non sono patologici in assoluto: lo sono *relativamente* a `sys.getrecursionlimit()`.
+    Misurato, alzando il limite a 6000 smettevano di esserlo e questo test andava ROSSO —
+    pur avendo `load_config` funzionato perfettamente. Un rosso senza un bug.
 
-    **E l'invariante è separato dal meccanismo.** Ciò che l'app pretende davvero è che
-    l'avvio non crashi; il recovery (`.bak` + marker) è il *come*, e ha senso pretenderlo
-    solo dove l'input è davvero ostile. Prima erano confusi, ed è per questo che il test
-    andava rosso quando invece stava andando tutto bene.
+    La profondità resta **fissa** (`json_patologico.PROFONDITA`), per una ragione misurata e
+    scritta lì: legarla al limite farebbe crescere senza tetto i frame C consumati dallo
+    scanner, e su Windows sarebbe un segfault del runner. Quello che cambia è **l'asserzione**:
+    l'invariante — l'avvio non crasha — si pretende sempre; il recovery (`.bak` + marker) è il
+    *come*, e ha senso pretenderlo solo dove l'input è davvero ostile, cosa che
+    `premessa_regge()` verifica invece di darla per scontata. Prima erano confusi, ed è per
+    questo che il test andava rosso quando invece stava andando tutto bene.
     """
     p = tmp_path / "config.json"
     documento = json_patologico.json_annidato_oggetti("a")

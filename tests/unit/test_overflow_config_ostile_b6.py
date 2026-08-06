@@ -54,10 +54,15 @@ FUORI_TUPLA = (OverflowError, RecursionError)
 def _json_annidato(livelli: int | None = None) -> str:
     """Un JSON valido ma annidato: `json` decodifica ricorsivamente → `RecursionError`.
 
-    R5 della #211: la profondità era la costante `3000`, cioè una scommessa su
-    `sys.getrecursionlimit()` (default 1000). Col limite alzato a 6000 quei livelli non
-    erano più patologici e due test di questo file andavano rossi senza alcun bug. Ora la
-    profondità arriva dalla fonte unica ed è relativa all'interprete che sta girando.
+    R5 della #211: la stessa costante `3000` era scritta a mano in tre file, e nessuno dei
+    tre diceva che quei livelli sono patologici solo *relativamente* a
+    `sys.getrecursionlimit()` (default 1000). Col limite alzato a 6000 smettevano di esserlo
+    e due test di questo file andavano rossi senza alcun bug.
+
+    La profondità ora arriva dalla **fonte unica**, dove resta **fissa** — legarla al limite
+    farebbe crescere senza tetto i frame C dello scanner, e su Windows sarebbe un segfault
+    (la ragione è misurata nel docstring di `json_patologico`). A cambiare è l'asserzione dei
+    due test, non l'input.
     """
     return json_patologico.json_annidato_liste("entries", livelli)
 
