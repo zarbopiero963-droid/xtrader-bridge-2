@@ -4,7 +4,7 @@ Alcuni provider (canali Telegram) scrivono il mercato **a parole** ("0,5 HT") de
 messaggio. Questo modulo tiene **profili** di regole che leggono il mercato **da una
 posizione precisa** del messaggio — tra i delimitatori ``Inizia dopo``/``Finisce prima``,
 come una regola del Parser Personalizzato — e lo traducono nel Mercato/Selezione canonici
-del **Catalogo XTrader**. I valori di mercato/selezione **non** sono testo libero: vanno
+del **Catalogo Betfair**. I valori di mercato/selezione **non** sono testo libero: vanno
 scelti dal Catalogo (vedi GUI), così ciò che finisce nel CSV è sempre canonico.
 
 Perché a delimitatori e non "frase su tutto il messaggio": molti provider mettono in testa
@@ -445,7 +445,7 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
 
 def _canonical_market(market_name: str, selection_name: str, rows=None):
     """Risolve ``(market_name, selection_name)`` del config nella tupla **canonica** del
-    Catalogo XTrader ``{market_type, market_name, selection_name}``, o ``None`` se la
+    Catalogo Betfair ``{market_type, market_name, selection_name}``, o ``None`` se la
     coppia non è valida.
 
     Validazione + canonicalizzazione safety-critical (design §5.3): il match col catalogo è
@@ -570,7 +570,7 @@ def resolve_market(text: str, profiles, rows=None, language=None) -> MarketResol
     quel campo estratto (case-insensitive, a confini di token). Così un banner/menu altrove
     nel messaggio non crea falsi match (es. ``30/0,5HT/1,5HT/1`` non viene letto se il
     mercato vero sta tra «Quota» e «Prematch»). La coppia Mercato/Selezione dev'essere
-    **coerente col Catalogo XTrader** (``_canonical_market``, §5.3): una voce incoerente
+    **coerente col Catalogo Betfair** (``_canonical_market``, §5.3): una voce incoerente
     (config a mano/bug) è ignorata, mai scritta. ``rows`` inietta un catalogo nei test.
 
     ``language`` (epica #3 slice 5c): lingua-fonte effettiva (``IT``/``EN``/``ES`` o

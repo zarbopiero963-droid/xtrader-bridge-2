@@ -1,4 +1,4 @@
-"""Dizionario di mappatura nomi squadra: alias del provider → nome Betfair/XTrader.
+"""Dizionario di mappatura nomi squadra: alias del provider → nome Betfair.
 
 Un *provider* (canale Telegram) può scrivere le squadre con nomi diversi da quelli
 che XTrader/Betfair si aspettano nell'``EventName`` (es. "Liverpool" vs "Liverpool",
@@ -563,7 +563,7 @@ def _resolve_in_tier(nt, group, key, dimensioni_filtrate=()):
 
 
 def resolve_team(team: str, profiles, sport=None, entity_type=None, language=None) -> str:
-    """Traduce un nome squadra grezzo nel nome Betfair/XTrader, o ``None`` se ignoto.
+    """Traduce un nome squadra grezzo nel nome Betfair, o ``None`` se ignoto.
 
     ``profiles`` è una lista di liste-di-righe (vedi `entries_for_profiles`), nell'
     ordine di selezione. Strategia (deterministica, fail-closed): **il primo profilo
@@ -750,7 +750,7 @@ def detect_separator(event_name: str):
 
 def resolve_event_name(event_name: str, separator: str, profiles, sport=None,
                        entity_type=None, language=None) -> str:
-    """Traduce un ``EventName`` provider in ``EventName`` Betfair/XTrader, o ``None``.
+    """Traduce un ``EventName`` provider in ``EventName`` Betfair, o ``None``.
 
     Divide su ``separator``, mappa casa e trasferta coi ``profiles`` e ricompone nel
     formato XTrader "Casa - Trasferta" (`dizionario.compose_event_name`). Ritorna

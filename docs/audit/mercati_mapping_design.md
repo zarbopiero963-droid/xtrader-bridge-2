@@ -15,7 +15,7 @@
 ## 1. Obiettivo
 
 Tradurre una **frase-mercato del provider** nel **Mercato + Selezione XTrader** canonici,
-scelti dal **Catalogo XTrader** (gli stessi menù a tendina `Mercato → Selezione` già usati
+scelti dal **Catalogo Betfair** (gli stessi menù a tendina `Mercato → Selezione` già usati
 nel Parser Personalizzato, `parser_builder.market_options()/selection_options()`).
 
 Esempio (richiesto dal proprietario):
@@ -59,15 +59,15 @@ Una **voce** del dizionario mercati (per-profilo, come i nomi):
 {
   "phrase": "goal prima di 70",     // frase del provider (match case-insensitive, vedi §5)
   "market_type": "OVER_UNDER",      // dal catalogo (può servire al contratto CSV)
-  "market_name": "Over/Under 2.5",  // dal Catalogo XTrader (market_options)
-  "selection_name": "Over 2.5"      // dal Catalogo XTrader (selection_options del mercato)
+  "market_name": "Over/Under 2.5",  // dal Catalogo Betfair (market_options)
+  "selection_name": "Over 2.5"      // dal Catalogo Betfair (selection_options del mercato)
 }
 ```
 
 Un **profilo mercati** = lista di voci, salvato in `config.json` sotto
 `market_mapping_profiles` (stessa forma a profili del dizionario nomi). `market_name`/
 `selection_name`/`market_type` **non** sono testo libero: si scelgono dai menù del
-Catalogo XTrader, così il valore scritto nel CSV è **sempre** canonico (no typo, no
+Catalogo Betfair, così il valore scritto nel CSV è **sempre** canonico (no typo, no
 mercato inesistente).
 
 ## 4. Runtime — dove agisce e regola di PRECEDENZA
@@ -202,7 +202,7 @@ regole-colonna restano per gli altri campi e come fallback quando nessuna frase 
    mano. *Residuo dichiarato:* su un catalogo così sporco le tendine GUI possono ancora
    **offrire** una coppia che il runtime rifiuterà; la direzione resta sicura (segnale non
    scritto, non scritto sbagliato).
-   In più **`resolve_market` risolve ogni voce nella tupla CANONICA del Catalogo XTrader**
+   In più **`resolve_market` risolve ogni voce nella tupla CANONICA del Catalogo Betfair**
    (`_canonical_market`): il match è case/spazio-insensitive, ma ciò che si ritorna — e che
    il runtime scriverà nel CSV — sono **sempre** i valori canonici del catalogo
    (`MarketType`, `MarketName`, `SelectionName`), **non** i valori grezzi del config. Una
@@ -257,7 +257,7 @@ Frase provider           | Mercato (catalogo)   | Selezione (catalogo)  | 🗑
 [ goal prima di 70     ] | [ Over/Under 2.5  ▾] | [ Over 2.5         ▾] | ✕
 ```
 
-Mercato/Selezione = menù dal Catalogo XTrader (Selezione dipende dal Mercato). Nel
+Mercato/Selezione = menù dal Catalogo Betfair (Selezione dipende dal Mercato). Nel
 **Parser Personalizzato**: una spunta/selettore "profilo mercati" accanto a quello dei
 nomi squadra, così al parsing si traducono **sia** i nomi **sia** i mercati.
 
@@ -311,7 +311,7 @@ Ogni passo: Phase 0, micro-audit, test hard veritieri, una PR, merge manuale.
 - **D3 — Testo di match** (§5.5): **RIVISTO → campo delimitato** (`Inizia dopo`/`Finisce
   prima`, poi Testo mercato nel campo estratto, case-insensitive, confini di token). Sostituisce
   il "messaggio grezzo" originale per non farsi ingannare dai banner/menu del provider.
-- **D4 — `MarketType`**: **sì**, mappato dal Catalogo XTrader insieme a Mercato/Selezione.
+- **D4 — `MarketType`**: **sì**, mappato dal Catalogo Betfair insieme a Mercato/Selezione.
 
 Design **approvato** con queste decisioni → si procede dal passo 1 (`market_mapping_store.py`
 + test hard), senza toccare GUI/runtime finché lo store non è solido.

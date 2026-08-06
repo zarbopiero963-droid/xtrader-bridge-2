@@ -41,8 +41,12 @@ def test_helpers_lingua_round_trip(gui):
 def test_header_ha_colonna_lingua_senza_rimuovere_le_altre(gui):
     labels = [c[0] for c in gui._HEADER_COLUMNS]
     assert "Lingua" in labels
-    # le colonne pre-esistenti restano nell'ordine (nessuna rimossa/rinominata)
-    assert labels[:5] == ["Country (opz.)", "Betfair / XTrader",
+    # le colonne pre-esistenti restano nell'ordine (nessuna rimossa)
+    # «Betfair / XTrader» → «Betfair» dalla #285: la colonna contiene il nome canonico
+    # BETFAIR, e nominare XTrader mandava a cercarlo nel posto sbagliato. È una rinomina
+    # VOLUTA — l'ordine e il numero delle colonne restano quelli, che è ciò che questo
+    # test difende.
+    assert labels[:5] == ["Country (opz.)", "Betfair",
                           gui._CHANNEL_ALIAS_COLUMN, "Sport", "Tipo"]
 
 
