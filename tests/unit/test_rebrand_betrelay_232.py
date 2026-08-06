@@ -78,6 +78,8 @@ def test_l_header_della_gui_dice_betrelay():
 
 
 def test_il_titolo_della_diagnostica_dice_betrelay():
+    """Il report di diagnostica che l'utente esporta e allega quando chiede aiuto: se dicesse
+    ancora il nome vecchio, chi lo riceve non saprebbe di che programma si parla."""
     from xtrader_bridge import diagnostics
 
     assert diagnostics._TITLE.startswith(NUOVO), diagnostics._TITLE
@@ -164,15 +166,31 @@ def test_il_handoff_cita_lo_stesso_header_del_codice():
     design lo legge per sapere cosa disegnare. Se diverge dal codice, disegna un'altra app.
     Il gate del `CLAUDE.md` pretende che l'handoff sia aggiornato; questo test pretende che
     sia aggiornato **con il valore giusto**, che è la parte che un gate umano si perde.
+
+    **Legge l'header via AST, non con un grep di riga** (rilievo GPT-5.5 sulla #299). La prima
+    stesura cercava una riga contenente insieme «BetRelay» e «text=»: si rompe se la chiamata
+    viene formattata su più righe, cioè su un refactor che non cambia nulla di sostanziale.
+    L'AST vede la struttura e non la formattazione — è la stessa scelta già fatta nella #285.
     """
+    import ast
     import inspect
     import pathlib
+    import textwrap
 
     from xtrader_bridge import app
 
-    sorgente_app = inspect.getsource(app)
-    header = next((r for r in sorgente_app.splitlines() if "BetRelay" in r and "text=" in r), "")
-    assert "📡" in header, f"header nel codice senza l'emoji attesa: {header.strip()!r}"
+    albero = ast.parse(textwrap.dedent(inspect.getsource(app.App._build_ui)))
+    etichette = [
+        kw.value.value
+        for n in ast.walk(albero)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "CTkLabel"
+        for kw in n.keywords
+        if kw.arg == "text" and isinstance(kw.value, ast.Constant)
+        and isinstance(kw.value.value, str) and "BetRelay" in kw.value.value
+    ]
+    assert etichette, "nessuna CTkLabel con «BetRelay» trovata in _build_ui"
+    assert all("📡" in e for e in etichette), f"header senza l'emoji attesa: {etichette!r}"
 
     handoff = (pathlib.Path(app.__file__).parent.parent
                / "docs" / "design" / "design_handoff.md")
