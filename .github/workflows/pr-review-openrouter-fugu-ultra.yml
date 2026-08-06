@@ -510,7 +510,20 @@ jobs:
           # label. Il job parte comunque sui push (pubblica lo stato del check) ma esce
           # subito senza spendere. La copertura dei push resta a GPT-5.5 (automatico,
           # ~2 centesimi) e a Fable, che mantiene il suo gate core+label.
-          if EVENT_ACTION != "labeled":
+          # La regola non è sull'EVENTO ma sullo STATO: se la label finale è presente il gate
+          # va eseguito. Restringere il fail-closed a `synchronize` (rilievo GPT-5.5, giusto)
+          # aveva aperto il caso opposto, trovato da Fugu: una PR APERTA con la label già
+          # applicata riceve `opened`, non `labeled` — GitHub non garantisce `labeled` alla
+          # creazione — e con lo skip silenzioso il check sarebbe verde senza alcuna review.
+          FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fugu-review")
+          etichette_pr = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
+          gate_armato = FINAL_LABEL in etichette_pr
+          if EVENT_ACTION != "labeled" and gate_armato and EVENT_ACTION != "synchronize":
+              print(
+                  f"::notice::{REVIEW_ID}: gate finale già armato (label «{FINAL_LABEL}») su "
+                  f"evento «{EVENT_ACTION}»: eseguo la review su questo head."
+              )
+          elif EVENT_ACTION != "labeled":
               # Falla trovata da Fugu stesso sulla PR #292, e fondata: se la label finale è
               # GIÀ presente e arriva un push, uscire 0 lascerebbe un check VERDE su un head
               # che nessun reviewer forte ha letto — il verde si riferisce alla review del
@@ -519,8 +532,7 @@ jobs:
               # fatto che la label ancora presente *afferma* che il gate è stato armato.
               # Fail-closed: gate stantio → job ROSSO, che si risolve riarmando la label
               # (remove + re-add), cioè la procedura che il CLAUDE.md già prescrive.
-              FINAL_LABEL = os.environ.get("FINAL_LABEL", "final-fugu-review")
-              etichette = [x.strip() for x in (os.environ.get("LABELS_PRESENTI") or "").split(",")]
+              etichette = etichette_pr
               # SOLO su `synchronize` (rilievo GPT-5.5): e' l'unico evento in cui il head si e'
               # davvero mosso. Su `reopened`/`ready_for_review`/rerun la label puo' essere
               # presente ma il commit e' lo STESSO gia' revisionato: un rosso li' sarebbe un

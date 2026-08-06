@@ -255,3 +255,24 @@ def test_un_push_DOPO_la_label_non_lascia_un_verde_bugiardo():
     assert "sys.exit(1)" in src, (
         "il gate stantio dev'essere fail-closed (job rosso), non un avviso che nessuno legge"
     )
+
+
+def test_una_PR_APERTA_con_la_label_gia_presente_viene_revisionata():
+    """Secondo bloccante trovato da Fugu su questa PR, e fondato.
+
+    Restringere il fail-closed a `synchronize` (rilievo GPT-5.5, giusto: su `reopened` il
+    commit non è cambiato) ha aperto il caso opposto: una PR **aperta** con la label finale
+    già applicata riceve `opened`, non `labeled` — GitHub non garantisce l'evento `labeled`
+    alla creazione. Con lo skip silenzioso il check resterebbe **verde senza alcuna review**.
+
+    La regola giusta non è sull'evento ma sullo stato: **se la label finale è presente, il
+    gate va eseguito**, a meno che il head non sia cambiato dopo (quello è `synchronize`, ed
+    è l'unico caso in cui si dichiara stantio invece di rieseguire).
+    """
+    src = _fugu()
+
+    assert re.search(r'EVENT_ACTION\s+in\s*\(\s*"opened"\s*,\s*"reopened"', src) or \
+           re.search(r'EVENT_ACTION\s*==\s*"synchronize"[^\n]*\n(?:[^\n]*\n)*?.*?gate_armato', src), (
+        "una PR aperta/riaperta con la label finale già presente deve essere REVISIONATA, "
+        "non saltata: altrimenti il check è verde e nessuno ha guardato quel head"
+    )
