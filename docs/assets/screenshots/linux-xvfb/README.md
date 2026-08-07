@@ -5,15 +5,15 @@ Screenshot **reali** della GUI catturati con la pipeline descritta in
 d'esempio** delle guide: token **fittizio**, chat `-1001234567890`, percorso
 `C:\XTrader\segnali.csv`. Nessun dato reale.
 
-> ⚠️ **Da rigenerare (#232).** Il default del programma è passato a
-> `C:\BetRelay\segnali.csv`, e la finestra si intitola ora **BetRelay** con header
-> **«📡 BetRelay»**. Queste immagini sono **precedenti** al rebrand: mostrano ancora il
-> percorso e il nome vecchi. Il testo delle guide è già aggiornato, quindi **finché non
-> si rigenerano, testo e immagini non concordano** — un utente nuovo potrebbe copiare
-> dalla schermata un percorso diverso da quello che il programma gli propone.
->
-> La descrizione qui sopra **non** è stata aggiornata di proposito: deve dire cosa le
-> immagini mostrano *davvero*, non cosa vorremmo mostrassero.
+Rigenerate il **7 agosto 2026** sul `main` post-#301: mostrano il nome nuovo — finestra
+**BetRelay**, header **«📡 BetRelay»** — e il percorso di default **`C:\BetRelay\segnali.csv`**.
+Testo delle guide e immagini tornano a concordare.
+
+Sono scattate con una **licenza di prova** attiva
+([`app_con_licenza_di_prova.py`](../../../../tools/screenshots/app_con_licenza_di_prova.py)):
+senza, l'app disegna la fascia rossa «bridge bloccato» e la scheda Licenza non attivata, cioè
+uno stato in cui nessuno userà davvero il programma. La licenza è firmata col seed di **test**
+già presente in `tests/conftest.py`, vive solo in memoria e non finisce nel repository.
 
 ### Perché non sono ancora rigenerate — due ostacoli misurati, non ipotizzati
 
@@ -66,19 +66,25 @@ Le versioni inglese e spagnola **non sono interamente tradotte**. Gli screenshot
 l'app a essere così oggi. Non vanno ritoccati né nascosti — vanno usati sapendolo, e le lacune
 vanno chiuse nel codice.
 
+**Elenco ri-verificato il 7 agosto 2026 guardando le immagini nuove**, non ereditato: da quando
+era stato scritto, parecchie lacune sono state chiuse. Resta italiano:
+
 | Cosa resta in italiano | Dove si vede | Impatto |
 |---|---|---|
-| **`Righe attive: N/M`** | header, **sempre a schermo** | alto: è fra le prime cose che un utente EN/ES legge |
-| **Selettore «Modalità bridge»** — `🧪 Simulazione Bridge — NON scrive il CSV operativo`, `🔬 Collaudo XTrader…`, `⚠️ Reale…` | tab Sicurezza / Safety / Seguridad | **il più grave**: è il controllo che decide se il CSV operativo viene scritto |
-| **Tutti e 7 i semafori** della tab Salute | tab Health / Salud | alto: è il pannello diagnostico, quello che si guarda quando qualcosa non va |
-| **`Il bridge ascolterà queste N chat:`** | tab Chat monitorate | medio |
+| **Valore del selettore «Modalità bridge»** — `🧪 Simulazione Bridge — NON scrive il CSV operativo` | tab Safety / Seguridad, riga in cima | **il più grave**: è il controllo che decide se il CSV operativo viene scritto. Nota: la *stessa* modalità, nel semaforo della tab Salute, è invece tradotta — quindi l'app dice la stessa cosa in due lingue diverse nella stessa schermata |
+| **Scheda `Licenza`** | quinta tab, in EN e ES | medio: l'etichetta non è tradotta né in inglese né in spagnolo |
+| **Dettaglio del semaforo CSV** — `il file verrà creato (cartella scrivibile)` | tab Health / Salud | medio: l'etichetta è tradotta, il dettaglio no |
+| **Dettaglio del semaforo Dizionari** — `nessun conflitto su profili in uso` | tab Health / Salud | medio, stesso difetto |
 
-Origine nel codice — nessuna di queste stringhe passa da `i18n`:
+**Già chiuse** (erano in questo elenco e non ci sono più): `Righe attive: N/M` → *Active rows* /
+*Filas activas*; la riga delle chat monitorate → *The bridge will listen to these…* / *El bridge
+escuchará estos…*; le **etichette** dei semafori della tab Salute, ora tradotte tutte e sette.
 
-- `xtrader_bridge/multi_signal.py` → `active_count_text()`
-- `xtrader_bridge/bridge_mode.py` → `LABELS`
-- `xtrader_bridge/health_check.py` → etichette e dettagli degli item
-- `xtrader_bridge/app.py` → riga delle chat monitorate
+Origine nel codice delle lacune rimaste:
+
+- `xtrader_bridge/bridge_mode.py` → `LABELS` (il valore del selettore)
+- `xtrader_bridge/health_check.py` → i **dettagli** di alcuni item (le etichette passano già da `i18n`)
+- l'etichetta della scheda Licenza
 
 Non rientrano fra le stringhe dichiarate «italiane per contratto» nella issue #3 (messaggi di
 dominio, log di debug, dialog di istanza singola): sono **lacune vere**.
@@ -89,9 +95,9 @@ dominio, log di debug, dialog di istanza singola): sono **lacune vere**.
 
 ```bash
 Xvfb :99 -screen 0 1280x1024x24 &
-bash tools/screenshots/shoot.sh it 394 93 260 482
-bash tools/screenshots/shoot.sh en 366 93 273 482
-bash tools/screenshots/shoot.sh es 366 93 278 482
+bash tools/screenshots/shoot.sh it 356 93 268 482
+bash tools/screenshots/shoot.sh en 311 93 272 482
+bash tools/screenshots/shoot.sh es 318 93 279 482
 ```
 
 I quattro numeri sono le coordinate delle due tab da cliccare (prima Sicurezza, poi Salute).
@@ -99,6 +105,18 @@ I quattro numeri sono le coordinate delle due tab da cliccare (prima Sicurezza, 
 layout. Con le coordinate italiane, in spagnolo il click finisce sul pulsante «Asistente de
 primera configuración» e apre il Wizard invece della tab — è successo davvero generando questi
 file, e per questo lo script prende le coordinate come parametri invece di fissarle.
+
+**Le terne qui sopra sono state ri-misurate il 7 agosto 2026** su finestra 720×760. Le
+precedenti (`it 394 93 260 482`) erano stantie per **due** motivi insieme: calibrate quando la
+tabview di configurazione aveva quattro schede — oggi ce n'è una quinta, «Licenza» — e su un
+layout in cui la fascia rossa «bridge bloccato» spostava tutto di ~33 px. Con la licenza di
+prova quella fascia non c'è, quindi esiste **una sola** condizione di layout invece di due.
+
+> ⚠️ **Guarda le immagini, non l'esito dello script.** Con coordinate sbagliate i click cadono a
+> vuoto e si ottengono **tre copie della stessa schermata** — misurato: tre file identici da
+> 55 132 byte l'uno — mentre `shoot.sh` stampa comunque `OK`. Dopo ogni rigenerazione va
+> verificato che le tre immagini siano davvero diverse fra loro e che mostrino Generale,
+> Sicurezza e Salute.
 
 Altre trappole già incontrate (tkinter, cryptography, tema chiaro, PYTHONPATH) stanno in
 `tools/screenshots/README.md`.

@@ -11,8 +11,8 @@
 # Valori RI-MISURATI il 2026-08-07 su finestra 720x760, con la licenza di prova attiva
 # (cioè nella stessa condizione in cui questo script scatta — vedi sotto):
 #   it  356 93 268 482
-#   en  <da misurare>
-#   es  <da misurare>
+#   en  311 93 272 482
+#   es  318 93 279 482
 #
 # ⚠️ Le terne PRECEDENTI (`it 394 93 260 482`) erano stantie per DUE motivi insieme: erano
 # calibrate quando la tabview di configurazione aveva QUATTRO schede — oggi ce n'è una quinta,
