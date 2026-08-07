@@ -111,7 +111,7 @@ def _avvisa_pulizia_fallita(errore, cosa) -> None:
           "dati dell'app e sistemalo a mano.", file=sys.stderr)
 
 
-def ripristina_licenza(backup, percorso) -> None:
+def ripristina_licenza(backup, percorso, token_atteso) -> None:
     """Rimette la licenza vera dov'era, in **una sola** operazione atomica.
 
     `os.replace` e non `unlink()` + `move()` (rilievo GPT-5.5 sulla #310): la coppia lascia una
@@ -120,18 +120,51 @@ def ripristina_licenza(backup, percorso) -> None:
     **senza nessuna licenza**, che è di nuovo il danno da cui questa funzione difende.
     `os.replace` sovrascrive la destinazione in un colpo solo ed è atomico su POSIX e Windows.
 
-    Best-effort e silenziosa sui casi già a posto: gira anche da `atexit`, dove sollevare
-    sporcherebbe l'uscita del processo senza aiutare nessuno.
+    **Ma non ciecamente** (rilievo Claude Fable 5 sulla #310, terzo della stessa classe in
+    questa PR): se durante gli scatti l'utente ha attivato una licenza **vera** nella scheda
+    «🔒 Licenza», sovrascriverla col backup distruggerebbe il token appena attivato. La
+    protezione c'era in `rimuovi_licenza_di_prova` e non qui — una gemella difesa e una no.
+
+    Se il file non è più il nostro non si tocca **niente**: il backup resta dov'è, con il suo
+    nome esplicito, e l'utente viene avvisato. Meglio due licenze sul disco che una distrutta.
+
+    Best-effort e silenziosa: gira anche da `atexit`, dove sollevare sporcherebbe l'uscita del
+    processo senza aiutare nessuno.
     """
     if not backup:
         return
     b = pathlib.Path(backup)
     if not b.exists():
         return
+    if pathlib.Path(percorso).exists() and not _e_ancora_la_nostra(percorso, token_atteso):
+        print(f"ATTENZIONE: la licenza attiva è cambiata durante gli scatti — NON la "
+              f"sovrascrivo. Quella salvata all'avvio resta in "
+              f"«{b.name}» nella cartella dati dell'app.", file=sys.stderr)
+        return
     try:
         os.replace(str(b), str(percorso))
     except OSError as errore:       # non blind: OSError specifica. Vedi «MAI sollevare da atexit»
         _avvisa_pulizia_fallita(errore, backup)
+
+
+def _e_ancora_la_nostra(percorso, token_atteso) -> bool:
+    """`True` se in `percorso` c'è ancora **la licenza di prova che abbiamo scritto noi**.
+
+    Fonte unica delle DUE pulizie (Regola 3). La domanda «posso toccare questo file?» è la
+    stessa per entrambe, e tenerla in un posto solo è ciò che impedisce di proteggerne una e
+    dimenticare l'altra — l'errore fatto tre volte in questa PR.
+
+    Fail-closed: file assente → `False`; illeggibile o non JSON → `False`. Nel dubbio non si
+    tocca, perché ciò che c'è dentro potrebbe essere la licenza vera di qualcuno.
+    """
+    p = pathlib.Path(percorso)
+    if not p.exists():
+        return False
+    try:
+        stato = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return str(stato.get("token", "")) == str(token_atteso)
 
 
 def rimuovi_licenza_di_prova(percorso, token_atteso) -> None:
@@ -148,17 +181,10 @@ def rimuovi_licenza_di_prova(percorso, token_atteso) -> None:
     incollato una licenza VERA nella scheda «🔒 Licenza» dell'app: cancellarla a fine sessione
     sarebbe di nuovo il danno di partenza. Se il contenuto non combacia, non si tocca niente.
     """
-    p = pathlib.Path(percorso)
-    if not p.exists():
-        return
+    if not _e_ancora_la_nostra(percorso, token_atteso):
+        return          # assente, illeggibile, o cambiata da qualcun altro: non si tocca
     try:
-        stato = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return                      # illeggibile o non JSON: non è roba nostra, non si tocca
-    if str(stato.get("token", "")) != str(token_atteso):
-        return                      # qualcun altro l'ha cambiata (es. licenza vera attivata)
-    try:
-        p.unlink()
+        pathlib.Path(percorso).unlink()
     except OSError as errore:       # non blind: OSError specifica. Vedi «MAI sollevare da atexit»
         _avvisa_pulizia_fallita(errore, percorso)
 
@@ -235,7 +261,7 @@ def _attiva_licenza_di_prova() -> str:
     # sulla macchina di documentazione tipica — quella SENZA licenza — e l'app di produzione la
     # rifiutava: da «non attivato» a «licenza non valida», cioè peggio di prima.
     if backup:
-        atexit.register(ripristina_licenza, backup, percorso)
+        atexit.register(ripristina_licenza, backup, percorso, token)
     else:
         atexit.register(rimuovi_licenza_di_prova, percorso, token)
     for sig in (signal.SIGTERM, signal.SIGINT):

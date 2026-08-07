@@ -60,7 +60,7 @@ def test_il_ripristino_rimette_esattamente_la_licenza_di_prima(tool, tmp_path):
     percorso.write_text('{"token": "LICENZA-DI-PROVA-FIRMATA-COL-SEED-DI-TEST", "last_seen": 2}',
                         encoding="utf-8")
 
-    tool.ripristina_licenza(backup, percorso)
+    tool.ripristina_licenza(backup, percorso, "LICENZA-DI-PROVA-FIRMATA-COL-SEED-DI-TEST")
 
     assert percorso.read_bytes() == originale, \
         "dopo il ripristino non c'è la licenza vera: l'app resterebbe disattivata"
@@ -207,6 +207,34 @@ def test_senza_licenza_preesistente_quella_di_prova_NON_resta_sul_disco(tool, tm
         "la licenza di prova è ancora sul disco dopo la pulizia"
 
 
+def test_il_ripristino_non_sovrascrive_una_licenza_vera_attivata_durante_gli_scatti(tool,
+                                                                                    tmp_path):
+    """Rilievo **Claude Fable 5** sulla #310 — il TERZO della stessa classe in questa PR.
+
+    La protezione «non toccare un token che non è il nostro» c'era in
+    `rimuovi_licenza_di_prova` e **non** in `ripristina_licenza`: una gemella difesa e una no.
+    Scenario: l'utente ha una licenza vecchia, lancia gli scatti, e **durante** la sessione ne
+    attiva una **nuova** nella scheda «🔒 Licenza». All'uscita il ripristino cieco sovrascriveva
+    il token appena attivato con quello vecchio — distruggendo l'attivazione.
+
+    Il tool deve **non toccare niente**: meglio due licenze sul disco che una distrutta.
+    """
+    percorso = tmp_path / "license_state.json"
+    backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+    backup.write_text('{"token": "LICENZA-VECCHIA", "last_seen": 1}', encoding="utf-8")
+    percorso.write_text('{"token": "LICENZA-NUOVA-ATTIVATA-ADESSO", "last_seen": 9}',
+                        encoding="utf-8")
+    nuova = percorso.read_bytes()
+    vecchia = backup.read_bytes()
+
+    tool.ripristina_licenza(str(backup), percorso, "IL-TOKEN-DI-PROVA-CHE-AVEVAMO-SCRITTO")
+
+    assert percorso.read_bytes() == nuova, \
+        "la licenza appena attivata è stata sovrascritta dal backup: attivazione distrutta"
+    assert backup.read_bytes() == vecchia, \
+        "il backup è stato consumato: la licenza vecchia è persa e la nuova pure a rischio"
+
+
 def test_non_cancella_una_licenza_vera_attivata_durante_gli_scatti(tool, tmp_path):
     """Caso opposto e altrettanto rovinoso: durante la sessione l'utente incolla una licenza
     VERA nella scheda «🔒 Licenza». A fine scatti la pulizia non deve portarsela via."""
@@ -245,7 +273,7 @@ def test_nessuna_pulizia_solleva_mai_se_il_file_e_lockato(tool, tmp_path, monkey
     if quale == "ripristina_licenza":
         backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
         backup.write_text('{"token": "VERA", "last_seen": 0}', encoding="utf-8")
-        tool.ripristina_licenza(str(backup), percorso)      # non deve sollevare
+        tool.ripristina_licenza(str(backup), percorso, "TOK")   # non deve sollevare
     else:
         tool.rimuovi_licenza_di_prova(percorso, "TOK")      # non deve sollevare
 
@@ -296,5 +324,5 @@ def test_il_ripristino_non_solleva_se_non_ce_niente_da_ripristinare(tool, tmp_pa
     """`ripristina_licenza` gira da `atexit`, dove un'eccezione non serve a nessuno e sporca
     l'uscita del processo."""
     percorso = tmp_path / "license_state.json"
-    tool.ripristina_licenza(None, percorso)                       # nessun backup registrato
-    tool.ripristina_licenza(str(tmp_path / "inesistente"), percorso)   # backup sparito
+    tool.ripristina_licenza(None, percorso, "TOK")                 # nessun backup registrato
+    tool.ripristina_licenza(str(tmp_path / "inesistente"), percorso, "TOK")  # backup sparito
