@@ -154,9 +154,19 @@ def _e_ancora_la_nostra(percorso, token_atteso) -> bool:
     stessa per entrambe, e tenerla in un posto solo è ciò che impedisce di proteggerne una e
     dimenticare l'altra — l'errore fatto tre volte in questa PR.
 
-    Fail-closed: file assente → `False`; illeggibile o non JSON → `False`. Nel dubbio non si
-    tocca, perché ciò che c'è dentro potrebbe essere la licenza vera di qualcuno.
+    Fail-closed: `token_atteso` ancora `None` → `False`; file assente → `False`; illeggibile o
+    non JSON → `False`. Nel dubbio non si tocca, perché ciò che c'è dentro potrebbe essere la
+    licenza vera di qualcuno.
+
+    Il primo dei tre è nuovo (rilievo GPT-5.5 sulla #310, secondo giro) e ha una ragione precisa:
+    da quando la pulizia si registra **prima** di emettere il token, può girare in un momento in
+    cui il token non esiste ancora. In quell'istante non abbiamo scritto niente, quindi **niente
+    è nostro** — e il confronto va rifiutato all'ingresso invece di finire in `str(None)`, che
+    combacerebbe con un file il cui token fosse la stringa `"None"`. Assurdo? Sì. Ma è il
+    genere di coincidenza che, quando capita, cancella la licenza di qualcuno.
     """
+    if token_atteso is None:
+        return False
     p = pathlib.Path(percorso)
     if not p.exists():
         return False

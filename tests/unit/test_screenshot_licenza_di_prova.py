@@ -554,6 +554,79 @@ def test_hardware_non_identificabile_si_ferma_senza_toccare_la_licenza(tool, tmp
         "ha lasciato un backup che bloccherebbe la corsa successiva pur non avendo fatto nulla"
 
 
+@pytest.mark.parametrize("quale", ["ripristina_licenza", "rimuovi_licenza_di_prova"])
+def test_prima_che_il_token_esista_nessuna_pulizia_si_attribuisce_il_file(tool, tmp_path, quale):
+    """Rilievo **GPT-5.5** sulla #310, secondo giro, ed è la coda della correzione precedente.
+
+    Da quando la pulizia si registra *prima* di emettere il token, esiste un istante in cui può
+    girare con `token_atteso` ancora `None`. GPT-5.5 chiedeva di verificare che in quell'istante
+    sia sempre un no-op sicuro. Non lo era del tutto: il confronto finiva in `str(None)`, cioè
+    nella stringa `"None"`, che combacia con un file il cui token fosse letteralmente `"None"`.
+
+    Coincidenza assurda, conseguenza no: nel ramo `rimuovi` il file veniva **cancellato**, nel
+    ramo `ripristina` veniva **sovrascritto** col backup, che veniva pure consumato. Adesso il
+    caso è rifiutato all'ingresso — prima di avere un token, niente è nostro — ed è fissato qui
+    su **entrambe** le pulizie, non su quella segnalata (Regola 2).
+    """
+    percorso = tmp_path / "license_state.json"
+    percorso.write_text('{"token": "None", "last_seen": 1}', encoding="utf-8")
+    intatto = percorso.read_bytes()
+    backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+    backup.write_text('{"token": "LICENZA-VERA", "last_seen": 0}', encoding="utf-8")
+    salvato = backup.read_bytes()
+
+    if quale == "rimuovi_licenza_di_prova":
+        tool.rimuovi_licenza_di_prova(percorso, None)
+    else:
+        tool.ripristina_licenza(str(backup), percorso, None)
+
+    assert percorso.read_bytes() == intatto, (
+        "senza un token nostro la pulizia ha comunque toccato il file: prima di scrivere qualcosa "
+        "non c'è niente che possiamo attribuirci")
+    assert backup.read_bytes() == salvato, \
+        "il backup è stato consumato su un caso in cui non avevamo ancora scritto nulla"
+
+
+def test_due_invocazioni_nello_stesso_processo_lasciano_la_licenza_vera_al_suo_posto(
+        tool, tmp_path, monkeypatch, hardware_finto):
+    """Secondo rischio manuale segnalato da **GPT-5.5** sulla #310: gli `atexit` non si rimuovono,
+    quindi due invocazioni nello stesso processo accumulano due pulizie con stati diversi.
+
+    Non è raggiungibile dalla CLI — `__main__` chiama una volta sola — ma è il genere di contratto
+    che va **fissato** invece che dedotto, perché domani qualcuno potrebbe importare il launcher.
+    Il risultato deve essere: la seconda invocazione si ferma (il backup esiste già), le due
+    pulizie girano in ordine LIFO come fa `atexit` vero, e alla fine sul disco c'è la licenza
+    VERA e nient'altro.
+    """
+    from xtrader_bridge import config_store, license_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    percorso.write_text('{"token": "LICENZA-VERA-DEL-PROPRIETARIO", "last_seen": 1}',
+                        encoding="utf-8")
+    originale = percorso.read_bytes()
+
+    registrati = []
+    monkeypatch.setattr(tool.atexit, "register",
+                        lambda fn, *a, **k: registrati.append((fn, a, k)))
+
+    tool._attiva_licenza_di_prova()
+    with pytest.raises(SystemExit) as errore:
+        tool._attiva_licenza_di_prova()
+    assert tool.SUFFISSO_BACKUP in str(errore.value), \
+        "la seconda invocazione non si è fermata sul backup già presente"
+
+    assert len(registrati) == 2, f"pulizie registrate: {len(registrati)}, attese 2"
+    for fn, args, kwargs in reversed(registrati):      # `atexit` esegue in ordine LIFO
+        fn(*args, **kwargs)
+
+    assert percorso.read_bytes() == originale, \
+        "dopo due invocazioni la licenza vera non è tornata al suo posto"
+    assert not percorso.with_name(percorso.name + tool.SUFFISSO_BACKUP).exists(), \
+        "è rimasto un backup orfano: bloccherebbe la corsa successiva"
+
+
 def test_canarino_la_chiave_deployata_e_ancora_quella_reale():
     """Canarino di fine file: la sessione pytest non deve restare con la chiave di TEST.
 
