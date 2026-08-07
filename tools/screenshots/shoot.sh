@@ -6,20 +6,24 @@
 # Le coordinate sono PARAMETRI e non costanti perché le etichette tradotte hanno
 # larghezze diverse e spostano il layout: con quelle italiane, in spagnolo il click
 # finisce sul pulsante «Asistente de primera configuración» e apre il Wizard invece
-# della tab. Valori verificati:
-#   it  394 93 260 482
-#   en  366 93 273 482
-#   es  366 93 278 482
+# della tab.
 #
-# ⚠️ QUEI VALORI SONO STANTII (verificato il 2026-08-06). Erano calibrati quando la tabview
-# di configurazione aveva QUATTRO schede; oggi ce n'è una quinta, «Licenza», e su una macchina
-# senza licenza attiva la fascia rossa «bridge bloccato» sposta tutto in basso di ~33 px. Con
-# i valori sopra i click cadono a vuoto e si ottengono TRE COPIE della stessa schermata —
-# misurato: tre file identici, 55 132 byte l'uno. Il sintomo è insidioso perché lo script
-# stampa comunque «OK», quindi va guardato il risultato, non l'esito.
+# Valori RI-MISURATI il 2026-08-07 su finestra 720x760, con la licenza di prova attiva
+# (cioè nella stessa condizione in cui questo script scatta — vedi sotto):
+#   it  356 93 268 482
+#   en  <da misurare>
+#   es  <da misurare>
 #
-# Vanno RI-MISURATE nell'ambiente in cui si scatta: con e senza licenza il layout differisce,
-# quindi non esiste una terna giusta per entrambi i casi. Vedi la nota in
+# ⚠️ Le terne PRECEDENTI (`it 394 93 260 482`) erano stantie per DUE motivi insieme: erano
+# calibrate quando la tabview di configurazione aveva QUATTRO schede — oggi ce n'è una quinta,
+# «Licenza» — e su una macchina senza licenza la fascia rossa «bridge bloccato» spostava tutto
+# in basso di ~33 px. Con valori sbagliati i click cadono a vuoto e si ottengono TRE COPIE
+# della stessa schermata: misurato, tre file identici da 55 132 byte l'uno. Il sintomo è
+# insidioso perché lo script stampa comunque «OK» — va guardato il RISULTATO, non l'esito.
+#
+# Da quando lo script parte dal launcher con licenza di prova la fascia non c'è più, quindi
+# esiste UNA sola condizione di layout invece di due. Restano però da ri-misurare a ogni
+# cambio di schede o di traduzione delle etichette. Vedi la nota in
 # docs/assets/screenshots/linux-xvfb/README.md.
 #
 # Prerequisiti: Xvfb :99 attivo, deps di tools/screenshots/README.md, lanciato dalla
@@ -105,7 +109,11 @@ except BaseException:
     raise
 PY
 
-DISPLAY=:99 python3 main.py > "$RUNDIR/app.log" 2>&1 &
+# Il launcher, non `main.py` diretto: attiva una licenza di PROVA (seed di test già nel
+# repository) e poi esegue `main.py` col suo vero `__main__`. Senza, l'app disegna la fascia
+# rossa «bridge bloccato», che documenta uno stato in cui nessuno userà il programma e in più
+# sposta il layout mandando a vuoto i click qui sotto. Vedi app_con_licenza_di_prova.py.
+DISPLAY=:99 python3 tools/screenshots/app_con_licenza_di_prova.py > "$RUNDIR/app.log" 2>&1 &
 APP_PID=$!
 sleep 14
 
