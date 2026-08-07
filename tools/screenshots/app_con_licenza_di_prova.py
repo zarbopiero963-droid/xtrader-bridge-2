@@ -28,6 +28,7 @@ Poi `shoot.sh` cattura la finestra come sempre.
 """
 
 import atexit
+import os
 import pathlib
 import runpy
 import shutil
@@ -93,17 +94,40 @@ def preserva_licenza_esistente(percorso) -> "str | None":
 
 
 def ripristina_licenza(backup, percorso) -> None:
-    """Rimette la licenza vera dov'era, cancellando quella di prova. Best-effort e silenziosa
-    sui casi già a posto: viene chiamata anche da `atexit`, dove sollevare non serve a nulla."""
+    """Rimette la licenza vera dov'era, in **una sola** operazione atomica.
+
+    `os.replace` e non `unlink()` + `move()` (rilievo GPT-5.5 sulla #310): la coppia lascia una
+    finestra in cui la licenza di prova è già cancellata e quella vera non è ancora arrivata —
+    se il secondo passo fallisce (lock antivirus su Windows, disco pieno) l'utente resta
+    **senza nessuna licenza**, che è di nuovo il danno da cui questa funzione difende.
+    `os.replace` sovrascrive la destinazione in un colpo solo ed è atomico su POSIX e Windows.
+
+    Best-effort e silenziosa sui casi già a posto: gira anche da `atexit`, dove sollevare
+    sporcherebbe l'uscita del processo senza aiutare nessuno.
+    """
     if not backup:
         return
     b = pathlib.Path(backup)
     if not b.exists():
         return
-    p = pathlib.Path(percorso)
-    if p.exists():
-        p.unlink()
-    shutil.move(str(b), str(p))
+    os.replace(str(b), str(percorso))
+
+
+def _installa_ripristino_su_segnale(sig) -> None:
+    """Su SIGTERM/SIGINT esce pulito — **senza mangiarsi l'handler che c'era prima**.
+
+    Rilievo GPT-5.5 sulla #310: `main.py` gira nello STESSO processo (via `runpy`), quindi
+    sostituire l'handler a mano ne cambierebbe lo spegnimento. Qui il precedente viene
+    conservato e richiamato dopo l'uscita di `atexit`; se era il default si esce e basta.
+    """
+    precedente = signal.getsignal(sig)
+
+    def _gestisci(numero, frame):
+        if callable(precedente) and precedente not in (signal.SIG_DFL, signal.SIG_IGN):
+            precedente(numero, frame)
+        sys.exit(0)          # `atexit` gira qui: la licenza vera torna al suo posto
+
+    signal.signal(sig, _gestisci)
 
 
 def _attiva_licenza_di_prova() -> str:
@@ -136,11 +160,14 @@ def _attiva_licenza_di_prova() -> str:
     # `preserva_licenza_esistente` si rifiuta di sovrascriverlo alla corsa dopo.
     backup = preserva_licenza_esistente(percorso)
     if backup:
-        print(f"licenza esistente messa al riparo in «{backup}» — verrà rimessa a posto "
-              "all'uscita")
+        # Solo il NOME del file, non il path assoluto: questo output finisce nei log dei job e
+        # negli artifact, dove un path rivelerebbe username e struttura della macchina
+        # (rilievo GPT-5.5). Chi deve rimetterla a posto sa già in che cartella guardare.
+        print(f"licenza esistente messa al riparo in «{pathlib.Path(backup).name}» "
+              "(cartella dati dell'app) — verrà rimessa a posto all'uscita")
         atexit.register(ripristina_licenza, backup, percorso)
         for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, lambda *_a: sys.exit(0))
+            _installa_ripristino_su_segnale(sig)
 
     adesso = int(time.time())
     token = core.issue_license(LICENSE_TEST_SEED_HEX, INTESTATARIO, GIORNI, identificativo, adesso)

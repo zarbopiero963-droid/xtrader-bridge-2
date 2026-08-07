@@ -3,41 +3,38 @@
 Screenshot **reali** della GUI catturati con la pipeline descritta in
 [`tools/screenshots/README.md`](../../../../tools/screenshots/README.md), usando la **config
 d'esempio** delle guide: token **fittizio**, chat `-1001234567890`, percorso
-`C:\XTrader\segnali.csv`. Nessun dato reale.
+`C:\BetRelay\segnali.csv`. Nessun dato reale.
 
 Rigenerate il **7 agosto 2026** sul `main` post-#301: mostrano il nome nuovo — finestra
-**BetRelay**, header **«📡 BetRelay»** — e il percorso di default **`C:\BetRelay\segnali.csv`**.
+**BetRelay**, header **«📡 BetRelay»** — e il percorso di default `C:\BetRelay\segnali.csv`.
 Testo delle guide e immagini tornano a concordare.
 
-Sono scattate con una **licenza di prova** attiva
-([`app_con_licenza_di_prova.py`](../../../../tools/screenshots/app_con_licenza_di_prova.py)):
-senza, l'app disegna la fascia rossa «bridge bloccato» e la scheda Licenza non attivata, cioè
-uno stato in cui nessuno userà davvero il programma. La licenza è firmata col seed di **test**
-già presente in `tests/conftest.py`, vive solo in memoria e non finisce nel repository.
+## Come sono state ottenute — i due ostacoli, e come sono stati tolti
 
-### Perché non sono ancora rigenerate — due ostacoli misurati, non ipotizzati
+Fino al 7 agosto queste immagini erano **bloccate** da due ostacoli misurati. Entrambi sono
+risolti, e vale la pena sapere come, perché torneranno a presentarsi.
 
-Tentata la rigenerazione con la pipeline documentata (Xvfb + `shoot.sh`). La pipeline **ora
-funziona** — il difetto che la bloccava del tutto è corretto, vedi sotto — ma le immagini
-prodotte **non sono utilizzabili in una guida**, per due ragioni distinte:
+**① La fascia rossa della licenza.** Senza licenza attiva l'app mostra in cima
+`🔒 Licenza non valida: bridge bloccato` col pulsante **AVVIA disabilitato**: ogni scatto
+porterebbe una schermata d'**errore** dentro una guida che spiega l'uso normale.
 
-1. **La fascia rossa della licenza.** Su una macchina senza licenza attiva l'app mostra in
-   cima `🔒 Licenza non valida: bridge bloccato` e il pulsante **AVVIA disabilitato**. Ogni
-   scatto porterebbe quel banner: una schermata di **errore** dentro una guida che spiega
-   l'uso normale. Le immagini attuali sono precedenti al sistema di licenze e infatti non ce
-   l'hanno. Serve un ambiente **con licenza attiva** — non è una cosa che si aggira scrivendo
-   codice: la firma Ed25519 è area dichiarata sana dall'audit, e fabbricare una licenza per
-   fare una foto è esattamente ciò che non si fa.
+Risolto con
+[`app_con_licenza_di_prova.py`](../../../../tools/screenshots/app_con_licenza_di_prova.py), che
+emette una licenza col seed di **test già presente** in `tests/conftest.py` e poi esegue lo
+stesso `main.py`. **Nessuna chiave nuova viene generata e nessuna riga del licensing di
+produzione è toccata**: la chiave pubblica *deployata* viene sostituita solo dentro quel
+processo, come fa la fixture dei test. Autorizzazione esplicita del proprietario, 6 agosto 2026,
+entro quei limiti — la firma Ed25519 resta area dichiarata sana dall'audit, e non è stata
+modificata.
 
-2. **Le coordinate dei click sono stantie.** `shoot.sh` clicca le tab a coordinate fisse,
-   calibrate quando la tabview aveva **quattro** schede (Generale · Riconoscimento · Sicurezza
-   · Conferme XTrader). Oggi ce n'è una quinta, **Licenza**, e il banner sposta tutto in basso
-   di ~33 px: i click cadono a vuoto e si ottengono **tre copie della stessa schermata**
-   (verificato: tre file identici, 55 132 byte l'uno). Le coordinate vanno ri-misurate
-   **nell'ambiente in cui si scatta**, perché con e senza licenza il layout differisce.
+Il launcher **non distrugge una licenza reale**: se ne trova una la sposta in
+`license_state.json.pre-screenshot` e la rimette a posto in uscita; se quel salvataggio esiste
+già si **ferma**, perché dentro potrebbe esserci la licenza vera di una corsa interrotta.
 
-Finché entrambi non sono risolti, rigenerare produrrebbe immagini **peggiori** di queste:
-sbagliate sul nome, e per giunta in stato d'errore.
+**② Le coordinate dei click erano stantie**, e per due motivi insieme: calibrate quando la
+tabview aveva **quattro** schede — oggi ce n'è una quinta, **Licenza** — e su un layout in cui
+la fascia rossa spostava tutto di ~33 px. Ri-misurate: vedi «Come rigenerarli». Con la licenza
+di prova la fascia non c'è, quindi esiste **una sola** condizione di layout invece di due.
 
 Servono alle **tre sezioni per software** del sito — *BetRelay per XTrader* (IT), *for
 BETTINGTOOLKIT.COM* (EN), *para BETTINGTOOLKIT.ES / .LAT* (ES) — secondo la regola in

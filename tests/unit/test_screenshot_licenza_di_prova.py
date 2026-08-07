@@ -100,6 +100,42 @@ def test_un_backup_gia_presente_ferma_il_tool_invece_di_sovrascriverlo(tool, tmp
         "il backup con la licenza VERA è stato sovrascritto: è il danno che il tool deve evitare"
 
 
+def test_il_percorso_completo_salva_prima_di_scrivere_e_ripristina_dopo(tool, tmp_path,
+                                                                       monkeypatch):
+    """Il test che chiude il cerchio: `_attiva_licenza_di_prova` intero, sulla cartella finta.
+
+    Rilievo GPT-5.5 sulla #310: gli altri test coprono le due funzioni helper, ma non che il
+    launcher le usi **nell'ordine giusto** — mettere al riparo la licenza vera *prima* di
+    scrivere quella di prova. Un ordine invertito passerebbe tutti gli altri test e
+    distruggerebbe comunque la licenza.
+    """
+    from xtrader_bridge import config_store, license_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    percorso.write_text('{"token": "LICENZA-VERA-DEL-PROPRIETARIO", "last_seen": 1}',
+                        encoding="utf-8")
+    originale = percorso.read_bytes()
+
+    registrati = []
+    monkeypatch.setattr(tool.atexit, "register",
+                        lambda fn, *a, **k: registrati.append((fn, a, k)))
+
+    tool._attiva_licenza_di_prova()
+
+    assert percorso.read_bytes() != originale, \
+        "la licenza di prova non è stata scritta: il test non sta esercitando niente"
+    backup = percorso.with_name(percorso.name + tool.SUFFISSO_BACKUP)
+    assert backup.read_bytes() == originale, \
+        "la licenza VERA non è stata messa al riparo prima di scrivere quella di prova"
+
+    assert registrati, "nessun ripristino registrato: all'uscita la licenza vera non tornerebbe"
+    fn, args, _ = registrati[0]
+    fn(*args)
+    assert percorso.read_bytes() == originale, \
+        "dopo il ripristino la licenza vera non è tornata al suo posto"
+
+
 def test_il_ripristino_non_solleva_se_non_ce_niente_da_ripristinare(tool, tmp_path):
     """`ripristina_licenza` gira da `atexit`, dove un'eccezione non serve a nessuno e sporca
     l'uscita del processo."""
