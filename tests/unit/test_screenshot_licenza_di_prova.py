@@ -136,6 +136,43 @@ def test_il_percorso_completo_salva_prima_di_scrivere_e_ripristina_dopo(tool, tm
         "dopo il ripristino la licenza vera non è tornata al suo posto"
 
 
+@pytest.mark.parametrize("precedente, deve_uscire, motivo", [
+    ("SIG_DFL", True, "col default nessuno aveva chiesto niente: si esce e `atexit` ripristina"),
+    ("SIG_IGN", False,
+     "il processo aveva scelto di IGNORARE il segnale: uscire lo contraddirebbe"),
+    ("custom", True, "l'handler precedente va richiamato, poi si esce"),
+])
+def test_il_gestore_di_segnale_conserva_il_comportamento_precedente(tool, monkeypatch,
+                                                                   precedente, deve_uscire,
+                                                                   motivo):
+    """Rilievo GPT-5.5 sulla #310, secondo giro: il codice *diceva* di conservare l'handler
+    precedente e su `SIG_IGN` non lo faceva — usciva lo stesso. `main.py` gira nello STESSO
+    processo, quindi cambiare la sua semantica di spegnimento è una regressione vera."""
+    import signal as _signal
+
+    chiamato = []
+    vecchio = {"SIG_DFL": _signal.SIG_DFL, "SIG_IGN": _signal.SIG_IGN,
+               "custom": lambda *_a: chiamato.append("precedente")}[precedente]
+
+    installato = {}
+    monkeypatch.setattr(tool.signal, "getsignal", lambda _s: vecchio)
+    monkeypatch.setattr(tool.signal, "signal",
+                        lambda s, fn: installato.__setitem__("fn", fn))
+
+    tool._installa_ripristino_su_segnale(_signal.SIGTERM)
+    gestore = installato["fn"]
+
+    if deve_uscire:
+        with pytest.raises(SystemExit):
+            gestore(_signal.SIGTERM, None)
+    else:
+        gestore(_signal.SIGTERM, None)   # non deve sollevare: motivo → %s
+
+    if precedente == "custom":
+        assert chiamato == ["precedente"], \
+            "l'handler precedente non e' stato richiamato: lo spegnimento dell'app cambia"
+
+
 def test_il_ripristino_non_solleva_se_non_ce_niente_da_ripristinare(tool, tmp_path):
     """`ripristina_licenza` gira da `atexit`, dove un'eccezione non serve a nessuno e sporca
     l'uscita del processo."""

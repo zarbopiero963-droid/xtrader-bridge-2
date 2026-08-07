@@ -116,14 +116,24 @@ def ripristina_licenza(backup, percorso) -> None:
 def _installa_ripristino_su_segnale(sig) -> None:
     """Su SIGTERM/SIGINT esce pulito — **senza mangiarsi l'handler che c'era prima**.
 
-    Rilievo GPT-5.5 sulla #310: `main.py` gira nello STESSO processo (via `runpy`), quindi
-    sostituire l'handler a mano ne cambierebbe lo spegnimento. Qui il precedente viene
-    conservato e richiamato dopo l'uscita di `atexit`; se era il default si esce e basta.
+    `main.py` gira nello STESSO processo (via `runpy`), quindi sostituire l'handler a mano ne
+    cambierebbe lo spegnimento (rilievo GPT-5.5 sulla #310). I tre casi vanno distinti, e il
+    terzo è quello che al primo giro avevo sbagliato:
+
+    - handler **custom**: lo si richiama, poi si esce — `atexit` rimette a posto la licenza;
+    - **SIG_DFL**: nessuno aveva chiesto niente, si esce;
+    - **SIG_IGN**: il processo aveva deciso di **ignorare** quel segnale. Uscire lo
+      contraddirebbe. Si continua a ignorarlo: il ripristino non si perde, perché `atexit`
+      girerà comunque quando il processo uscirà per conto suo (secondo rilievo GPT-5.5, che
+      aveva ragione: il codice diceva di conservare il comportamento precedente e in questo
+      caso non lo faceva).
     """
     precedente = signal.getsignal(sig)
 
     def _gestisci(numero, frame):
-        if callable(precedente) and precedente not in (signal.SIG_DFL, signal.SIG_IGN):
+        if precedente == signal.SIG_IGN:
+            return                                  # il processo ignorava: continua a ignorare
+        if callable(precedente) and precedente != signal.SIG_DFL:
             precedente(numero, frame)
         sys.exit(0)          # `atexit` gira qui: la licenza vera torna al suo posto
 
