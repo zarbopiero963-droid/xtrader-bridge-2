@@ -173,6 +173,37 @@ def test_il_gestore_di_segnale_conserva_il_comportamento_precedente(tool, monkey
             "l'handler precedente non e' stato richiamato: lo spegnimento dell'app cambia"
 
 
+def test_un_handler_precedente_che_solleva_vince_sul_nostro_sys_exit(tool, monkeypatch):
+    """Contratto fissato su richiesta di GPT-5.5 (#310, quarto giro).
+
+    Se l'handler che c'era prima **termina da sé** o solleva, la nostra `sys.exit(0)` non viene
+    raggiunta e il codice d'uscita è il suo. È il comportamento giusto — chi aveva installato
+    quell'handler ha deciso lui come si esce — ma finché non è fissato da un test resta
+    un'inerzia, non una scelta: un domani qualcuno potrebbe avvolgere la chiamata in un
+    `try/except` e cambiarlo senza accorgersene.
+
+    Il ripristino della licenza **non si perde comunque**: `atexit` gira su qualunque uscita.
+    """
+    import signal as _signal
+
+    def _handler_che_termina(*_a):
+        raise SystemExit(3)
+
+    installato = {}
+    monkeypatch.setattr(tool.signal, "getsignal", lambda _s: _handler_che_termina)
+    monkeypatch.setattr(tool.signal, "signal", lambda s, fn: installato.__setitem__("fn", fn))
+
+    tool._installa_ripristino_su_segnale(_signal.SIGTERM)
+
+    with pytest.raises(SystemExit) as errore:
+        installato["fn"](_signal.SIGTERM, None)
+
+    assert errore.value.code == 3, (
+        f"il codice d'uscita non è quello dell'handler precedente ({errore.value.code!r}): la "
+        "nostra `sys.exit(0)` lo sta scavalcando, e chi aveva installato quell'handler perde "
+        "il controllo di come il processo esce")
+
+
 def test_il_ripristino_non_solleva_se_non_ce_niente_da_ripristinare(tool, tmp_path):
     """`ripristina_licenza` gira da `atexit`, dove un'eccezione non serve a nessuno e sporca
     l'uscita del processo."""
