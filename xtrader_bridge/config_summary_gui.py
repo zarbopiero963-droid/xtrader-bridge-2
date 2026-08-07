@@ -125,7 +125,6 @@ class ConfigSummaryPanel(ctk.CTkFrame):
         if self._body is not None:
             self._body.destroy()
         self._body = ctk.CTkScrollableFrame(self)
-        ui_cards.tune_scrolling(self._body)   # scroll fluido (regola 2: ogni scrollable)
         self._body.pack(fill="both", expand=True, padx=8, pady=8)
 
         try:

@@ -374,7 +374,6 @@ SITI = {
         ('badge', 'font ctk non costruibile (tk non pronto/headless) -> badge senza font, mai crash della vista'),
         ('card', 'doppio di test senza ctkfont funzionante'),
         ('hint', 'font ctk non costruibile (tk non pronto/headless) -> hint senza font, mai crash della vista'),
-        ('tune_scrolling', 'accordatura best-effort: mai rompere la costruzione'),
     ),
     'xtrader_bridge/ui_widgets.py': (
         ('evidenzia_profilo', 'widget distrutto durante un refresh'),

@@ -100,10 +100,13 @@ _GEN = _carica_generatore()
 # teardown/log/summary (un fallimento non critico non deve propagare nel percorso safety).
 # Aggiornare SOLO con motivazione esplicita quando si aggiunge/rimuove un blind-except.
 _ALLOWLIST = {
-    "xtrader_bridge/ui_cards.py": (5, "composizione visiva #182 (card/badge/hint) + tune_scrolling: helper best-effort "
+    "xtrader_bridge/ui_cards.py": (4, "composizione visiva #182 (card/badge/hint): helper best-effort "
                        "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
                        "su widget gia distrutti — la cornice non deve MAI far cadere un "
-                       "pannello; nessun dato/flusso dentro, solo presentazione"),
+                       "pannello; nessun dato/flusso dentro, solo presentazione. "
+                       "Era 5: il quinto sito era `tune_scrolling`, rimossa nella #319 perche "
+                       "inerte su Windows (riscriveva il default di CustomTkinter) e dannosa "
+                       "altrove (3px invece di 30 su Linux)"),
     "xtrader_bridge/dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "

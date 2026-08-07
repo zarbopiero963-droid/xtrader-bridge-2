@@ -86,7 +86,6 @@ class JournalPanel(ctk.CTkFrame):
         ui_cards.collapse_when_empty(self._header)
         self._rows_frame = ctk.CTkScrollableFrame(self, height=400, **ui_cards.card_style(),
                                                   label_text=i18n.tr("Eventi del diario"))
-        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
     # ── selezione filtri ────────────────────────────────────────────────────────

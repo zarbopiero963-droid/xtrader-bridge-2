@@ -1,34 +1,43 @@
-"""Scorrimento fluido delle CTkScrollableFrame (segnalazione proprietario 2026-08-04).
+"""Scorrimento delle `CTkScrollableFrame`: perché NON accordiamo più gli increment.
 
-Sintomo su Windows: nella scheda Parser Personalizzato (soprattutto sulla
-«Griglia regole — 14 colonne CSV») lo scroll con la rotellina «scatta/trema».
-Causa misurata: CustomTkinter su Windows imposta ``yscrollincrement=1`` e scrolla
-``-delta/6`` (=20) unità per scatto → **20px a scatto** su un contenuto di
-~2600px: ~130 scatti per attraversarlo, e OGNI scatto ridisegna decine di widget
-con angoli arrotondati → tremolio percepito.
+## Storia, in tre atti
 
-Rimedio di allora (fonte unica, regola 3): ``ui_cards.tune_scrolling(sf)`` regola
-gli increment del canvas — **oggi 1px**, era 3px fino alla #319 (vedi sotto). Va
-chiamata su OGNI CTkScrollableFrame del package (la classe, non il sito — regola
-2): il test sorgente qui sotto lo impone contando costruzioni e chiamate per
-modulo. Dalla #320 si applica **solo su Windows**: altrove CTk scrolla un numero
-di unità diverso e forzare il passo di Windows rende lo scroll inservibile.
+**04/08/2026** — segnalazione proprietario: la griglia del Parser «scatta/trema» sotto
+rotellina su Windows. Rimedio introdotto: `ui_cards.tune_scrolling(sf)`, che portava
+`xscrollincrement`/`yscrollincrement` del canvas a 3px, chiamata su ogni scrollable dei
+due package e presidiata da un test-guardia AST.
 
-⚠️ **Aggiornamento #319 (2026-08-07): il passo è tornato a 1px come MISURA**, non
-come configurazione definitiva. Il proprietario ha filmato l'effetto opposto al
-tremolio — scorrendo, il testo lascia una **scia di decine di copie**.
+**07/08/2026 (#319)** — segnalazione proprietario: scorrendo, il testo lascia una **scia
+di copie**. Costruito un EXE di misura col passo riportato a 1 e filmato: la scia è
+**identica**.
 
-**Cosa è accertato e cosa no** (rilievo CodeRabbit sulla #320, fondato). Accertato:
-CTk chiede a Tk **20 unità** di scorrimento per scatto (``-int(event.delta / 6)``
-con ``delta=120``), il valore è cablato nel suo sorgente, e ``tune_scrolling``
-regola solo la **dimensione** dell'unità. **Non** accertato: quanti ridisegni Tk
-esegua davvero — Tk accorpa i ridisegni a idle, quindi 20 unità richieste non sono
-necessariamente 20 ridisegni. I fotogrammi mostrano una scia di molte copie, ma il
-numero non è stato misurato: dedurlo sarebbe un'inferenza travestita da dato.
+**07/08/2026, sera** — la misura era un no-op, e l'accordatura pure. Vedi sotto.
 
-Quello che la misura vuole sapere è solo questo: con il passo a **1** il
-proprietario rivede la **sfocatura** del 04/08 o resta la **scia**? La risposta
-dice se il passo c'entra, e nient'altro.
+## Perché l'accordatura è stata RIMOSSA
+
+CustomTkinter imposta **già** gli increment, per piattaforma, in
+`CTkScrollableFrame._set_scroll_increments()`:
+
+    Windows → 1     macOS → 4/8     altrove (Linux) → 30
+
+Quindi `tune_scrolling(1)` su Windows **riscriveva il valore che CTk aveva già scritto**:
+zero effetto. E su Linux `tune_scrolling(3)` sostituiva 30 con 3, rendendo lo scorrimento
+**dieci volte più lento** — una regressione introdotta da una correzione pensata per
+un'altra piattaforma, rimasta su `main` dal 04/08 al 07/08.
+
+Il valore dell'increment è stato **escluso come causa** della #319 da due prove
+indipendenti sul PC del proprietario (scia identica a 1 e a 3). Rimuovere l'accordatura
+restituisce a ogni piattaforma il default di CustomTkinter e toglie una funzione che non
+configurava nulla, insieme al test-guardia che ne imponeva l'uso.
+
+## Cosa resta presidiato qui
+
+1. **nessuno** sovrascrive gli increment di CTk (guardia inversa di quella storica);
+2. le **assunzioni su CustomTkinter** su cui poggia l'analisi della #319 — se una versione
+   futura le cambia, questi test lo dicono invece di lasciare l'analisi scaduta in silenzio.
+
+La #319 resta **aperta**: il difetto visivo non è stato risolto, e le ipotesi escluse sono
+elencate lì.
 """
 from __future__ import annotations
 
@@ -40,108 +49,79 @@ from xtrader_bridge import ui_cards
 import license_manager as _license_manager_pkg
 
 PKG = pathlib.Path(ui_cards.__file__).parent
-# Anche l'app License Manager (separata) ha GUI scrollabili: la guardia copre
-# entrambe (segnalazione proprietario 2026-08-04: «controlla anche le altre
-# parti dove ho lo scroll» — l'audit runtime ha trovato il suo pannello nudo).
+# Anche l'app License Manager (separata) ha GUI scrollabili: la guardia copre entrambe.
 # I path vengono dai moduli IMPORTATI, non da posizioni relative (Sourcery #242).
 PACKAGES = (PKG, pathlib.Path(_license_manager_pkg.__file__).parent)
 
 
-class _CanvasDoppio:
-    def __init__(self):
-        self.kwargs = {}
+def test_nessuno_sovrascrive_gli_increment_di_customtkinter():
+    """Guardia INVERSA di quella storica: nessun modulo deve toccare
+    `xscrollincrement`/`yscrollincrement`.
 
-    def configure(self, **kw):
-        self.kwargs.update(kw)
+    Prima si pretendeva che ogni `CTkScrollableFrame` passasse da `tune_scrolling`; ora si
+    pretende il contrario, perché quell'accordatura è risultata inerte su Windows (riscriveva
+    il default di CTk) e **dannosa** altrove (3px invece di 30 su Linux).
 
-
-class _ScrollableDoppio:
-    def __init__(self):
-        self._parent_canvas = _CanvasDoppio()
-
-
-def test_tune_scrolling_imposta_gli_increment_a_1px(monkeypatch):
-    """⚠️ Valore di MISURA (#319, 2026-08-07), non configurazione definitiva.
-
-    Era `3`, scelto il 04/08 contro il «tremolio». Il 07/08 il proprietario ha
-    filmato l'effetto opposto — una scia di decine di copie — e la Phase 0 ha
-    stabilito che i due valori non sono due rimedi ma una **scelta estetica sullo
-    stesso difetto**: `tune_scrolling` regola la dimensione del quanto, non il
-    numero di quanti richiesti per scatto (vedi il test qui sotto), quindi cambia
-    solo quanto sono distanziate le copie, non che ci siano.
-
-    Tornare a `1` risponde a una domanda sola: il proprietario rivede la sfocatura
-    del 04/08? Se sì, il difetto è nella ripulitura del canvas ed è lì che va la
-    correzione vera. Questo test **pinna il valore** perché il ritorno a 1 sia una
-    decisione leggibile e non una regressione silenziosa.
-
-    È anche il lato POSITIVO del gate di piattaforma introdotto dalla #320 — il lato
-    negativo è `test_su_linux_e_macos_NON_si_tocca_il_default_di_customtkinter`:
-    l'accordatura si applica su Windows, e solo lì. Per questo il test **dichiara** la
-    piattaforma invece di ereditare quella del runner: senza il monkeypatch passerebbe
-    su Windows e fallirebbe in CI, cioè misurerebbe il runner e non il codice."""
-    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
-    sf = _ScrollableDoppio()
-    ui_cards.tune_scrolling(sf)
-    assert sf._parent_canvas.kwargs == {"xscrollincrement": 1, "yscrollincrement": 1}
-
-
-def test_su_linux_e_macos_NON_si_tocca_il_default_di_customtkinter(monkeypatch):
-    """Rilievo GPT-5.5 sulla #320, e il conto è peggio di come l'avevo scritto.
-
-    `tune_scrolling` sovrascriveva l'increment su **tutte** le piattaforme, ma CTk non
-    scrolla lo stesso numero di unità ovunque:
-
-    | piattaforma | unità per scatto | increment CTk | px per scatto |
-    |---|---|---|---|
-    | Windows | 20 (`-delta/6`) | 1 | 20 |
-    | macOS   | `-delta`        | 4/8 | dipende dal delta |
-    | Linux   | **1** (`yview_scroll(±1)`) | **30** | **30** |
-
-    Su Linux una rotellina vale **una sola unità**: l'increment È il passo. Quindi dal
-    04/08 `tune_scrolling(3)` ha reso lo scorrimento **3 px per scatto** invece di 30 —
-    dieci volte più lento, di fatto inservibile — e la misura a 1 px lo avrebbe portato a
-    **1 px per scatto**.
-
-    Nessuno se n'era accorto perché il bersaglio è Windows e su Linux gira solo la
-    pipeline screenshot, che non scrolla. Ma è una regressione vera, introdotta da una
-    correzione pensata per un'altra piattaforma: la Regola 2-bis presa in flagrante.
-
-    L'accordatura si applica **solo dove il suo ragionamento vale** — Windows, l'unica
-    piattaforma nominata nel docstring della funzione. Altrove si lascia il default di CTk.
+    Fail-first verificato: prima della rimozione questo test trovava 17 chiamate a
+    `tune_scrolling` e la `configure(...)` dentro `ui_cards`, e falliva.
     """
-    for piattaforma in ("linux", "darwin"):
-        monkeypatch.setattr(ui_cards.sys, "platform", piattaforma)
-        sf = _ScrollableDoppio()
-        ui_cards.tune_scrolling(sf)
-        assert sf._parent_canvas.kwargs == {}, (
-            f"su {piattaforma!r} l'increment è stato sovrascritto: CTk lì scrolla un numero "
-            "di unità diverso, e forzare il passo di Windows rende lo scorrimento inutilizzabile")
+    colpevoli = []
+    for pkg in PACKAGES:
+        for path in sorted(pkg.rglob("*.py")):
+            testo = path.read_text(encoding="utf-8")
+            for i, riga in enumerate(testo.splitlines(), start=1):
+                if "scrollincrement" in riga:
+                    colpevoli.append(f"{path.name}:{i}: {riga.strip()}")
+                if "tune_scrolling" in riga:
+                    colpevoli.append(f"{path.name}:{i}: chiamata a tune_scrolling (rimossa)")
+    assert colpevoli == [], (
+        "gli increment di scorrimento sono di nuovo sovrascritti:\n" + "\n".join(colpevoli)
+        + "\n\nRimuovere l'override, oppure — se serve davvero — dichiarare nel PR perché "
+          "il default per-piattaforma di CustomTkinter non va bene, con una misura a supporto.")
+
+
+def test_customtkinter_imposta_gia_gli_increment_per_piattaforma():
+    """L'assunzione che ha reso INERTE l'accordatura, resa eseguibile.
+
+    `tune_scrolling(1)` su Windows scriveva `1` — lo stesso valore che CTk scrive da sé in
+    `_set_scroll_increments()`. È il motivo per cui la build di misura della #319 non
+    misurava niente: era CustomTkinter stock.
+
+    Se una versione futura togliesse questi default (o li cambiasse), l'analisi della #319 e
+    la motivazione della rimozione andrebbero rifatte — meglio saperlo da un test rosso che
+    scoprirlo dal comportamento.
+    """
+    import customtkinter
+    from customtkinter.windows.widgets import ctk_scrollable_frame
+
+    src = pathlib.Path(ctk_scrollable_frame.__file__).read_text(encoding="utf-8")
+    inizio = src.index("def _set_scroll_increments")
+    corpo = src[inizio:inizio + 500]
+
+    for atteso in ("xscrollincrement=1, yscrollincrement=1",          # Windows
+                   "xscrollincrement=4, yscrollincrement=8",          # macOS
+                   "xscrollincrement=30, yscrollincrement=30"):       # Linux e altri
+        assert atteso in corpo, (
+            f"CustomTkinter {customtkinter.__version__} non imposta più «{atteso}» in "
+            "`_set_scroll_increments`: rivedere la #319 e la motivazione della rimozione "
+            "di `tune_scrolling`")
 
 
 def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
     """La scoperta della Phase 0 #319, resa eseguibile invece che lasciata in un commento.
 
-    `tune_scrolling` regola il **quanto** di scorrimento. Il **numero** di quanti per
-    scatto di rotellina non è nostro: sta cablato in CustomTkinter come
-    `-int(event.delta / 6)`, e con il `delta` di Windows (±120) fa **20 unità**.
+    Su Windows CTk chiede `-int(event.delta / 6)` unità di scorrimento per scatto: con il
+    `delta` di Windows (±120) fa **20 unità**, cablate nel suo sorgente.
 
-    Da qui la conseguenza che governa tutta la #319: qualunque valore di `step_px`
-    lascia **lo stesso numero di unità richieste** — venti — e cambia solo di quanti
-    pixel vale ognuna. Quindi `tune_scrolling` sposta la geometria dello scorrimento,
-    non la quantità di lavoro che Tk riceve.
+    ⚠️ Questo test prova **il divisore, non i ridisegni** (rilievo CodeRabbit sulla #320,
+    fondato): `_mouse_wheel_all` emette UN solo comando `yview("scroll", N, "units")` e Tk
+    accorpa i ridisegni a idle. «Venti unità» è il numero richiesto, non un conteggio di
+    disegni — dedurlo sarebbe un'inferenza travestita da dato.
 
-    ⚠️ Quello che questo test dimostra è **il divisore, non i ridisegni** (rilievo
-    CodeRabbit sulla #320, fondato): `_mouse_wheel_all` emette UN solo comando
-    `yview("scroll", -int(event.delta/6), "units")`, e Tk accorpa i ridisegni a idle.
-    Venti unità richieste NON sono per forza venti ridisegni: quel conto non è stato
-    misurato e qui non viene asserito. Resta accertato solo che il numero di unità è
-    cablato in CTk e fuori dalla nostra portata.
-
-    Il test legge il sorgente di CTk installato: se una versione futura cambiasse
-    quel divisore, la premessa della #319 cadrebbe e va rifatta l'analisi invece di
-    ereditarla. È esattamente il tipo di assunzione di terze parti che rompe in
-    silenzio."""
+    Il test legge il sorgente di CTk installato: se una versione futura cambiasse quel
+    divisore, la premessa della #319 cadrebbe e andrebbe rifatta l'analisi invece di
+    ereditarla. È esattamente il tipo di assunzione di terze parti che rompe in silenzio.
+    """
     import customtkinter
     from customtkinter.windows.widgets import ctk_scrollable_frame
 
@@ -150,49 +130,59 @@ def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
         f"CustomTkinter {customtkinter.__version__} non divide più il delta per 6: il conto "
         "«20 unità per scatto» su cui poggia la #319 non vale più, rifare la misura")
 
-    # E il quanto lo impostiamo NOI dopo la costruzione: CTk lo tocca una volta sola
-    # nell'__init__, quindi `tune_scrolling` non viene sovrascritta a runtime. Se un
-    # domani `_set_scroll_increments` venisse richiamata (es. al cambio di scaling),
-    # la nostra accordatura sparirebbe senza che nessuno se ne accorga.
+    # CTk tocca gli increment una volta sola, nell'__init__. Il conteggio resta presidiato
+    # perché documenta il ciclo di vita su cui poggiava (e poggerebbe di nuovo) qualunque
+    # accordatura post-costruzione: se `_set_scroll_increments` venisse richiamata a runtime,
+    # un eventuale override futuro sparirebbe senza che nessuno se ne accorga.
     assert src.count("self._set_scroll_increments()") == 1, (
-        "CustomTkinter ora chiama `_set_scroll_increments` più di una volta: può "
-        "sovrascrivere `tune_scrolling` a runtime, verificare quando")
+        "CustomTkinter ora chiama `_set_scroll_increments` più di una volta: se un domani si "
+        "reintroducesse un override degli increment, verrebbe sovrascritto a runtime")
 
 
-def test_tune_scrolling_passo_personalizzato(monkeypatch):
-    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
-    sf = _ScrollableDoppio()
-    ui_cards.tune_scrolling(sf, step_px=5)
-    assert sf._parent_canvas.kwargs == {"xscrollincrement": 5, "yscrollincrement": 5}
+def test_customtkinter_isola_le_scrollable_ANNIDATE():
+    """La scheda Parser è l'unica con scrollable annidate (`_profiles_box` e
+    `_market_profiles_box`, orizzontali, dentro `outer` verticale), ed era una delle
+    ipotesi sulla causa della #319: una rotellina che sposta due viste.
 
+    **Smentita, e qui pinnata**: `_check_if_valid_scroll` risale la catena dei master e
+    incontra la scrollable INTERNA prima di quella esterna, applicando il ramo
+    `widget._parent_canvas == self._parent_canvas` → `False` per l'esterna. Misurato sotto
+    Xvfb su una struttura equivalente.
 
-def test_tune_scrolling_best_effort_su_doppio_senza_canvas(monkeypatch):
-    """Doppio headless senza `_parent_canvas` (o canvas che solleva): mai un crash —
-    lo scroll resta quello di default, la GUI vive.
+    Se una versione futura di CTk togliesse quel ramo, l'annidamento tornerebbe a scorrere
+    doppio e questa esclusione della #319 andrebbe rifatta.
+    """
+    from customtkinter.windows.widgets import ctk_scrollable_frame
 
-    Il monkeypatch a `win32` non è cosmesi: senza, il gate di piattaforma della #320
-    farebbe uscire la funzione PRIMA del `try`, e il test passerebbe **a vuoto** su
-    Linux — verde senza aver mai esercitato il best-effort che pretende di coprire."""
-    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
-    ui_cards.tune_scrolling(object())          # nessun _parent_canvas
-
-    class _CanvasRotto:
-        def configure(self, **kw):
-            raise RuntimeError("canvas distrutto")
-
-    class _SfRotto:
-        _parent_canvas = _CanvasRotto()
-
-    ui_cards.tune_scrolling(_SfRotto())        # configure che solleva → assorbito
+    src = pathlib.Path(ctk_scrollable_frame.__file__).read_text(encoding="utf-8")
+    inizio = src.index("def _check_if_valid_scroll")
+    corpo = src[inizio:inizio + 500]
+    assert "isinstance(widget, CTkScrollableFrame)" in corpo, (
+        "`_check_if_valid_scroll` non riconosce più le scrollable annidate: l'esclusione "
+        "dell'ipotesi «annidamento» nella #319 va rifatta")
+    assert "widget._parent_canvas == self._parent_canvas" in corpo, (
+        "`_check_if_valid_scroll` non confronta più il canvas della scrollable annidata: "
+        "una rotellina potrebbe tornare a spostare DUE viste")
 
 
 def test_la_scansione_copre_anche_i_sottopackage():
-    """Rilievo CodeRabbit #241: `glob` vedeva solo i figli diretti — una scrollable
-    aggiunta in un sottopackage (es. `betfair/`) avrebbe bypassato la guardia.
-    Il contratto è ricorsivo: la scansione deve includere i moduli annidati."""
+    """Rilievo CodeRabbit #241, ancora valido per la guardia inversa: `glob` vedeva solo i
+    figli diretti — un override reintrodotto in un sottopackage (es. `betfair/`) sfuggirebbe.
+    Il contratto è ricorsivo."""
     annidati = [p for p in PKG.rglob("*.py") if p.parent != PKG]
     assert annidati, "il package ha sottomoduli: se spariscono, rivedere la guardia"
     assert set(PKG.rglob("*.py")) >= set(annidati)
+
+
+def test_ui_cards_non_espone_piu_tune_scrolling():
+    """La funzione è stata rimossa, non solo svuotata: chi la cercasse deve trovare un
+    `AttributeError` esplicito, non un no-op silenzioso che sembra configurare qualcosa."""
+    assert not hasattr(ui_cards, "tune_scrolling"), (
+        "`tune_scrolling` è tornata in `ui_cards`: era inerte su Windows e dannosa altrove "
+        "(vedi il docstring di questo modulo e la #319)")
+    # Il modulo resta quello della composizione a card: le altre funzioni non si toccano.
+    for superstite in ("card_style", "card", "badge", "hint", "collapse_when_empty"):
+        assert hasattr(ui_cards, superstite), f"`{superstite}` non deve sparire con la rimozione"
 
 
 def _nome_target(nodo) -> str | None:
@@ -204,14 +194,14 @@ def _nome_target(nodo) -> str | None:
     return None
 
 
-def _scrollable_non_accordate(src: str) -> list[str]:
-    """Analisi STRUTTURALE (rilievo CodeRabbit #242: il conteggio testuale poteva
-    essere ingannato da un commento o da una chiamata doppia): ogni variabile a cui
-    è assegnata una `ctk.CTkScrollableFrame(...)` deve comparire come argomento di
-    una `ui_cards.tune_scrolling(...)` nello stesso modulo."""
+def _scrollable_costruite(src: str) -> list[str]:
+    """Le variabili a cui è assegnata una `ctk.CTkScrollableFrame(...)`, per censimento.
+
+    Non serve più a pretendere un'accordatura (non c'è più): serve a documentare quante e
+    quali sono, così una PR che ne aggiunge una in un punto inatteso resta visibile.
+    """
     tree = ast.parse(src)
     costruite: list[str] = []
-    accordate: set[str] = set()
     for nodo in ast.walk(tree):
         if isinstance(nodo, ast.Assign) and isinstance(nodo.value, ast.Call):
             f = nodo.value.func
@@ -220,36 +210,22 @@ def _scrollable_non_accordate(src: str) -> list[str]:
                     nome = _nome_target(t)
                     if nome:
                         costruite.append(nome)
-        if (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
-                and nodo.func.attr == "tune_scrolling" and nodo.args):
-            nome = _nome_target(nodo.args[0])
-            if nome:
-                accordate.add(nome)
-    return [n for n in costruite if n not in accordate]
+    return costruite
 
 
-def test_ogni_scrollable_di_entrambi_i_package_viene_accordata():
-    """La classe, non il sito — su ENTRAMBI i package (bridge + License Manager):
-    ogni `CTkScrollableFrame` costruita deve essere passata a `tune_scrolling`,
-    con associazione per-variabile (non per conteggio)."""
-    rotti = []
+def test_censimento_scrollable_il_parser_e_l_unico_con_annidamento():
+    """Censimento, non divieto: il Parser è l'unica scheda con più scrollable nello stesso
+    file, ed è l'unica in cui il proprietario ha osservato la scia (#319). Il legame non è
+    dimostrato — l'ipotesi annidamento è stata smentita — ma la coincidenza è il solo indizio
+    rimasto, e va tenuta visibile finché la #319 è aperta."""
+    per_file = {}
     for pkg in PACKAGES:
         for path in sorted(pkg.rglob("*.py")):
-            if path.name == "ui_cards.py":
-                continue
-            for nome in _scrollable_non_accordate(path.read_text(encoding="utf-8")):
-                rotti.append(f"{path.name}: `{nome}` costruita ma mai accordata")
-    assert rotti == [], "\n".join(rotti)
-
-
-def test_guardia_strutturale_non_si_fa_ingannare():
-    """Le fixture del rilievo: un commento non conta come accordatura, una chiamata
-    doppia su un'altra variabile non copre quella nuda."""
-    assert _scrollable_non_accordate(
-        "a = ctk.CTkScrollableFrame(x)\n# ui_cards.tune_scrolling(a)\n") == ["a"]
-    assert _scrollable_non_accordate(
-        "a = ctk.CTkScrollableFrame(x)\nb = ctk.CTkScrollableFrame(x)\n"
-        "ui_cards.tune_scrolling(a)\nui_cards.tune_scrolling(a)\n") == ["b"]
-    assert _scrollable_non_accordate(
-        "self._lista = ctk.CTkScrollableFrame(x)\n"
-        "ui_cards.tune_scrolling(self._lista)\n") == []
+            trovate = _scrollable_costruite(path.read_text(encoding="utf-8"))
+            if trovate:
+                per_file[path.name] = trovate
+    assert "custom_parser_gui.py" in per_file, "il Parser non costruisce più scrollable?"
+    assert len(per_file["custom_parser_gui.py"]) >= 3, (
+        "il Parser aveva 4 scrollable (outer + lista salvati + 2 box profili orizzontali): "
+        f"ora {per_file['custom_parser_gui.py']}. Se sono state ridotte, aggiornare la #319: "
+        "l'unico indizio rimasto è che la scia si vede SOLO in questa scheda.")

@@ -658,7 +658,6 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # ── colonna destra: editor scrollabile (tutte le sezioni-card) ──
         outer = ctk.CTkScrollableFrame(body, fg_color="transparent")
-        ui_cards.tune_scrolling(outer)   # scroll fluido (regola 2: ogni scrollable)
         if callable(getattr(outer, "grid", None)):
             outer.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=8)
         self._outer = outer
@@ -705,7 +704,6 @@ class CustomParserPanel(ctk.CTkFrame):
         self._saved_var = ctk.StringVar(value=self._NONE_SAVED)
         # La lista riempie la colonna in VERTICALE (negli sketch scorre lei, non la card).
         self._saved_list = ctk.CTkScrollableFrame(manage, fg_color="transparent")
-        ui_cards.tune_scrolling(self._saved_list)   # scroll fluido (regola 2: ogni scrollable)
         self._saved_list.pack(fill="both", expand=True, padx=2, pady=(2, 4))
         self._saved_rows = {}          # nome parser → widget riga (per evidenziare la selezione)
         ui_cards.hint(ctk, manage,
@@ -783,7 +781,6 @@ class CustomParserPanel(ctk.CTkFrame):
         self._nm_status_lbl = ctk.CTkLabel(nm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._nm_status_lbl.pack(side="left", padx=(8, 2))
         self._profiles_box = ctk.CTkScrollableFrame(nm, height=42, orientation="horizontal")
-        ui_cards.tune_scrolling(self._profiles_box)   # scroll fluido (regola 2: ogni scrollable)
         self._profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._profile_checks = {}        # nome profilo → BooleanVar
         self._existing_profiles = set()  # profili realmente presenti in config (non ⚠)
@@ -806,7 +803,6 @@ class CustomParserPanel(ctk.CTkFrame):
         self._mm_status_lbl = ctk.CTkLabel(mm, text=i18n.tr("— nessuna"), width=92, anchor="w")
         self._mm_status_lbl.pack(side="left", padx=(8, 2))
         self._market_profiles_box = ctk.CTkScrollableFrame(mm, height=42, orientation="horizontal")
-        ui_cards.tune_scrolling(self._market_profiles_box)   # scroll fluido (regola 2: ogni scrollable)
         self._market_profiles_box.pack(side="left", fill="x", expand=True, padx=4)
         self._market_profile_checks = {}        # nome profilo mercati → BooleanVar
         self._existing_market_profiles = set()  # profili mercati realmente in config (non ⚠)
