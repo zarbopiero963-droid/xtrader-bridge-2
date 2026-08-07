@@ -48,15 +48,46 @@ def card_style(border=None) -> dict:
     }
 
 
-def tune_scrolling(sf, step_px: int = 3) -> None:
-    """Scorrimento più fluido per una `CTkScrollableFrame` (segnalazione proprietario
-    2026-08-04: la griglia del Parser «scatta/trema» sotto rotellina su Windows).
+def tune_scrolling(sf, step_px: int = 1) -> None:
+    """Passo di scorrimento di una `CTkScrollableFrame`.
 
-    CustomTkinter su Windows imposta `yscrollincrement=1` e scrolla -delta/6 (=20)
-    unità per scatto → 20px a scatto: su contenuti alti migliaia di px servono
-    ~130 scatti, e ogni scatto ridisegna tutti i widget visibili (angoli
-    arrotondati inclusi) → tremolio. Portare gli increment a `step_px` (default 3)
-    dà ~60px per scatto con un terzo dei ridisegni, SENZA toccare i binding CTk.
+    ⚠️ **BUILD DI MISURA (#319, 2026-08-07): `step_px` è tornato a 1.** Non è la
+    configurazione definitiva — serve a rispondere a una domanda precisa, e va
+    rivista appena il proprietario ha guardato il risultato. Vedi «La misura» sotto.
+
+    **Storia.** Segnalazione proprietario 2026-08-04: la griglia del Parser
+    «scatta/trema» sotto rotellina su Windows. Rimedio di allora: `step_px=3`.
+    Segnalazione proprietario 2026-08-07 (#319): scorrendo, il testo lascia una
+    **scia di decine di copie** — nel fotogramma a 00:11 del video l'etichetta
+    `MarketName` è scritta così tante volte da formare un blocco illeggibile.
+
+    **Cosa fa davvero questa funzione — e cosa NON può fare.** Su Windows CTk
+    scrolla `-int(event.delta / 6)` unità per scatto, cioè **20 unità, cablate**
+    (`ctk_scrollable_frame.py::_mouse_wheel_all`). L'unica leva qui è la
+    *dimensione* del quanto, non il loro *numero*: i ridisegni intermedi restano
+    venti in ogni caso. Se il canvas non ripulisce l'area prima di ridisegnare —
+    ed è ciò che i fotogrammi mostrano — venti fantasmi ci sono comunque, e
+    `step_px` sceglie solo **come appaiono**:
+
+    - `step_px=1` → 20 fantasmi da 1px, adiacenti → si leggono come **sfocatura**;
+    - `step_px=3` → 20 fantasmi da 3px, distanziati → **scia leggibile**.
+
+    Quindi la correzione del 04/08 non ha creato il difetto: lo ha reso visibile,
+    scambiando una sfocatura per una scia. Nessuno dei due valori lo risolve.
+
+    **La misura.** Con `step_px=1` si torna al default CTk di Windows. Se il
+    proprietario rivede il tremolio del 04/08 al posto della scia, l'ipotesi è
+    confermata: il difetto è nella **ripulitura del canvas**, non nel passo — e il
+    rimedio vero (prendere il controllo della rotellina per avere UN ridisegno per
+    scatto) diventa mirato invece che a tentoni.
+
+    ⚠️ **Costo accettato della misura, dichiarato:** CTk usa default diversi per
+    piattaforma (Windows 1, macOS 4/8, **Linux 30**) e questa funzione li
+    sovrascrive su tutte. Con `step_px=1` lo scorrimento su Linux diventa 30 volte
+    più lento. Irrilevante qui — il bersaglio è Windows e su Linux gira solo la
+    pipeline screenshot — ma è un effetto reale e non va scoperto per caso: che
+    `tune_scrolling` ignori la piattaforma è un difetto suo, preesistente a questa
+    misura e da trattare a parte.
 
     Usa `_parent_canvas` (non c'è API pubblica per gli increment): accesso protetto
     e best-effort — doppi headless senza canvas, o canvas già distrutto → no-op,

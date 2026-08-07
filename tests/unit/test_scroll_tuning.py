@@ -7,11 +7,23 @@ Causa misurata: CustomTkinter su Windows imposta ``yscrollincrement=1`` e scroll
 ~2600px: ~130 scatti per attraversarlo, e OGNI scatto ridisegna decine di widget
 con angoli arrotondati → tremolio percepito.
 
-Rimedio (fonte unica, regola 3): ``ui_cards.tune_scrolling(sf)`` porta gli
-increment del canvas a 3px → ~60px per scatto con un TERZO dei ridisegni, senza
-toccare i binding di CustomTkinter. Va chiamata su OGNI CTkScrollableFrame del
-package (la classe, non il sito — regola 2): il test sorgente qui sotto lo
-impone contando costruzioni e chiamate per modulo.
+Rimedio di allora (fonte unica, regola 3): ``ui_cards.tune_scrolling(sf)`` porta
+gli increment del canvas a 3px → ~60px per scatto. Va chiamata su OGNI
+CTkScrollableFrame del package (la classe, non il sito — regola 2): il test
+sorgente qui sotto lo impone contando costruzioni e chiamate per modulo.
+
+⚠️ **Aggiornamento #319 (2026-08-07): quel rimedio non era un rimedio.** Il
+proprietario ha filmato l'effetto opposto — scorrendo, il testo lascia una **scia
+di decine di copie**. La Phase 0 ha stabilito perché: il numero di ridisegni per
+scatto (**venti**) è cablato in CustomTkinter e ``tune_scrolling`` non lo tocca.
+Quindi i fantasmi ci sono con qualunque passo, e ``step_px`` sceglie solo se
+appaiono come **sfocatura** (1px, adiacenti → il «tremolio» del 04/08) o come
+**scia** (3px, distanziati → quello che si vede oggi).
+
+Il valore è tornato a **1** come **misura**: se il proprietario rivede la
+sfocatura, il difetto è nella ripulitura del canvas e il rimedio vero deve
+prendere il controllo della rotellina. Il pin del valore e la premessa dei venti
+quanti sono fissati dai due test in cima.
 """
 from __future__ import annotations
 
@@ -43,10 +55,54 @@ class _ScrollableDoppio:
         self._parent_canvas = _CanvasDoppio()
 
 
-def test_tune_scrolling_imposta_gli_increment_a_3px():
+def test_tune_scrolling_imposta_gli_increment_a_1px():
+    """⚠️ Valore di MISURA (#319, 2026-08-07), non configurazione definitiva.
+
+    Era `3`, scelto il 04/08 contro il «tremolio». Il 07/08 il proprietario ha
+    filmato l'effetto opposto — una scia di decine di copie — e la Phase 0 ha
+    stabilito che i due valori non sono un rimedio ma una **scelta estetica sullo
+    stesso difetto**: i ridisegni intermedi sono sempre venti (vedi il test qui
+    sotto), cambia solo quanto sono distanziati i fantasmi.
+
+    Tornare a `1` risponde a una domanda sola: il proprietario rivede la sfocatura
+    del 04/08? Se sì, il difetto è nella ripulitura del canvas ed è lì che va la
+    correzione vera. Questo test **pinna il valore** perché il ritorno a 1 sia una
+    decisione leggibile e non una regressione silenziosa."""
     sf = _ScrollableDoppio()
     ui_cards.tune_scrolling(sf)
-    assert sf._parent_canvas.kwargs == {"xscrollincrement": 3, "yscrollincrement": 3}
+    assert sf._parent_canvas.kwargs == {"xscrollincrement": 1, "yscrollincrement": 1}
+
+
+def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
+    """La scoperta della Phase 0 #319, resa eseguibile invece che lasciata in un commento.
+
+    `tune_scrolling` regola il **quanto** di scorrimento. Il **numero** di quanti per
+    scatto di rotellina non è nostro: sta cablato in CustomTkinter come
+    `-int(event.delta / 6)`, e con il `delta` di Windows (±120) fa **20 unità**.
+
+    Da qui la conseguenza che governa tutta la #319: qualunque valore di `step_px`
+    lascia venti ridisegni intermedi, quindi `tune_scrolling` **non può** ridurre i
+    fantasmi — può solo distanziarli. Il rimedio vero deve toccare la rotellina.
+
+    Il test legge il sorgente di CTk installato: se una versione futura cambiasse
+    quel divisore, la premessa della #319 cadrebbe e va rifatta l'analisi invece di
+    ereditarla. È esattamente il tipo di assunzione di terze parti che rompe in
+    silenzio."""
+    import customtkinter
+    from customtkinter.windows.widgets import ctk_scrollable_frame
+
+    src = pathlib.Path(ctk_scrollable_frame.__file__).read_text(encoding="utf-8")
+    assert "event.delta / 6" in src, (
+        f"CustomTkinter {customtkinter.__version__} non divide più il delta per 6: il conto "
+        "«20 unità per scatto» su cui poggia la #319 non vale più, rifare la misura")
+
+    # E il quanto lo impostiamo NOI dopo la costruzione: CTk lo tocca una volta sola
+    # nell'__init__, quindi `tune_scrolling` non viene sovrascritta a runtime. Se un
+    # domani `_set_scroll_increments` venisse richiamata (es. al cambio di scaling),
+    # la nostra accordatura sparirebbe senza che nessuno se ne accorga.
+    assert src.count("self._set_scroll_increments()") == 1, (
+        "CustomTkinter ora chiama `_set_scroll_increments` più di una volta: può "
+        "sovrascrivere `tune_scrolling` a runtime, verificare quando")
 
 
 def test_tune_scrolling_passo_personalizzato():

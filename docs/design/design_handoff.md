@@ -1104,9 +1104,22 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > **Scorrimento accordato (segnalazione proprietario 2026-08-04).** Su Windows CustomTkinter
 > scrolla 20px per scatto di rotellina: sull'editor del Parser (~2600px di contenuto) servivano
 > ~130 scatti, ognuno con ridisegno completo dei widget visibili → effetto «scatta/trema»,
-> massimo sulla Griglia regole. Ogni `CTkScrollableFrame` del package è ora accordata con
-> `ui_cards.tune_scrolling()` (increment 3px → ~60px per scatto, un terzo dei ridisegni);
-> un test sorgente impone che ogni scrollable nuova venga accordata — copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non richiedono accordatura).
+> massimo sulla Griglia regole. Ogni `CTkScrollableFrame` del package è accordata con
+> `ui_cards.tune_scrolling()`; un test sorgente impone che ogni scrollable nuova venga accordata —
+> copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a
+> schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non
+> richiedono accordatura).
+>
+> ⚠️ **Il passo è in MISURA, non stabilizzato (#319, 2026-08-07).** Il proprietario ha filmato
+> l'effetto opposto: scorrendo, il testo lascia una **scia di decine di copie** (nel fotogramma a
+> 00:11 l'etichetta `MarketName` è ripetuta fino a formare un blocco illeggibile). L'analisi ha
+> stabilito che il numero di ridisegni per scatto — **venti** — è cablato in CustomTkinter
+> (`-int(event.delta / 6)`) e non è raggiungibile da `tune_scrolling`: i fantasmi ci sono con
+> qualunque passo, e il passo sceglie solo se appaiono come **sfocatura** (1px, adiacenti) o come
+> **scia** (3px, distanziati). Il valore è tornato temporaneamente a **1px** per far vedere al
+> proprietario quale dei due sintomi ottiene. **Nessuno dei due è la resa finale**: se la misura
+> conferma, il rimedio vero dovrà ottenere **un solo ridisegno per scatto**, e questo riquadro va
+> riscritto con la soluzione adottata.
 
 > **Le sezioni vuote non riservano spazio (segnalazione proprietario 2026-08-04).** Un
 > `CTkFrame` senza figli chiede l'altezza di **default** di CustomTkinter — **200px** — anche
