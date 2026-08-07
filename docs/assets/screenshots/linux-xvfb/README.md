@@ -81,7 +81,11 @@ Origine nel codice delle lacune rimaste:
 
 - `xtrader_bridge/bridge_mode.py` → `LABELS` (il valore del selettore)
 - `xtrader_bridge/health_check.py` → i **dettagli** di alcuni item (le etichette passano già da `i18n`)
-- l'etichetta della scheda Licenza
+- **scheda Licenza**: il codice è a posto — `xtrader_bridge/app.py:1821` fa già
+  `tabs.add(i18n.tr("🔑 Licenza"))`. Manca la **chiave** `"🔑 Licenza"` nei dizionari `en` e `es`
+  di `xtrader_bridge/i18n.py`, che invece hanno `"🛡️ Sicurezza"` e `"🚦 Salute"`; senza voce,
+  `tr()` restituisce l'originale italiano. È l'unica delle tre lacune che si chiude aggiungendo
+  due righe di traduzione invece che toccando la logica.
 
 Non rientrano fra le stringhe dichiarate «italiane per contratto» nella issue #3 (messaggi di
 dominio, log di debug, dialog di istanza singola): sono **lacune vere**.

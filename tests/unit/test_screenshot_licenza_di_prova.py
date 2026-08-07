@@ -11,6 +11,7 @@ Questi test esercitano le due funzioni reali del tool, non una copia della logic
 
 import importlib.util
 import pathlib
+import signal
 
 import pytest
 
@@ -24,6 +25,11 @@ _MODULO = _ROOT / "tools" / "screenshots" / "app_con_licenza_di_prova.py"
 # giri: è la chiave pubblica **reale** deployata nel prodotto. Serve al canarino in fondo al file.
 # Stesso schema già usato da `test_licensing_license.py` e `test_license_status.py`.
 _CHIAVE_DEPLOYATA_REALE = _lic.LICENSE_PUBLIC_KEY_HEX
+
+# Stessa idea, altro pezzo di stato condiviso: i gestori di segnale che pytest aveva PRIMA che
+# questo file girasse. `_attiva_licenza_di_prova` ne installa di propri, e `monkeypatch` non disfa
+# `signal.signal` (rilievo CodeRabbit sulla #310). Serve al secondo canarino in fondo al file.
+_GESTORI_ORIGINALI = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
 
 # Impronta hardware finta, ma nel formato vero (`HW1-` + 16 hex a gruppi di 4), così
 # `hwid.is_identifiable` la accetta come accetterebbe quella di una macchina reale.
@@ -70,6 +76,29 @@ def _chiave_deployata_ripristinata():
     yield
     _lic.LICENSE_PUBLIC_KEY_HEX = originale_lic
     _rev.LICENSE_PUBLIC_KEY_HEX = originale_rev
+
+
+@pytest.fixture(autouse=True)
+def _gestori_di_segnale_ripristinati():
+    """Rimette a posto i gestori di SIGTERM e SIGINT dopo ogni test di questo file.
+
+    Rilievo **CodeRabbit** sulla #310, ed è **la stessa classe** che Fable aveva trovato sulla
+    chiave pubblica — sfuggita a me una seconda volta, sull'altro pezzo di stato condiviso.
+    I test che eseguono `_attiva_licenza_di_prova` patchano `atexit.register` ma non
+    `signal.signal`, quindi il launcher installa gestori **veri** nel processo pytest, e
+    `monkeypatch` non li disfa.
+
+    Due conseguenze, entrambe reali: un Ctrl+C in un test successivo finirebbe nel gestore del
+    launcher e in `sys.exit(0)` invece che nel percorso di interruzione di pytest; e la chiusura
+    trattenuta punta a uno `stato` con una `tmp_path` ormai cancellata.
+
+    Non copre `test_i_gestori_di_segnale_sono_installati_prima_di_toccare_la_licenza`, che
+    `signal.signal` se lo patcha da sé e quindi non installa niente per davvero.
+    """
+    originali = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    yield
+    for numero, gestore in originali.items():
+        signal.signal(numero, gestore)
 
 
 @pytest.fixture
@@ -635,6 +664,55 @@ def test_due_invocazioni_nello_stesso_processo_lasciano_la_licenza_vera_al_suo_p
         "dopo due invocazioni la licenza vera non è tornata al suo posto"
     assert not percorso.with_name(percorso.name + tool.SUFFISSO_BACKUP).exists(), \
         "è rimasto un backup orfano: bloccherebbe la corsa successiva"
+
+
+@pytest.mark.parametrize("payload", ["[]", "3", '"abc"', "null"])
+@pytest.mark.parametrize("quale", ["ripristina_licenza", "rimuovi_licenza_di_prova"])
+def test_un_json_valido_che_non_e_un_oggetto_non_fa_sollevare_la_pulizia(tool, tmp_path, quale,
+                                                                        payload):
+    """Rilievo **CodeRabbit** sulla #310, e il test che avevo scritto non lo copriva.
+
+    `json.loads` accetta anche JSON validi che **non sono oggetti** — `[]`, `3`, `"abc"`, `null`
+    — e su quelli `.get` solleva `AttributeError`, che non era catturato. L'eccezione usciva da
+    `ripristina_licenza` / `rimuovi_licenza_di_prova`, cioè **da `atexit`**, rompendo il contratto
+    «MAI sollevare da atexit» scritto nel file stesso: traceback a fine processo e l'utente che
+    non capisce quale file sistemare.
+
+    Il mio test sul file corrotto usava `"non e' JSON {{{"`, che solleva `ValueError` e non
+    arriva mai a `.get`: passava senza toccare il difetto. Un `license_state.json` modificato a
+    mano che contiene `[]` ci arriva eccome.
+    """
+    percorso = tmp_path / "license_state.json"
+    percorso.write_text(payload, encoding="utf-8")
+    intatto = percorso.read_bytes()
+
+    if quale == "rimuovi_licenza_di_prova":
+        tool.rimuovi_licenza_di_prova(percorso, "IL-NOSTRO-TOKEN")   # non deve sollevare
+    else:
+        backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+        backup.write_text('{"token": "LICENZA-VERA", "last_seen": 0}', encoding="utf-8")
+        tool.ripristina_licenza(str(backup), percorso, "IL-NOSTRO-TOKEN")   # non deve sollevare
+        assert backup.read_bytes(), "il backup è stato consumato su un file non attribuibile"
+
+    assert percorso.read_bytes() == intatto, \
+        "un file che non è un oggetto JSON non è nostro: non va né cancellato né sovrascritto"
+
+
+def test_canarino_i_gestori_di_segnale_sono_quelli_di_pytest():
+    """Secondo canarino di fine file, gemello di quello sulla chiave pubblica.
+
+    `_attiva_licenza_di_prova` installa gestori **veri** per SIGTERM e SIGINT, e `monkeypatch`
+    non disfa `signal.signal`: senza il ripristino, da qui in poi un Ctrl+C nella sessione pytest
+    finirebbe nel gestore del launcher invece che nel percorso di interruzione normale.
+
+    Come l'altro canarino vive in fondo di proposito — pytest esegue in ordine di scrittura — e
+    da solo passa banalmente: serve nel giro completo del file, che è come gira in CI.
+    """
+    for numero, atteso in _GESTORI_ORIGINALI.items():
+        assert signal.getsignal(numero) == atteso, (
+            f"il gestore di {numero!r} è rimasto quello installato dal launcher: un Ctrl+C nel "
+            "resto della sessione pytest non finirebbe più dove deve, e la chiusura trattenuta "
+            "punta a una cartella temporanea già cancellata")
 
 
 def test_canarino_la_chiave_deployata_e_ancora_quella_reale():

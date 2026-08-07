@@ -180,6 +180,14 @@ def _e_ancora_la_nostra(percorso, token_atteso) -> bool:
         stato = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
+    # `json.loads` accetta anche JSON validi che NON sono oggetti — `[]`, `3`, `"abc"` — e su
+    # quelli `.get` solleva `AttributeError`, che qui non è catturato: l'eccezione uscirebbe da
+    # `atexit` rompendo il contratto «MAI sollevare da atexit» scritto due funzioni più su.
+    # Il test sul file corrotto non lo copriva: `"non e' JSON {{{"` solleva `ValueError` e non
+    # arriva mai a `.get`. Un file modificato a mano che contiene `[]` ci arriva (rilievo
+    # CodeRabbit sulla #310).
+    if not isinstance(stato, dict):
+        return False
     return str(stato.get("token", "")) == str(token_atteso)
 
 
