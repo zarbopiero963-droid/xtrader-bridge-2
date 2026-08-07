@@ -220,6 +220,47 @@ def test_non_cancella_una_licenza_vera_attivata_durante_gli_scatti(tool, tmp_pat
         "la licenza vera attivata durante la sessione è stata cancellata dalla pulizia"
 
 
+@pytest.mark.parametrize("quale", ["ripristina_licenza", "rimuovi_licenza_di_prova"])
+def test_nessuna_pulizia_solleva_mai_se_il_file_e_lockato(tool, tmp_path, monkeypatch, quale):
+    """**Nessuna** delle due pulizie deve sollevare: girano entrambe da `atexit`.
+
+    Rilievo GPT-5.5 sulla #310 su `rimuovi_licenza_di_prova`, ma il difetto era di **classe**:
+    anche `ripristina_licenza` chiamava `os.replace` nudo. Un'eccezione da `atexit` non la
+    gestisce nessuno — Python stampa un traceback a fine processo e l'utente non capisce quale
+    file sistemare. Su Windows è verosimile: antivirus e indicizzatore tengono aperti i file
+    appena scritti.
+
+    Parametrizzato apposta sulle DUE funzioni: correggerne una sola era l'errore che questa PR
+    ha già fatto due volte (Regola 2 — cerca la classe, non il sito).
+    """
+    percorso = tmp_path / "license_state.json"
+    percorso.write_text('{"token": "TOK", "last_seen": 1}', encoding="utf-8")
+
+    def _esplode(*_a, **_k):
+        raise PermissionError("file lockato dall'antivirus")
+
+    monkeypatch.setattr(tool.os, "replace", _esplode)
+    monkeypatch.setattr(pathlib.Path, "unlink", _esplode)
+
+    if quale == "ripristina_licenza":
+        backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+        backup.write_text('{"token": "VERA", "last_seen": 0}', encoding="utf-8")
+        tool.ripristina_licenza(str(backup), percorso)      # non deve sollevare
+    else:
+        tool.rimuovi_licenza_di_prova(percorso, "TOK")      # non deve sollevare
+
+
+def test_un_file_di_licenza_corrotto_non_viene_cancellato_ne_fa_esplodere(tool, tmp_path):
+    """Se `license_state.json` non è JSON valido non è roba nostra: non si tocca e non si
+    solleva. Copre il caso segnalato da GPT-5.5 («JSON illeggibile / file corrotto»)."""
+    percorso = tmp_path / "license_state.json"
+    percorso.write_text("questo non e' JSON {{{", encoding="utf-8")
+
+    tool.rimuovi_licenza_di_prova(percorso, "IL-NOSTRO-TOKEN")
+
+    assert percorso.exists(), "un file corrotto e' stato cancellato: non era nostro da toccare"
+
+
 def test_un_handler_precedente_che_solleva_vince_sul_nostro_sys_exit(tool, monkeypatch):
     """Contratto fissato su richiesta di GPT-5.5 (#310, quarto giro).
 

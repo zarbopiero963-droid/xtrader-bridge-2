@@ -94,6 +94,23 @@ def preserva_licenza_esistente(percorso) -> "str | None":
     return str(backup)
 
 
+def _avvisa_pulizia_fallita(errore, cosa) -> None:
+    """**MAI sollevare da `atexit`.**
+
+    Le due funzioni di pulizia girano da `atexit`, dove un'eccezione non viene gestita da
+    nessuno: Python stampa un traceback a fine processo, l'utente vede un muro rosso e — cosa
+    peggiore — non capisce che il file da sistemare a mano è lì e come si chiama. Su Windows
+    l'errore è verosimile, non teorico: antivirus e indicizzatore tengono aperti i file appena
+    scritti (rilievo GPT-5.5 sulla #310).
+
+    Quindi si stampa una riga leggibile e si prosegue. Solo il NOME del file, non il path
+    assoluto, per la stessa ragione del messaggio di avvio: quell'output finisce nei log dei job.
+    """
+    print(f"ATTENZIONE: non sono riuscito a completare la pulizia della licenza "
+          f"({type(errore).__name__}). Controlla «{pathlib.Path(cosa).name}» nella cartella "
+          "dati dell'app e sistemalo a mano.", file=sys.stderr)
+
+
 def ripristina_licenza(backup, percorso) -> None:
     """Rimette la licenza vera dov'era, in **una sola** operazione atomica.
 
@@ -111,7 +128,10 @@ def ripristina_licenza(backup, percorso) -> None:
     b = pathlib.Path(backup)
     if not b.exists():
         return
-    os.replace(str(b), str(percorso))
+    try:
+        os.replace(str(b), str(percorso))
+    except OSError as errore:       # non blind: OSError specifica. Vedi «MAI sollevare da atexit»
+        _avvisa_pulizia_fallita(errore, backup)
 
 
 def rimuovi_licenza_di_prova(percorso, token_atteso) -> None:
@@ -137,7 +157,10 @@ def rimuovi_licenza_di_prova(percorso, token_atteso) -> None:
         return                      # illeggibile o non JSON: non è roba nostra, non si tocca
     if str(stato.get("token", "")) != str(token_atteso):
         return                      # qualcun altro l'ha cambiata (es. licenza vera attivata)
-    p.unlink()
+    try:
+        p.unlink()
+    except OSError as errore:       # non blind: OSError specifica. Vedi «MAI sollevare da atexit»
+        _avvisa_pulizia_fallita(errore, percorso)
 
 
 def _installa_ripristino_su_segnale(sig) -> None:
