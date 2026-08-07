@@ -90,24 +90,36 @@ main.py                  FastAPI: pagine statiche + POST /api/chat + /api/health
 knowledge/bridge_kb.md   knowledge base del chatbot (dalle docs reali del bridge)
 static/                  index.html · demo.html · documentazione.html · faq.html ·
                          contatti.html · guida-bot.html · style.css · chat.js · i18n.js
-static/docs/             manuale PDF di XTrader (materiale di terzi — vedi sotto)
+static/docs/             catalogo screenshot delle strategie XTrader (vedi sotto)
 static/img/guida/        screenshot delle guide (valori d'esempio, mai dati reali)
 Dockerfile               build per Railway / locale
 ```
 
-## Materiale di terzi ospitato
+## Materiale di terzi
 
-`static/docs/guida-xtrader.pdf` è il **manuale ufficiale di XTrader**, opera di
-**TradingSportivo**, ripubblicato **con la loro autorizzazione** (concessa al proprietario del
-progetto). Regole:
+Fino al 6 agosto 2026 il sito serviva `static/docs/guida-xtrader.pdf`, il manuale ufficiale di
+XTrader (opera di **TradingSportivo**, 358 pagine, 3,8 MB), con la loro autorizzazione. **È stato
+rimosso per decisione del proprietario**: ospitare l'opera di qualcun altro è una responsabilità
+che si sceglie di avere, e si è scelto di non averla.
 
-- non è materiale nostro: **non va modificato né ridistribuito** altrove;
-- la pagina `/documentazione` deve sempre mostrare **attribuzione**, **data della versione
-  ospitata** e il rimando alla **guida online** — il manuale viene aggiornato nel tempo, la nostra
-  copia no (test: `tests/unit/test_website_docs_page.py`);
-- versione attuale: scaricata il **05/08/2026**, capitoli aggiornati fino al **12/06/2026**.
-  Quando si sostituisce il file, aggiornare anche `docs.pdf.version` in `static/i18n.js` (IT nel
-  markup, EN/ES nei dizionari).
+> ⚠️ **Resta un secondo file di terzi**, e va detto invece di lasciar credere che la cartella sia
+> pulita: `static/docs/strategie-xtrader/condizioni/FORMULA.pdf` è la stampa di un articolo del
+> **Servizio Assistenza di XTrader** («GUIDA IN LINEA DI XTRADER · Condizione Formula»). Nessuna
+> pagina lo linka, ma sta sotto `static/` quindi è **raggiungibile pubblicamente**. Serve come
+> fonte al catalogo delle strategie e al documento `docs/xtrader_formule.md`. Se la ragione della
+> rimozione del manuale vale anche per lui, va tolto allo stesso modo — **decisione del
+> proprietario**, non di chi scrive questo README.
+
+Oggi `/documentazione` **nomina** il manuale, ne **attribuisce** la paternità a TradingSportivo e
+dice che sta sul loro sito — senza copia e senza link diretto al file.
+
+Regole per chi mette mano al sito:
+
+- **non rimettere il PDF** in `static/docs/`, e non aggiungere link a `guida-xtrader.pdf`: due
+  test lo impediscono (`tests/unit/test_website_docs_page.py`), più un controllo del collaudo
+  live che pretende **404** su quella rotta in produzione;
+- se un domani si volesse ospitare di nuovo qualcosa di terzi, serve **prima** l'autorizzazione
+  scritta e **poi** attribuzione e data della versione in pagina — non il contrario.
 
 Ogni pagina del sito porta il **disclaimer di non-affiliazione** nel footer
 (`footer.independent`; su `demo.html`, che ha un footer proprio, in forma testuale). È verificato
