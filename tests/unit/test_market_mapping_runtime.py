@@ -62,11 +62,13 @@ def test_pipeline_dizionario_vince_sulla_colonna():
 
 def test_pipeline_ambiguo_market_mapping_missing():
     # D2: due frasi combaciano e indicano selezioni DIVERSE → fail-closed, niente riga.
+    # #282 A2: il codice è ora DISTINTO da «nessuna frase combacia» — la causa qui è opposta e
+    # il rimedio pure. Il fail-closed, che è ciò che questo test difende, non cambia.
     profiles = [[_entry("gol gol", selection="Sì"), _entry("no gol", selection="No")]]
     res = pipe.build_validated_row(_market_parser(),
                                    "scommetti\nMercato: gol gol e no gol\nquota",
                                    market_mapping_profiles=profiles)
-    assert res.status == pipe.MARKET_MAPPING_MISSING
+    assert res.status == pipe.MARKET_MAPPING_AMBIGUOUS
     assert res.placeable is False
 
 
@@ -276,7 +278,7 @@ def test_router_ambiguo_scarta(tmp_path):
     res = signal_router.resolve_row(msg, _router_cfg(entries=entries),
                                     chat_id="42", parsers_dir=str(tmp_path))
     assert res.placeable is False                     # fail-closed: niente riga CSV
-    assert res.status == pipe.MARKET_MAPPING_MISSING
+    assert res.status == pipe.MARKET_MAPPING_AMBIGUOUS   # #282 A2: causa distinta dal fratello
 
 
 # ── helper sui file dei parser (rename/uso profili mercati) ──────────────────

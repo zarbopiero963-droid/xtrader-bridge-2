@@ -116,8 +116,12 @@ Derivano un valore calcolato da quello estratto. Built-in:
 >    ma non soddisfa la condizione di gate «contiene: GOL ANNULLATO»
 > ⛔ Non pronto (MAPPING_MISSING) · EventName non traducibile: separatore non trovato
 >    o squadra non nei profili di mappatura nomi
-> ⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: frasi ambigue, o
->    nessuna frase combacia e nessun mercato dalle regole
+> ⛔ Non pronto (MARKET_MAPPING_MISSING) · mercato non risolvibile: nessuna frase
+>    combacia e nessun mercato dalle regole-colonna
+> ⛔ Non pronto (MARKET_MAPPING_AMBIGUOUS) · mercato ambiguo: più frasi del dizionario
+>    mercati combaciano indicando coppie mercato/selezione diverse — togli o rendi
+>    distinguibile una delle voci in conflitto: «Entrambe le squadre a segno / Sì»,
+>    «1º tempo - Totale goal 0,5 / Over 0,5 goal»
 > ⛔ Non pronto (INVALID_MISSING_PROVIDER) · Provider mancante (richiesto dal contratto)
 > ⛔ Non pronto (INVALID_MISSING_FIELDS) · mancano i campi di riconoscimento richiesti
 >    dalla Modalità: gli ID si prendono dal «Catalogo Betfair», i nomi si estraggono dal
@@ -563,10 +567,16 @@ traducono nel **Mercato + Selezione Betfair** canonici (gli stessi del Catalogo 
   identico a prima, con o senza lingua-fonte impostata.
 
 **Sicuro (fail-closed)**: match **ambiguo** (più voci → mercati diversi nello stesso campo)
-→ stato `MARKET_MAPPING_MISSING`, **nessuna riga CSV** (un mercato sbagliato = scommessa
+→ stato `MARKET_MAPPING_AMBIGUOUS`, **nessuna riga CSV** (un mercato sbagliato = scommessa
 sbagliata). Se nessuna voce combacia **e** le regole-colonna non hanno prodotto un
-mercato per la modalità di riconoscimento → ancora `MARKET_MAPPING_MISSING` (mai un
-mercato inventato). Una voce con coppia Mercato/Selezione **non nel Catalogo** viene
+mercato per la modalità di riconoscimento → `MARKET_MAPPING_MISSING` (mai un
+mercato inventato).
+
+I due codici sono **distinti dalla #282**: le cause sono opposte e i rimedi pure — sull'ambiguo
+si **toglie** o si rende distinguibile una voce in conflitto, sull'altro se ne **aggiunge** una.
+Il verdetto dell'ambiguo elenca le **coppie mercato/selezione in conflitto**, cioè le righe del
+dizionario da correggere. Fino alla #299 condividevano un codice solo e un motivo che nominava
+entrambe le cause con un «o»: metà della frase era sempre falsa. Una voce con coppia Mercato/Selezione **non nel Catalogo** viene
 ignorata (mai scritta); una valida ma non-canonica (case/spazi, `market_type` stantio) è
 riportata ai valori canonici del catalogo. Un parser **senza profili mercati** non applica
 alcuna mappatura (colonne invariate, retro-compatibile).
@@ -1044,6 +1054,10 @@ retro-compatibile).
   **Fail-closed** restano: un obbligatorio **non** coperto dal multi (resta `NOT_READY`, così un
   messaggio dichiarato incompleto non raggiunge il CSV), un mercato non coperto, e gli altri gate
   (`Provider` mancante, `Handicap` non numerico, mappatura nomi non risolta).
+  Il **mercato ambiguo** (`MARKET_MAPPING_AMBIGUOUS`, #282) **non** è colmabile: non manca una
+  voce, ce n'è **una di troppo**, e nessuna colonna fornita da una riga multi scioglie il
+  conflitto. Blocca la base come gli altri gate — senza, le righe verrebbero generate da un
+  mercato che il resolver si è rifiutato di identificare.
   - *ID per riga (risolto):* in `ID_ONLY` con dizionario locale gli ID sono ora risolti **per
     singola riga derivata** (`_resolve_ids_into` in `_validated_multi_row`) — una MultiSelection
     azzera `SelectionId` al cambio selezione e subito dopo ri-risolve gli ID per quella selezione,

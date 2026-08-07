@@ -41,7 +41,10 @@ INVALID_PRICE_BOUNDS = "INVALID_PRICE_BOUNDS"  # Min/Max incoerenti (invertiti o
 MISSING_PROVIDER = "MISSING_PROVIDER"    # Provider assente (contratto)
 MODE_REQUIRED_MISSING = "MODE_REQUIRED_MISSING"  # campo richiesto dalla Modalità mancante
 MAPPING_MISSING = "MAPPING_MISSING"      # EventName non traducibile coi profili di mappatura nomi
-MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"  # mercato non risolvibile (ambiguo o nessun match)
+MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"  # nessuna frase combacia e nessun mercato dalle regole
+# #282 A2: causa OPPOSTA al fratello — frasi in conflitto, non frasi assenti. Codice distinto
+# perché il rimedio è opposto: qui si TOGLIE una voce, lì se ne aggiunge una.
+MARKET_MAPPING_AMBIGUOUS = "MARKET_MAPPING_AMBIGUOUS"
 # Separatore squadre impostato ma non trovato nell'EventName (#182 PR S). DISTINTO da
 # MAPPING_MISSING: lì manca la traduzione (dizionario), qui manca lo split (separatore sbagliato).
 TEAM_SEPARATOR_NOT_FOUND = "TEAM_SEPARATOR_NOT_FOUND"
@@ -81,7 +84,16 @@ _EXPLAIN = {
     MAPPING_MISSING: ("EventName non traducibile: separatore non trovato, squadra non nei profili "
                       "di mappatura nomi, oppure alias ambiguo (stessa squadra su ≥2 nomi Betfair "
                       "diversi non distinguibili dal parser)"),
-    MARKET_MAPPING_MISSING: "mercato non risolvibile: frasi ambigue, o nessuna frase combacia e nessun mercato dalle regole",
+    # #282 A2 — due voci, non una: le cause erano opposte e i rimedi pure. Il testo del
+    # fratello NON nomina più l'ambiguità, altrimenti resterebbe la metà falsa che manda a
+    # cercare un conflitto che non c'è.
+    MARKET_MAPPING_MISSING: ("mercato non risolvibile: nessuna frase combacia e nessun mercato "
+                             "dalle regole-colonna"),
+    # Dice cosa FARE, ed è l'azione opposta al fratello: qui non manca una voce, ce n'è una di
+    # troppo. `_motivo_stato` accoda le coppie in conflitto, cioè le righe da correggere.
+    MARKET_MAPPING_AMBIGUOUS: ("mercato ambiguo: più frasi del dizionario mercati combaciano "
+                               "indicando coppie mercato/selezione diverse — togli o rendi "
+                               "distinguibile una delle voci in conflitto"),
     # #182 PR S — il testo dice COSA FARE, non solo cosa è successo: il campo da correggere è
     # nominato per esteso, perché è l'unica azione che sblocca il messaggio. Senza questa voce
     # lo scarto sarebbe arrivato a schermo come sigla, cioè silenzioso nei fatti.
@@ -107,6 +119,7 @@ _EXPLAIN.update({
     custom_pipeline.INVALID_MISSING_PROVIDER: _EXPLAIN[MISSING_PROVIDER],
     custom_pipeline.MAPPING_MISSING: _EXPLAIN[MAPPING_MISSING],
     custom_pipeline.MARKET_MAPPING_MISSING: _EXPLAIN[MARKET_MAPPING_MISSING],
+    custom_pipeline.MARKET_MAPPING_AMBIGUOUS: _EXPLAIN[MARKET_MAPPING_AMBIGUOUS],
     validator.INVALID_MISSING_PRICE: "quota richiesta dal parser ma assente nel messaggio",
     validator.INVALID_MISSING_FIELDS: (
         "mancano i campi di riconoscimento richiesti dalla Modalità: gli ID si prendono dal "
@@ -241,11 +254,16 @@ def _overlay_validator(result, by_target, fields) -> None:
         # riformattare. Motivo dedicato e non MAPPING_MISSING, altrimenti l'utente andrebbe a
         # cercare il problema nel dizionario nomi invece che nel campo «Separatore squadre».
         _mark(by_target, fields, "EventName", TEAM_SEPARATOR_NOT_FOUND, required=True)
-    elif status == custom_pipeline.MARKET_MAPPING_MISSING:
+    elif status in (custom_pipeline.MARKET_MAPPING_MISSING,
+                    custom_pipeline.MARKET_MAPPING_AMBIGUOUS):
         # Il mercato non è risolvibile: segnala su Mercato e Selezione (le due colonne
-        # che la mappatura mercati avrebbe dovuto impostare).
-        _mark(by_target, fields, "MarketName", MARKET_MAPPING_MISSING, required=True)
-        _mark(by_target, fields, "SelectionName", MARKET_MAPPING_MISSING, required=True)
+        # che la mappatura mercati avrebbe dovuto impostare). #282 A2: le due cause sono
+        # opposte ma le colonne da marcare sono le stesse — cambia il codice, non il bersaglio.
+        codice = (MARKET_MAPPING_AMBIGUOUS
+                  if status == custom_pipeline.MARKET_MAPPING_AMBIGUOUS
+                  else MARKET_MAPPING_MISSING)
+        _mark(by_target, fields, "MarketName", codice, required=True)
+        _mark(by_target, fields, "SelectionName", codice, required=True)
 
     # (B) Errori di VALORE per-colonna, indipendenti dallo short-circuit del validator.
     # Solo su valori NON vuoti (un campo vuoto è spiegato dall'estrazione, non "invalido").
@@ -317,7 +335,8 @@ def diagnose(defn: CustomParserDef, text: str, *, value_maps_registry: dict = No
     status = message_error if (message_error and result.placeable) else result.status
     return Diagnosis(placeable=placeable, status=status, fields=fields,
                      message_error=message_error,
-                     status_reason=_motivo_stato(status, condizioni_fallite))
+                     status_reason=_motivo_stato(status, condizioni_fallite,
+                                                 getattr(result, "detail", None)))
 
 
 @dataclass
@@ -493,18 +512,53 @@ def _motivo_condizioni(condizioni) -> str:
             f"{'la condizione' if len(voci) == 1 else 'le condizioni'} di gate {quali}")
 
 
-def _motivo_stato(status: str, condizioni_fallite) -> str:
+def _motivo_conflitto_mercati(detail) -> str:
+    """Le coppie mercato/selezione che si contendono la frase, accodate al motivo generico.
+
+    #282 A2. Il codice da solo dice *che tipo* di problema è; questo dice **quale**, ed è la
+    differenza fra un'indagine e una correzione: l'utente ha davanti l'elenco delle righe del
+    dizionario da disambiguare.
+
+    I nomi arrivano dal `config.json`, che è editabile a mano: passano da `_leggibile` come il
+    testo delle condizioni di gate: control-char, bidi override e delimitatori del motivo
+    neutralizzati. Un mercato chiamato `«…»` non deve poter far sembrare «testo del bridge»
+    quello che ha scritto l'utente.
+
+    La resa la fa `market_mapping_store.descrivi_conflitto`, la stessa dell'avviso di
+    configurazione: la coppia in conflitto si legge identica nei due posti.
+    """
+    from .market_mapping_store import descrivi_conflitto
+
+    pulite = [(mt, _leggibile(mn), _leggibile(sn)) for mt, mn, sn in detail]
+    return descrivi_conflitto(pulite)
+
+
+def _motivo_stato(status: str, condizioni_fallite, detail=None) -> str:
     """Motivo azionabile dello STATO (non dei campi), calcolato in `diagnose`.
 
     Usa `_EXPLAIN` DIRETTAMENTE e non `explain()`: quello, per contratto, ripiega sul
     codice stesso quando non conosce la voce — utile in tabella, dannoso qui, dove
     produrrebbe «⛔ Non pronto (X) · X». Stato senza voce → nessun motivo, e il verdetto
-    resta quello di prima invece di guadagnare rumore."""
+    resta quello di prima invece di guadagnare rumore.
+
+    `detail` (#282 A2) è il dettaglio specifico del `PipelineResult`, quando il codice ne porta
+    uno: è lo schema di `INVALID_PRICE_BOUNDS`, che accompagna il codice con i soli limiti che
+    offendono invece di nominarli tutti."""
     if condizioni_fallite:
         return _motivo_condizioni(condizioni_fallite)
     if status in _OK_CODES or status == validator.VALID:
         return ""
-    return _EXPLAIN.get(status, "")
+    motivo = _EXPLAIN.get(status, "")
+    if status == custom_pipeline.MARKET_MAPPING_AMBIGUOUS and detail:
+        # Fail-safe: se il dettaglio manca o arriva in una forma inattesa (config manomessa,
+        # chiamante che non lo passa) resta il motivo generico — mai un verdetto che esplode.
+        try:
+            quali = _motivo_conflitto_mercati(detail)
+        except (TypeError, ValueError):
+            return motivo
+        if quali:
+            return f"{motivo}: {quali}"
+    return motivo
 
 
 def motivo_stato(diag: "Diagnosis") -> str:

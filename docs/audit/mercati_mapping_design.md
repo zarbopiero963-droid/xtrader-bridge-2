@@ -89,7 +89,7 @@ Riepilogo decisione per `MarketName`/`SelectionName`/`MarketType`:
 | Situazione | Risultato |
 |---|---|
 | Frase del dizionario combacia (univoca) | **valore del dizionario** (vince sulla regola-colonna) |
-| Più frasi combaciano con mercati diversi | `MARKET_MAPPING_MISSING` (niente riga) |
+| Più frasi combaciano con mercati diversi | `MARKET_MAPPING_AMBIGUOUS` (niente riga; il verdetto elenca le coppie in conflitto — #282) |
 | Nessuna frase combacia, ma la regola-colonna ha estratto il mercato | valore della regola-colonna |
 | Nessuna frase combacia e nessuna regola-colonna | `MARKET_MAPPING_MISSING` (niente mercato inventato) |
 

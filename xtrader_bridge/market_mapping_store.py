@@ -267,6 +267,55 @@ def profili_non_controllati(cfg: dict) -> list:
     return [nome for nome, _voci in oltre_tetto] + list(saltati)
 
 
+def mercati_in_conflitto(text: str, profiles, rows=None, language=None) -> list:
+    """Le coppie canoniche ``(market_type, market_name, selection_name)`` che si **contendono**
+    ``text``, in ordine di incontro e senza duplicati (#282 A2).
+
+    **Fonte unica** (regola 3). Questa tecnica esisteva già dentro `ambiguous_phrase_warnings`,
+    dove serviva a scrivere l'avviso di configurazione, ed è stata **corretta quattro volte in
+    review**: chiedere al runtime chi ha davvero combaciato, invece di ricostruirlo confrontando
+    stringhe, è ciò che impedisce le due divergenze opposte già viste sulla #255 —
+
+    - confronto ``==`` sulla frase: «GG» e «gg» combaciano per il resolver ma non per il
+      reporting, e l'elenco mostrava un contendente solo;
+    - delimitatori ignorati: una voce con la stessa frase ma altri delimitatori, estranea al
+      conflitto, veniva accusata.
+
+    La #282 ha bisogno **della stessa cosa a runtime**, per dire all'utente quali coppie sono in
+    conflitto nel verdetto del «🧪 Prova messaggio». Riscriverla sarebbe stata la seconda copia
+    destinata a divergere: qui è estratta, e `ambiguous_phrase_warnings` la chiama.
+
+    Le coppie sono tuple canoniche, **non** nomi di mercato: Over e Under dello stesso mercato
+    sono due contendenti distinti — sono i due lati opposti della scommessa, e chi corregge deve
+    sapere quale riga guardare.
+
+    Pura e fail-safe come le sorelle di questo modulo: `resolve_market` è difensivo su tutto ciò
+    che arriva dal config, quindi testo vuoto o senza match danno semplicemente lista vuota.
+    """
+    contesi, viste = [], set()
+    for entries in (profiles or []):
+        for e in (entries or []):
+            singola = resolve_market(text, [[e]], rows, language)
+            if singola.status != "ok":
+                continue
+            m = singola.market
+            tupla = (m["market_type"], m["market_name"], m["selection_name"])
+            if tupla not in viste:
+                viste.add(tupla)
+                contesi.append(tupla)
+    return contesi
+
+
+def descrivi_conflitto(contesi) -> str:
+    """Le coppie in conflitto rese leggibili: ``«Mercato / Selezione», «Mercato / Selezione»``.
+
+    Sta qui e non nei chiamanti perché la #255 aveva già insegnato che **mercato senza
+    selezione** non basta: due voci in conflitto sullo stesso mercato (Over/Under) sarebbero
+    indistinguibili, e l'utente non saprebbe quale riga correggere.
+    """
+    return ", ".join(f"«{mn} / {sn}»" for _mt, mn, sn in contesi)
+
+
 def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
     """Avvisi **non bloccanti** (#254): voci mercato che combaciano con la **stessa frase** ma
     indicano mercati **diversi**. Su queste `resolve_market` ritorna ``ambiguous`` e il segnale
@@ -359,36 +408,15 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                 esito = resolve_market(sonda, profili, rows, lingua or None)
                 if esito.status != "ambiguous":
                     continue
-                # Quali mercati si contendono la frase. Anche QUESTO lo decide il runtime,
-                # non un confronto di stringhe: si ripropone la sonda a una voce alla volta e
-                # si tiene chi risolve `ok`, cioè chi ha davvero combaciato. Ricostruirlo a
-                # mano divergeva in due modi opposti, trovati in review sulla #255 da GPT-5.5
-                # e Fable 5 indipendentemente:
+                # Quali mercati si contendono la frase: lo decide `mercati_in_conflitto`, la
+                # FONTE UNICA condivisa col runtime della #282 (A2). La logica — ri-sondare una
+                # voce alla volta e tenere chi risolve `ok` — sta lì, col perché per esteso:
+                # è stata corretta quattro volte in review proprio perché ricostruirla a mano
+                # faceva divergere il reporting dalla detection, in due modi opposti.
                 #
-                # - confronto `==` sulla frase: «GG» e «gg» combaciano per il runtime ma non
-                #   per il reporting → l'avviso elencava UN solo mercato e diceva «1 mercati
-                #   diversi», mandando alla riga sbagliata;
-                # - delimitatori ignorati: una voce con la stessa frase ma altri delimitatori,
-                #   che col conflitto non c'entra nulla, veniva elencata come contendente →
-                #   accusava una riga sana.
-                #
-                # È la stessa classe corretta quattro volte sulla #253 — reporting che diverge
-                # dalla detection — e chiedere al runtime la chiude in entrambe le direzioni.
-                # I contendenti sono TUPLE CANONICHE `(tipo, mercato, selezione)`, non nomi
-                # di mercato: è ciò che confronta il resolver. Deduplicare per `market_name`
-                # dava «combacia con 1 mercati diversi» su due voci dello stesso mercato con
-                # selezioni opposte — Over e Under, cioè i due lati della scommessa — senza
-                # alcun modo per l'utente di capire quali righe correggere (GPT-5.5, Fugu).
-                contesi, viste_tuple = [], set()
-                for altra in voci:
-                    singola = resolve_market(sonda, [[altra]], rows, lingua or None)
-                    if singola.status != "ok":
-                        continue
-                    m = singola.market
-                    tupla = (m["market_type"], m["market_name"], m["selection_name"])
-                    if tupla not in viste_tuple:
-                        viste_tuple.add(tupla)
-                        contesi.append(tupla)
+                # Da #282 la stessa risposta serve anche al verdetto del «🧪 Prova messaggio»:
+                # tenerne due copie avrebbe rimesso in piedi la divergenza appena chiusa.
+                contesi = mercati_in_conflitto(sonda, profili, rows, lingua or None)
                 if len(contesi) < 2:
                     continue        # niente da elencare: non si scrive un avviso vuoto
                 # La chiave include la SONDA: due conflitti fra gli stessi due mercati ma su
@@ -404,8 +432,11 @@ def ambiguous_phrase_warnings(cfg: dict, rows=None) -> list:
                     break
                 visti.add(chiave)
                 # Mercato + selezione: col solo mercato due righe in conflitto sullo
-                # stesso mercato sarebbero indistinguibili nel messaggio.
-                dove = ", ".join(f"«{mn} / {sn}»" for _mt, mn, sn in contesi)
+                # stesso mercato sarebbero indistinguibili nel messaggio. La resa è in
+                # `descrivi_conflitto` (#282), condivisa col motivo mostrato a runtime: la
+                # stessa coppia in conflitto si legge identica nell'avviso di config e nel
+                # verdetto del test messaggio.
+                dove = descrivi_conflitto(contesi)
                 # «coppie mercato/selezione», non «mercati»: i contendenti sono tuple canoniche,
                 # quindi Over e Under dello STESSO mercato contano due — ed è giusto che contino
                 # due, sono i due lati opposti della scommessa. Dire «2 mercati diversi» davanti

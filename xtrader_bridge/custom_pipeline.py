@@ -125,11 +125,18 @@ INVALID_HANDICAP = "INVALID_HANDICAP"  # Handicap valorizzato ma non numerico
 # Mappatura nomi richiesta ma EventName non traducibile (separatore non trovato o una
 # squadra non nei profili): fail-closed, nessuna riga (un evento sbagliato = bet sbagliato).
 MAPPING_MISSING = "MAPPING_MISSING"
-# Mappatura mercati richiesta ma il mercato non è risolvibile: o due frasi indicano mercati
-# DIVERSI (ambiguo, D2 fail-closed), oppure nessuna frase combacia e nemmeno le regole-colonna
-# hanno estratto un mercato. Fail-closed: nessuna riga (un mercato sbagliato/inventato = bet
-# sbagliato). Vedi docs/audit/mercati_mapping_design.md §4-§5.
+# Mappatura mercati richiesta ma NESSUNA frase combacia, e nemmeno le regole-colonna hanno
+# estratto un mercato. Fail-closed: nessuna riga (un mercato inventato = bet sbagliato).
+# Vedi docs/audit/mercati_mapping_design.md §4-§5.
+#
+# #282 A2: fino alla #299 questo codice copriva ANCHE l'ambiguità, che è la causa OPPOSTA e ha
+# il rimedio opposto — qui si aggiunge una frase, lì se ne toglie una. Chi leggeva il motivo
+# aveva il 50% di probabilità di lavorare nella direzione sbagliata.
 MARKET_MAPPING_MISSING = "MARKET_MAPPING_MISSING"
+# Due o più frasi del dizionario mercati combaciano indicando mercati DIVERSI (D2 fail-closed):
+# il resolver si rifiuta di indovinare. Codice DISTINTO dal fratello perché il `detail` porta le
+# coppie mercato/selezione in conflitto, cioè esattamente le righe da correggere.
+MARKET_MAPPING_AMBIGUOUS = "MARKET_MAPPING_AMBIGUOUS"
 # Separatore squadre IMPOSTATO nel parser ma NON trovato nell'EventName (#182 PR S).
 # Fail-closed: nessuna riga. Prima la riga veniva scritta col nome VERBATIM più un avviso, con
 # questa motivazione: «normalizzare un formato non può creare una scommessa errata». Vera in
@@ -534,7 +541,16 @@ def build_validated_row(defn: CustomParserDef, text: str, *,
                                                    language=source_language)
         if resm.status == "ambiguous":
             # Due frasi indicano mercati diversi: niente riga, mai tirare a indovinare.
-            return PipelineResult(MARKET_MAPPING_MISSING, row, list(res.missing_required),
+            #
+            # #282 A2: il codice è DISTINTO da «nessuna frase combacia», e il `detail` porta le
+            # coppie mercato/selezione che si contendono la frase — le righe da correggere. È
+            # lo stesso schema di `INVALID_PRICE_BOUNDS`, che porta i soli limiti che offendono.
+            # I contendenti li calcola `mercati_in_conflitto`, la fonte unica condivisa con
+            # l'avviso di configurazione: reporting e detection non possono divergere.
+            return PipelineResult(MARKET_MAPPING_AMBIGUOUS, row, list(res.missing_required),
+                                  detail=market_mapping_store.mercati_in_conflitto(
+                                      text, market_mapping_profiles or [],
+                                      language=source_language),
                                   warnings=warnings)
         if resm.status == "ok":
             # Il dizionario vince: sovrascrive Type/Mercato/Selezione con i valori CANONICI
@@ -591,8 +607,16 @@ _MULTI_OVERRIDE = (
 # BASE, che tutte le righe derivate ereditano. Ometterlo avrebbe lasciato passare la generazione
 # multi con l'evento non interpretato, moltiplicando UNA scommessa sbagliata per N selezioni:
 # esattamente il tipo di sibling non allineato che sulla #16 ha prodotto B6, B10 e B17.
+#
+# `MARKET_MAPPING_AMBIGUOUS` va QUI (#282 A2), e non è una formalità: prima dell'aggiunta del
+# codice l'ambiguità arrivava come `MARKET_MAPPING_MISSING` ed era bloccante *di riflesso*.
+# Separarla senza elencarla qui l'avrebbe resa NON bloccante, cioè avrebbe fatto generare le
+# righe multi da un mercato che il resolver si è rifiutato di indovinare — una scommessa su un
+# mercato non identificato, moltiplicata per N selezioni. È lo stesso sibling non allineato che
+# sulla #16 ha prodotto B6, B10 e B17, e c'è un test che lo pretende sulla tupla reale.
 _BASE_BLOCKING = (NOT_READY, INVALID_MISSING_PROVIDER, INVALID_HANDICAP,
-                  MAPPING_MISSING, MARKET_MAPPING_MISSING, TEAM_SEPARATOR_NOT_FOUND)
+                  MAPPING_MISSING, MARKET_MAPPING_MISSING, MARKET_MAPPING_AMBIGUOUS,
+                  TEAM_SEPARATOR_NOT_FOUND)
 
 # Stati bloccanti della base che le righe multi POSSONO risolvere completando un campo (kyZ #192):
 # `NOT_READY` (obbligatorio della regola mancante) e `MARKET_MAPPING_MISSING` (mercato assente,
@@ -600,6 +624,14 @@ _BASE_BLOCKING = (NOT_READY, INVALID_MISSING_PROVIDER, INVALID_HANDICAP,
 # forniti da OGNI riga multi. Gli altri (`INVALID_MISSING_PROVIDER`/`INVALID_HANDICAP`/
 # `MAPPING_MISSING`) restano fail-closed: un provider/handicap/evento mancante NON è colmabile
 # da una riga multi.
+#
+# `MARKET_MAPPING_AMBIGUOUS` NON entra qui (#282 A2), ed è la scelta coerente col commento
+# sopra: la ri-valutazione serve al caso «mercato ASSENTE», che una riga multi può colmare
+# fornendo la colonna. Due frasi in conflitto non si colmano — non manca nulla, ce n'è una di
+# troppo. Finiva in questa tupla solo perché condivideva il codice col caso opposto, e la
+# ri-valutazione era comunque un giro a vuoto: il ramo ambiguo non guarda `multi_supplied`,
+# quindi ritornava lo stesso stato. Toglierlo non cambia alcun esito, e leva un passaggio
+# inutile su un percorso che l'utente vede solo quando qualcosa è già andato storto.
 _MULTI_RESOLVABLE = (NOT_READY, MARKET_MAPPING_MISSING)
 
 
