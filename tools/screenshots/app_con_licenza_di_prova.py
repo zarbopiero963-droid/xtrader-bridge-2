@@ -27,8 +27,11 @@ Uso:
 Poi `shoot.sh` cattura la finestra come sempre.
 """
 
+import atexit
 import pathlib
 import runpy
+import shutil
+import signal
 import sys
 import time
 
@@ -46,6 +49,61 @@ from xtrader_bridge.licensing import revocation as _rev
 
 INTESTATARIO = "Screenshot di documentazione"
 GIORNI = 30
+
+# Suffisso del salvataggio della licenza VERA, se ce n'è una. Nome esplicito e non nascosto:
+# se il processo viene ucciso e il ripristino automatico non gira, chi guarda la cartella deve
+# capire in tre secondi cos'è quel file e come rimetterlo a posto.
+SUFFISSO_BACKUP = ".pre-screenshot"
+
+
+def preserva_licenza_esistente(percorso) -> "str | None":
+    """Mette al riparo una licenza REALE prima di sovrascriverla con quella di prova.
+
+    Rilievo GPT-5.5 sulla PR #310, ed era fondato: il launcher scriveva la licenza di test
+    dritta in `license_state.json` della cartella dati. Su una macchina con una licenza vera —
+    quella del proprietario, per dire — la licenza reale spariva, e l'app normale poi rifiutava
+    quella di prova perché firmata con la chiave di TEST. Cioè: **scattare uno screenshot
+    disattivava il programma**, e il token originale non era più recuperabile.
+
+    Comportamento, fail-closed:
+
+    - nessuna licenza presente → non c'è niente da preservare, ritorna ``None``;
+    - licenza presente → viene **spostata** (non copiata) in ``<percorso>.pre-screenshot`` e il
+      chiamante registra il ripristino;
+    - backup GIÀ presente → **si ferma**. È il caso in cui una corsa precedente è stata uccisa
+      prima del ripristino: sovrascrivere quel file distruggerebbe la licenza vera, che è
+      esattamente il danno da cui questa funzione difende. Meglio fermarsi e farlo sistemare
+      a mano.
+
+    Ritorna il percorso del backup, o ``None`` se non c'era nulla da salvare.
+    """
+    p = pathlib.Path(percorso)
+    backup = p.with_name(p.name + SUFFISSO_BACKUP)
+    if backup.exists():
+        raise SystemExit(
+            f"esiste già un salvataggio della licenza in «{backup}»: una corsa precedente è "
+            "stata interrotta prima del ripristino. NON lo sovrascrivo — dentro può esserci la "
+            "tua licenza vera. Rimettila a posto a mano (rinominala togliendo il suffisso "
+            f"«{SUFFISSO_BACKUP}») e rilancia.")
+    if not p.exists():
+        return None
+    p.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(p), str(backup))
+    return str(backup)
+
+
+def ripristina_licenza(backup, percorso) -> None:
+    """Rimette la licenza vera dov'era, cancellando quella di prova. Best-effort e silenziosa
+    sui casi già a posto: viene chiamata anche da `atexit`, dove sollevare non serve a nulla."""
+    if not backup:
+        return
+    b = pathlib.Path(backup)
+    if not b.exists():
+        return
+    p = pathlib.Path(percorso)
+    if p.exists():
+        p.unlink()
+    shutil.move(str(b), str(p))
 
 
 def _attiva_licenza_di_prova() -> str:
@@ -70,16 +128,33 @@ def _attiva_licenza_di_prova() -> str:
             "legata a un hardware cieco varrebbe su tutte le macchine anonime, quindi non la "
             "emetto. Gli screenshot vanno scattati dove l'hardware id è leggibile.")
 
+    percorso = license_store.license_state_path(config_store.config_dir())
+
+    # PRIMA di scrivere: la licenza vera, se c'è, va messa al riparo e rimessa a posto in
+    # uscita. `atexit` copre l'uscita normale e SystemExit; i due segnali coprono un kill
+    # gentile. Un SIGKILL non lo copre nessuno — per quello il backup ha un nome esplicito e
+    # `preserva_licenza_esistente` si rifiuta di sovrascriverlo alla corsa dopo.
+    backup = preserva_licenza_esistente(percorso)
+    if backup:
+        print(f"licenza esistente messa al riparo in «{backup}» — verrà rimessa a posto "
+              "all'uscita")
+        atexit.register(ripristina_licenza, backup, percorso)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, lambda *_a: sys.exit(0))
+
     adesso = int(time.time())
     token = core.issue_license(LICENSE_TEST_SEED_HEX, INTESTATARIO, GIORNI, identificativo, adesso)
-    license_store.save_license(
-        license_store.license_state_path(config_store.config_dir()), token, adesso)
+    license_store.save_license(percorso, token, adesso)
     return identificativo
 
 
 if __name__ == "__main__":
     hw = _attiva_licenza_di_prova()
-    print(f"licenza di PROVA attivata ({GIORNI} giorni, hardware {hw}) — solo per gli screenshot")
+    # L'hardware id NON si stampa intero: questo output finisce nei log dei job e negli
+    # artifact, ed è un identificativo della macchina. Il prefisso basta a capire che è stato
+    # letto davvero (rilievo GPT-5.5 sulla #310).
+    print(f"licenza di PROVA attivata ({GIORNI} giorni, hardware {hw[:8]}…) — solo per gli "
+          "screenshot")
     # `run_name="__main__"` così `main.py` esegue il suo blocco di avvio esattamente come
     # quando lo si lancia a mano: gli screenshot devono mostrare l'app vera, non una sua
     # variante importata come modulo.
