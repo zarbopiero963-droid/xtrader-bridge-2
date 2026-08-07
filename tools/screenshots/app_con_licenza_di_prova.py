@@ -240,32 +240,52 @@ def _attiva_licenza_di_prova() -> str:
 
     percorso = license_store.license_state_path(config_store.config_dir())
 
-    # PRIMA di scrivere: la licenza vera, se c'è, va messa al riparo e rimessa a posto in
-    # uscita. `atexit` copre l'uscita normale e SystemExit; i due segnali coprono un kill
-    # gentile. Un SIGKILL non lo copre nessuno — per quello il backup ha un nome esplicito e
-    # `preserva_licenza_esistente` si rifiuta di sovrascriverlo alla corsa dopo.
-    backup = preserva_licenza_esistente(percorso)
-    if backup:
+    # ── La pulizia si arma PRIMA di toccare qualunque file ────────────────────────────────────
+    #
+    # Rilievo **Claude Fable 5** sulla #310. Prima, registrazione e gestori stavano DOPO
+    # `save_license`, cioè dopo che `shutil.move` aveva già portato via la licenza vera: fra lo
+    # spostamento e la registrazione esisteva una finestra in cui morire — un errore di firma, un
+    # SIGTERM, un disco pieno — lasciava la licenza vera **in ostaggio** nel backup, l'app senza
+    # nessuna licenza, e la corsa successiva bloccata perché quel backup esiste.
+    #
+    # Il contenitore mutabile serve proprio a questo: la pulizia va registrata prima di sapere
+    # cosa dovrà pulire, e legge lo stato quando gira invece di riceverlo alla registrazione.
+    # `atexit` copre l'uscita normale, `SystemExit` e le eccezioni; i due gestori coprono un kill
+    # gentile — che altrimenti, con la disposizione di default, terminerebbe il processo SENZA
+    # eseguire `atexit`. Un SIGKILL non lo copre nessuno: per quello il backup ha un nome
+    # esplicito e `preserva_licenza_esistente` si rifiuta di sovrascriverlo alla corsa dopo.
+    stato = {"backup": None, "token": None}
+
+    def _pulisci_all_uscita() -> None:
+        # Due rami, non uno (rilievo Claude Fable 5, primo giro): senza `else` la licenza di prova
+        # restava sul disco per sempre sulla macchina di documentazione tipica — quella SENZA
+        # licenza — e l'app di produzione la rifiuta perché firmata con la chiave di test: da «non
+        # attivato» a «licenza non valida», cioè peggio di prima.
+        if stato["backup"]:
+            ripristina_licenza(stato["backup"], percorso, stato["token"])
+        else:
+            rimuovi_licenza_di_prova(percorso, stato["token"])
+
+    atexit.register(_pulisci_all_uscita)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        _installa_ripristino_su_segnale(sig)
+
+    stato["backup"] = preserva_licenza_esistente(percorso)
+    if stato["backup"]:
         # Solo il NOME del file, non il path assoluto: questo output finisce nei log dei job e
         # negli artifact, dove un path rivelerebbe username e struttura della macchina
         # (rilievo GPT-5.5). Chi deve rimetterla a posto sa già in che cartella guardare.
-        print(f"licenza esistente messa al riparo in «{pathlib.Path(backup).name}» "
+        print(f"licenza esistente messa al riparo in "
+              f"«{pathlib.Path(stato['backup']).name}» "
               "(cartella dati dell'app) — verrà rimessa a posto all'uscita")
 
     adesso = int(time.time())
     token = core.issue_license(LICENSE_TEST_SEED_HEX, INTESTATARIO, GIORNI, identificativo, adesso)
+    # Il token si annota PRIMA di scriverlo, non dopo. Se il processo muore fra `save_license` e
+    # l'annotazione, la pulizia troverebbe sul disco un file che non sa attribuirsi — e, nel ramo
+    # backup, si rifiuterebbe di ripristinare proprio la licenza vera che deve salvare.
+    stato["token"] = token
     license_store.save_license(percorso, token, adesso)
-
-    # La pulizia si registra SEMPRE, non solo quando c'era una licenza da rimettere (rilievo
-    # Claude Fable 5). Senza il ramo `else` la licenza di prova restava sul disco per sempre
-    # sulla macchina di documentazione tipica — quella SENZA licenza — e l'app di produzione la
-    # rifiutava: da «non attivato» a «licenza non valida», cioè peggio di prima.
-    if backup:
-        atexit.register(ripristina_licenza, backup, percorso, token)
-    else:
-        atexit.register(rimuovi_licenza_di_prova, percorso, token)
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        _installa_ripristino_su_segnale(sig)
 
     return identificativo
 

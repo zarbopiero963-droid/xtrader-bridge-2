@@ -14,8 +14,20 @@ import pathlib
 
 import pytest
 
+from xtrader_bridge.licensing import license as _lic
+from xtrader_bridge.licensing import revocation as _rev
+
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _MODULO = _ROOT / "tools" / "screenshots" / "app_con_licenza_di_prova.py"
+
+# Catturata all'IMPORT del modulo di test, cioè in fase di collection, prima che qualunque test
+# giri: è la chiave pubblica **reale** deployata nel prodotto. Serve al canarino in fondo al file.
+# Stesso schema già usato da `test_licensing_license.py` e `test_license_status.py`.
+_CHIAVE_DEPLOYATA_REALE = _lic.LICENSE_PUBLIC_KEY_HEX
+
+# Impronta hardware finta, ma nel formato vero (`HW1-` + 16 hex a gruppi di 4), così
+# `hwid.is_identifiable` la accetta come accetterebbe quella di una macchina reale.
+HARDWARE_FINTO = "HW1-ABCD-1234-EF56-7890"
 
 
 def _carica():
@@ -29,6 +41,49 @@ def _carica():
 @pytest.fixture
 def tool():
     return _carica()
+
+
+@pytest.fixture(autouse=True)
+def _chiave_deployata_ripristinata():
+    """Rimette a posto `LICENSE_PUBLIC_KEY_HEX` dopo ogni test di questo file.
+
+    Rilievo **Claude Fable 5** sulla #310, ed è il più grave dei tre: `_attiva_licenza_di_prova`
+    **assegna** la chiave pubblica di test ai moduli `licensing.license` e `licensing.revocation`
+    — non è un monkeypatch, è una scrittura sul modulo condiviso, e il tool fa bene a farla
+    perché deve valere per tutta la vita del processo che scatta. Ma dentro pytest quei moduli
+    sono gli stessi che usano **tutti gli altri test della sessione**: senza ripristino, da qui in
+    poi ogni verifica di firma Ed25519 girerebbe con la chiave di TEST, e una regressione vera
+    sulla verifica passerebbe inosservata.
+
+    **Non** è un doppione della fixture `chiave_pubblica_di_test` di `conftest.py`, che fa la cosa
+    opposta: quella *installa* la chiave di test per i test che devono verificare licenze firmate
+    col seed di test. Qui non si installa niente — si salva ciò che c'è e lo si rimette, perché il
+    valore lo scrive il tool sotto esame. Usare quella renderebbe il canarino in fondo al file
+    cieco: vedrebbe la chiave di test messa dalla fixture e non saprebbe distinguerla da quella
+    lasciata dal tool.
+
+    Entrambi i moduli, non uno: `revocation.py` fa `from .license import LICENSE_PUBLIC_KEY_HEX`,
+    cioè copia il valore all'import, ed è il posto che si dimentica.
+    """
+    originale_lic = _lic.LICENSE_PUBLIC_KEY_HEX
+    originale_rev = _rev.LICENSE_PUBLIC_KEY_HEX
+    yield
+    _lic.LICENSE_PUBLIC_KEY_HEX = originale_lic
+    _rev.LICENSE_PUBLIC_KEY_HEX = originale_rev
+
+
+@pytest.fixture
+def hardware_finto(tool, monkeypatch):
+    """Impronta hardware **deterministica**, per i test che eseguono `_attiva_licenza_di_prova`.
+
+    Rilievo **Claude Fable 5** sulla #310: quella funzione chiama `hwid.hardware_id()` vero e si
+    ferma con `SystemExit` se l'hardware non è identificabile (nessun MAC reale, niente registro).
+    Su un runner CI è una condizione plausibile — un container senza NIC fisica — e il test
+    fallirebbe per una ragione che non c'entra con ciò che verifica. Il ramo fail-closed ha un suo
+    test dedicato più sotto, dove è il **soggetto** invece che un presupposto.
+    """
+    monkeypatch.setattr(tool.hwid, "hardware_id", lambda: HARDWARE_FINTO)
+    return HARDWARE_FINTO
 
 
 def test_una_licenza_esistente_viene_messa_al_riparo_non_persa(tool, tmp_path):
@@ -101,7 +156,8 @@ def test_un_backup_gia_presente_ferma_il_tool_invece_di_sovrascriverlo(tool, tmp
 
 
 def test_il_percorso_completo_salva_prima_di_scrivere_e_ripristina_dopo(tool, tmp_path,
-                                                                       monkeypatch):
+                                                                       monkeypatch,
+                                                                       hardware_finto):
     """Il test che chiude il cerchio: `_attiva_licenza_di_prova` intero, sulla cartella finta.
 
     Rilievo GPT-5.5 sulla #310: gli altri test coprono le due funzioni helper, ma non che il
@@ -174,7 +230,8 @@ def test_il_gestore_di_segnale_conserva_il_comportamento_precedente(tool, monkey
 
 
 def test_senza_licenza_preesistente_quella_di_prova_NON_resta_sul_disco(tool, tmp_path,
-                                                                       monkeypatch):
+                                                                       monkeypatch,
+                                                                       hardware_finto):
     """Rilievo **Claude Fable 5** sulla #310, e mi era sfuggito.
 
     Sulla macchina di documentazione tipica — quella **senza** licenza — non c'è niente da
@@ -369,3 +426,150 @@ def test_il_ripristino_non_solleva_se_non_ce_niente_da_ripristinare(tool, tmp_pa
     percorso = tmp_path / "license_state.json"
     tool.ripristina_licenza(None, percorso, "TOK")                 # nessun backup registrato
     tool.ripristina_licenza(str(tmp_path / "inesistente"), percorso, "TOK")  # backup sparito
+
+
+def test_se_il_processo_muore_subito_dopo_lo_spostamento_la_licenza_vera_torna(tool, tmp_path,
+                                                                               monkeypatch,
+                                                                               hardware_finto):
+    """Rilievo **Claude Fable 5** sulla #310: la finestra fra lo spostamento e la registrazione.
+
+    La pulizia veniva registrata **dopo** `save_license`, cioè dopo che `shutil.move` aveva già
+    portato via la licenza vera. Se il processo muore in quella finestra — un `SystemExit` da
+    `issue_license`, un errore di firma, un SIGTERM — non c'è nessun `atexit` da eseguire: la
+    licenza vera resta **in ostaggio** dentro `license_state.json.pre-screenshot`, l'app non ne
+    trova nessuna, e alla corsa successiva il tool si rifiuta pure di ripartire perché quel
+    backup esiste. Cioè lo stesso danno che questa PR esiste per prevenire, con un passaggio in
+    più.
+
+    Qui si simula la morte nel punto peggiore — subito dopo lo spostamento — e si pretende che la
+    pulizia sia **già registrata** e che rimetta a posto la licenza vera.
+    """
+    from license_manager import core
+    from xtrader_bridge import config_store, license_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    percorso.write_text('{"token": "LICENZA-VERA-DEL-PROPRIETARIO", "last_seen": 1}',
+                        encoding="utf-8")
+    originale = percorso.read_bytes()
+
+    registrati = []
+    monkeypatch.setattr(tool.atexit, "register",
+                        lambda fn, *a, **k: registrati.append((fn, a, k)))
+
+    def _muore(*_a, **_k):
+        raise KeyboardInterrupt("il processo muore mentre emette la licenza")
+
+    monkeypatch.setattr(core, "issue_license", _muore)
+
+    with pytest.raises(KeyboardInterrupt):
+        tool._attiva_licenza_di_prova()
+
+    backup = percorso.with_name(percorso.name + tool.SUFFISSO_BACKUP)
+    assert backup.exists() and not percorso.exists(), \
+        "il test non è nella finestra che vuole esercitare (spostamento già fatto, scrittura no)"
+
+    assert registrati, (
+        "nessuna pulizia registrata al momento della morte: la licenza vera resta in ostaggio nel "
+        "backup e l'utente si ritrova il bridge bloccato")
+    for fn, args, kwargs in registrati:
+        fn(*args, **kwargs)
+
+    assert percorso.read_bytes() == originale, \
+        "la licenza vera non è tornata al suo posto dopo la morte nella finestra"
+
+
+def test_i_gestori_di_segnale_sono_installati_prima_di_toccare_la_licenza(tool, tmp_path,
+                                                                         monkeypatch,
+                                                                         hardware_finto):
+    """Stesso rilievo, altra metà: `atexit` da solo non basta.
+
+    Un SIGTERM con disposizione **di default** termina il processo *senza* eseguire gli handler
+    `atexit`: è proprio per questo che il tool installa i propri gestori. Installarli dopo aver
+    spostato la licenza vera lascia scoperta esattamente la finestra in cui il danno è massimo.
+
+    Si registra l'ordine reale delle chiamate invece di ispezionare il sorgente: un `grep` sul
+    file direbbe solo dove stanno le righe, non in che ordine vengono eseguite.
+    """
+    from xtrader_bridge import config_store, license_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    percorso.write_text('{"token": "LICENZA-VERA-DEL-PROPRIETARIO", "last_seen": 1}',
+                        encoding="utf-8")
+
+    eventi = []
+    monkeypatch.setattr(tool.atexit, "register", lambda fn, *a, **k: eventi.append("atexit"))
+    monkeypatch.setattr(tool.signal, "signal", lambda s, fn: eventi.append("segnale"))
+    vero_move = tool.shutil.move
+
+    def _traccia_move(src, dst):
+        eventi.append("sposta")
+        return vero_move(src, dst)
+
+    monkeypatch.setattr(tool.shutil, "move", _traccia_move)
+
+    tool._attiva_licenza_di_prova()
+
+    assert "sposta" in eventi, "il test non ha esercitato lo spostamento della licenza vera"
+    assert eventi.index("segnale") < eventi.index("sposta"), (
+        f"i gestori di segnale sono installati DOPO lo spostamento (ordine: {eventi}): un SIGTERM "
+        "in quella finestra uccide il processo senza eseguire `atexit` e la licenza vera resta "
+        "nel backup")
+    assert eventi.index("atexit") < eventi.index("sposta"), (
+        f"la pulizia è registrata DOPO lo spostamento (ordine: {eventi}): nella finestra non c'è "
+        "niente da eseguire")
+
+
+def test_hardware_non_identificabile_si_ferma_senza_toccare_la_licenza(tool, tmp_path,
+                                                                      monkeypatch):
+    """Il ramo fail-closed, qui come **soggetto** e non come presupposto.
+
+    Su una macchina senza sorgenti hardware `hwid.hardware_id()` ritorna la sentinella
+    `HW1-0000-…`: una licenza legata a essa varrebbe su tutte le macchine cieche, quindi il tool
+    si ferma. Questo test lo fissa e — cosa che conta di più — pretende che fermandosi **non
+    abbia già spostato** la licenza vera.
+    """
+    from xtrader_bridge import config_store, license_store
+    from xtrader_bridge.licensing import hwid
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(tool.hwid, "hardware_id", lambda: hwid.NO_HARDWARE_ID)
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    percorso.write_text('{"token": "LICENZA-VERA-DEL-PROPRIETARIO", "last_seen": 1}',
+                        encoding="utf-8")
+    originale = percorso.read_bytes()
+
+    with pytest.raises(SystemExit) as errore:
+        tool._attiva_licenza_di_prova()
+
+    assert "hardware" in str(errore.value).lower(), \
+        "il messaggio non spiega perché si è fermato: inutile a chi lo legge"
+    assert percorso.read_bytes() == originale, \
+        "si è fermato DOPO aver toccato la licenza vera: il rifiuto deve venire prima"
+    assert not percorso.with_name(percorso.name + tool.SUFFISSO_BACKUP).exists(), \
+        "ha lasciato un backup che bloccherebbe la corsa successiva pur non avendo fatto nulla"
+
+
+def test_canarino_la_chiave_deployata_e_ancora_quella_reale():
+    """Canarino di fine file: la sessione pytest non deve restare con la chiave di TEST.
+
+    `_attiva_licenza_di_prova` **assegna** `LICENSE_PUBLIC_KEY_HEX` sui moduli condivisi
+    `licensing.license` e `licensing.revocation`. Dentro pytest quei moduli sono gli stessi di
+    tutti gli altri test: se la modifica non venisse disfatta, da qui in poi ogni verifica di
+    firma Ed25519 girerebbe con la chiave di test e una regressione vera sulla verifica passerebbe
+    senza che nessuno se ne accorga.
+
+    Vive in fondo al file di proposito: pytest esegue i test nell'ordine in cui sono scritti,
+    quindi quando questo gira i test che chiamano il launcher sono già passati. Eseguito **da
+    solo** passa banalmente — è un canarino, non una dimostrazione: la sua utilità è nel giro
+    completo del file, che è come gira in CI.
+    """
+    assert _lic.LICENSE_PUBLIC_KEY_HEX == _CHIAVE_DEPLOYATA_REALE, (
+        "la chiave pubblica deployata è rimasta quella di TEST dopo i test di questo file: da qui "
+        "in poi l'intera sessione pytest verifica le firme con la chiave sbagliata")
+    assert _rev.LICENSE_PUBLIC_KEY_HEX == _CHIAVE_DEPLOYATA_REALE, (
+        "stessa cosa su `revocation`, che copia il valore all'import: è il posto che si dimentica")
