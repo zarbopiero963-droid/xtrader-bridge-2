@@ -104,9 +104,10 @@ _ALLOWLIST = {
                        "sui DOPPI dei test headless (classi generate al volo, senza Tk) e "
                        "su widget gia distrutti — la cornice non deve MAI far cadere un "
                        "pannello; nessun dato/flusso dentro, solo presentazione. "
-                       "Era 5: il quinto sito era `tune_scrolling`, rimossa nella #319 perche "
+                       "Era 5: il quinto sito era `tune_scrolling`, rimossa dalla PR #320 perche "
                        "inerte su Windows (riscriveva il default di CustomTkinter) e dannosa "
-                       "altrove (3px invece di 30 su Linux)"),
+                       "altrove (3px invece di 30 su Linux). La issue #319 — il difetto visivo "
+                       "della scia sulla scheda Parser — resta APERTA: la rimozione non la chiude"),
     "xtrader_bridge/dirty_csv_store.py": (3, "registro dei path CSV sporchi (P3-6 #76), FAIL-SAFE per contratto: "
                               "lettura su file assente/corrotto/schema inatteso → nessun path; "
                               "mark/clear best-effort — un I/O rotto non deve bloccare STOP/chiusura "
