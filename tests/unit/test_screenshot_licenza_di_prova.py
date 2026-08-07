@@ -235,6 +235,49 @@ def test_il_ripristino_non_sovrascrive_una_licenza_vera_attivata_durante_gli_sca
         "il backup è stato consumato: la licenza vecchia è persa e la nuova pure a rischio"
 
 
+def test_se_la_licenza_e_sparita_durante_gli_scatti_il_backup_torna_comunque(tool, tmp_path):
+    """Caso limite sollevato da GPT-5.5 sulla #310: e se il file licenza sparisce durante la
+    sessione? Il timore era che `_e_ancora_la_nostra` ritornasse `False` e il backup restasse
+    orfano, lasciando l'utente senza licenza pur avendone una salvata.
+
+    Non succede, perché la guardia è `esiste() AND non è la nostra`: se il file non c'è non c'è
+    niente da proteggere, e il ripristino procede. Questo test lo **fissa**, così la protezione
+    aggiunta per un caso non introduce una regressione nell'altro.
+    """
+    percorso = tmp_path / "license_state.json"
+    backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+    backup.write_text('{"token": "LICENZA-VERA", "last_seen": 1}', encoding="utf-8")
+    originale = backup.read_bytes()
+    assert not percorso.exists(), "il test parte con la licenza SPARITA"
+
+    tool.ripristina_licenza(str(backup), percorso, "IL-TOKEN-DI-PROVA")
+
+    assert percorso.read_bytes() == originale, \
+        "la licenza vera non e' tornata: l'utente resta senza licenza pur avendo un backup"
+    assert not backup.exists(), "il backup e' rimasto orfano: bloccherebbe la corsa successiva"
+
+
+def test_una_licenza_corrotta_durante_gli_scatti_non_viene_sovrascritta(tool, tmp_path):
+    """Secondo caso da chiarire, sempre di GPT-5.5: file corrente illeggibile e backup valido.
+
+    Comportamento voluto e fissato qui: **non si tocca niente**. Un file che non riusciamo a
+    leggere non è attribuibile a noi — potrebbe essere una licenza vera scritta a metà — e
+    sovrascriverlo consumerebbe anche il backup. Restano entrambi sul disco, con l'avviso:
+    l'utente ha tutto ciò che serve per decidere, e non abbiamo distrutto nulla.
+    """
+    percorso = tmp_path / "license_state.json"
+    backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
+    percorso.write_text("non e' JSON {{{", encoding="utf-8")
+    backup.write_text('{"token": "LICENZA-VERA", "last_seen": 1}', encoding="utf-8")
+    corrotto = percorso.read_bytes()
+    salvato = backup.read_bytes()
+
+    tool.ripristina_licenza(str(backup), percorso, "IL-TOKEN-DI-PROVA")
+
+    assert percorso.read_bytes() == corrotto, "un file non leggibile e' stato sovrascritto"
+    assert backup.read_bytes() == salvato, "il backup e' stato consumato su un caso ambiguo"
+
+
 def test_non_cancella_una_licenza_vera_attivata_durante_gli_scatti(tool, tmp_path):
     """Caso opposto e altrettanto rovinoso: durante la sessione l'utente incolla una licenza
     VERA nella scheda «🔒 Licenza». A fine scatti la pulizia non deve portarsela via."""
