@@ -7,23 +7,28 @@ Causa misurata: CustomTkinter su Windows imposta ``yscrollincrement=1`` e scroll
 ~2600px: ~130 scatti per attraversarlo, e OGNI scatto ridisegna decine di widget
 con angoli arrotondati → tremolio percepito.
 
-Rimedio di allora (fonte unica, regola 3): ``ui_cards.tune_scrolling(sf)`` porta
-gli increment del canvas a 3px → ~60px per scatto. Va chiamata su OGNI
-CTkScrollableFrame del package (la classe, non il sito — regola 2): il test
-sorgente qui sotto lo impone contando costruzioni e chiamate per modulo.
+Rimedio di allora (fonte unica, regola 3): ``ui_cards.tune_scrolling(sf)`` regola
+gli increment del canvas — **oggi 1px**, era 3px fino alla #319 (vedi sotto). Va
+chiamata su OGNI CTkScrollableFrame del package (la classe, non il sito — regola
+2): il test sorgente qui sotto lo impone contando costruzioni e chiamate per
+modulo. Dalla #320 si applica **solo su Windows**: altrove CTk scrolla un numero
+di unità diverso e forzare il passo di Windows rende lo scroll inservibile.
 
-⚠️ **Aggiornamento #319 (2026-08-07): quel rimedio non era un rimedio.** Il
-proprietario ha filmato l'effetto opposto — scorrendo, il testo lascia una **scia
-di decine di copie**. La Phase 0 ha stabilito perché: il numero di ridisegni per
-scatto (**venti**) è cablato in CustomTkinter e ``tune_scrolling`` non lo tocca.
-Quindi i fantasmi ci sono con qualunque passo, e ``step_px`` sceglie solo se
-appaiono come **sfocatura** (1px, adiacenti → il «tremolio» del 04/08) o come
-**scia** (3px, distanziati → quello che si vede oggi).
+⚠️ **Aggiornamento #319 (2026-08-07): il passo è tornato a 1px come MISURA**, non
+come configurazione definitiva. Il proprietario ha filmato l'effetto opposto al
+tremolio — scorrendo, il testo lascia una **scia di decine di copie**.
 
-Il valore è tornato a **1** come **misura**: se il proprietario rivede la
-sfocatura, il difetto è nella ripulitura del canvas e il rimedio vero deve
-prendere il controllo della rotellina. Il pin del valore e la premessa dei venti
-quanti sono fissati dai due test in cima.
+**Cosa è accertato e cosa no** (rilievo CodeRabbit sulla #320, fondato). Accertato:
+CTk chiede a Tk **20 unità** di scorrimento per scatto (``-int(event.delta / 6)``
+con ``delta=120``), il valore è cablato nel suo sorgente, e ``tune_scrolling``
+regola solo la **dimensione** dell'unità. **Non** accertato: quanti ridisegni Tk
+esegua davvero — Tk accorpa i ridisegni a idle, quindi 20 unità richieste non sono
+necessariamente 20 ridisegni. I fotogrammi mostrano una scia di molte copie, ma il
+numero non è stato misurato: dedurlo sarebbe un'inferenza travestita da dato.
+
+Quello che la misura vuole sapere è solo questo: con il passo a **1** il
+proprietario rivede la **sfocatura** del 04/08 o resta la **scia**? La risposta
+dice se il passo c'entra, e nient'altro.
 """
 from __future__ import annotations
 
@@ -55,22 +60,63 @@ class _ScrollableDoppio:
         self._parent_canvas = _CanvasDoppio()
 
 
-def test_tune_scrolling_imposta_gli_increment_a_1px():
+def test_tune_scrolling_imposta_gli_increment_a_1px(monkeypatch):
     """⚠️ Valore di MISURA (#319, 2026-08-07), non configurazione definitiva.
 
     Era `3`, scelto il 04/08 contro il «tremolio». Il 07/08 il proprietario ha
     filmato l'effetto opposto — una scia di decine di copie — e la Phase 0 ha
-    stabilito che i due valori non sono un rimedio ma una **scelta estetica sullo
-    stesso difetto**: i ridisegni intermedi sono sempre venti (vedi il test qui
-    sotto), cambia solo quanto sono distanziati i fantasmi.
+    stabilito che i due valori non sono due rimedi ma una **scelta estetica sullo
+    stesso difetto**: `tune_scrolling` regola la dimensione del quanto, non il
+    numero di quanti richiesti per scatto (vedi il test qui sotto), quindi cambia
+    solo quanto sono distanziate le copie, non che ci siano.
 
     Tornare a `1` risponde a una domanda sola: il proprietario rivede la sfocatura
     del 04/08? Se sì, il difetto è nella ripulitura del canvas ed è lì che va la
     correzione vera. Questo test **pinna il valore** perché il ritorno a 1 sia una
-    decisione leggibile e non una regressione silenziosa."""
+    decisione leggibile e non una regressione silenziosa.
+
+    È anche il lato POSITIVO del gate di piattaforma introdotto dalla #320 — il lato
+    negativo è `test_su_linux_e_macos_NON_si_tocca_il_default_di_customtkinter`:
+    l'accordatura si applica su Windows, e solo lì. Per questo il test **dichiara** la
+    piattaforma invece di ereditare quella del runner: senza il monkeypatch passerebbe
+    su Windows e fallirebbe in CI, cioè misurerebbe il runner e non il codice."""
+    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
     sf = _ScrollableDoppio()
     ui_cards.tune_scrolling(sf)
     assert sf._parent_canvas.kwargs == {"xscrollincrement": 1, "yscrollincrement": 1}
+
+
+def test_su_linux_e_macos_NON_si_tocca_il_default_di_customtkinter(monkeypatch):
+    """Rilievo GPT-5.5 sulla #320, e il conto è peggio di come l'avevo scritto.
+
+    `tune_scrolling` sovrascriveva l'increment su **tutte** le piattaforme, ma CTk non
+    scrolla lo stesso numero di unità ovunque:
+
+    | piattaforma | unità per scatto | increment CTk | px per scatto |
+    |---|---|---|---|
+    | Windows | 20 (`-delta/6`) | 1 | 20 |
+    | macOS   | `-delta`        | 4/8 | dipende dal delta |
+    | Linux   | **1** (`yview_scroll(±1)`) | **30** | **30** |
+
+    Su Linux una rotellina vale **una sola unità**: l'increment È il passo. Quindi dal
+    04/08 `tune_scrolling(3)` ha reso lo scorrimento **3 px per scatto** invece di 30 —
+    dieci volte più lento, di fatto inservibile — e la misura a 1 px lo avrebbe portato a
+    **1 px per scatto**.
+
+    Nessuno se n'era accorto perché il bersaglio è Windows e su Linux gira solo la
+    pipeline screenshot, che non scrolla. Ma è una regressione vera, introdotta da una
+    correzione pensata per un'altra piattaforma: la Regola 2-bis presa in flagrante.
+
+    L'accordatura si applica **solo dove il suo ragionamento vale** — Windows, l'unica
+    piattaforma nominata nel docstring della funzione. Altrove si lascia il default di CTk.
+    """
+    for piattaforma in ("linux", "darwin"):
+        monkeypatch.setattr(ui_cards.sys, "platform", piattaforma)
+        sf = _ScrollableDoppio()
+        ui_cards.tune_scrolling(sf)
+        assert sf._parent_canvas.kwargs == {}, (
+            f"su {piattaforma!r} l'increment è stato sovrascritto: CTk lì scrolla un numero "
+            "di unità diverso, e forzare il passo di Windows rende lo scorrimento inutilizzabile")
 
 
 def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
@@ -81,8 +127,16 @@ def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
     `-int(event.delta / 6)`, e con il `delta` di Windows (±120) fa **20 unità**.
 
     Da qui la conseguenza che governa tutta la #319: qualunque valore di `step_px`
-    lascia venti ridisegni intermedi, quindi `tune_scrolling` **non può** ridurre i
-    fantasmi — può solo distanziarli. Il rimedio vero deve toccare la rotellina.
+    lascia **lo stesso numero di unità richieste** — venti — e cambia solo di quanti
+    pixel vale ognuna. Quindi `tune_scrolling` sposta la geometria dello scorrimento,
+    non la quantità di lavoro che Tk riceve.
+
+    ⚠️ Quello che questo test dimostra è **il divisore, non i ridisegni** (rilievo
+    CodeRabbit sulla #320, fondato): `_mouse_wheel_all` emette UN solo comando
+    `yview("scroll", -int(event.delta/6), "units")`, e Tk accorpa i ridisegni a idle.
+    Venti unità richieste NON sono per forza venti ridisegni: quel conto non è stato
+    misurato e qui non viene asserito. Resta accertato solo che il numero di unità è
+    cablato in CTk e fuori dalla nostra portata.
 
     Il test legge il sorgente di CTk installato: se una versione futura cambiasse
     quel divisore, la premessa della #319 cadrebbe e va rifatta l'analisi invece di
@@ -105,15 +159,21 @@ def test_customtkinter_scrolla_VENTI_unita_per_scatto_e_non_e_configurabile():
         "sovrascrivere `tune_scrolling` a runtime, verificare quando")
 
 
-def test_tune_scrolling_passo_personalizzato():
+def test_tune_scrolling_passo_personalizzato(monkeypatch):
+    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
     sf = _ScrollableDoppio()
     ui_cards.tune_scrolling(sf, step_px=5)
     assert sf._parent_canvas.kwargs == {"xscrollincrement": 5, "yscrollincrement": 5}
 
 
-def test_tune_scrolling_best_effort_su_doppio_senza_canvas():
+def test_tune_scrolling_best_effort_su_doppio_senza_canvas(monkeypatch):
     """Doppio headless senza `_parent_canvas` (o canvas che solleva): mai un crash —
-    lo scroll resta quello di default, la GUI vive."""
+    lo scroll resta quello di default, la GUI vive.
+
+    Il monkeypatch a `win32` non è cosmesi: senza, il gate di piattaforma della #320
+    farebbe uscire la funzione PRIMA del `try`, e il test passerebbe **a vuoto** su
+    Linux — verde senza aver mai esercitato il best-effort che pretende di coprire."""
+    monkeypatch.setattr(ui_cards.sys, "platform", "win32")
     ui_cards.tune_scrolling(object())          # nessun _parent_canvas
 
     class _CanvasRotto:
