@@ -210,7 +210,6 @@ class SourceChatsPanel(ctk.CTkFrame):
                          font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=3)
 
         self._rows_frame = ctk.CTkScrollableFrame(self, height=320, **ui_cards.card_style())
-        ui_cards.tune_scrolling(self._rows_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._rows_frame.pack(fill="both", expand=True, padx=12, pady=6)
 
         btns = ctk.CTkFrame(self, fg_color="transparent")
@@ -373,7 +372,6 @@ class _ParserListDialog(ctk.CTkToplevel):
             wraplength=440, justify="left", font=ctk.CTkFont(size=11),
             text_color="gray", anchor="w").pack(anchor="w", padx=12, pady=(10, 6))
         self._list_frame = ctk.CTkScrollableFrame(self, height=220, **ui_cards.card_style())
-        ui_cards.tune_scrolling(self._list_frame)   # scroll fluido (regola 2: ogni scrollable)
         self._list_frame.pack(fill="both", expand=True, padx=12, pady=6)
         add = ctk.CTkFrame(self, fg_color="transparent")
         add.pack(fill="x", padx=12, pady=4)

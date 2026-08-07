@@ -48,25 +48,6 @@ def card_style(border=None) -> dict:
     }
 
 
-def tune_scrolling(sf, step_px: int = 3) -> None:
-    """Scorrimento più fluido per una `CTkScrollableFrame` (segnalazione proprietario
-    2026-08-04: la griglia del Parser «scatta/trema» sotto rotellina su Windows).
-
-    CustomTkinter su Windows imposta `yscrollincrement=1` e scrolla -delta/6 (=20)
-    unità per scatto → 20px a scatto: su contenuti alti migliaia di px servono
-    ~130 scatti, e ogni scatto ridisegna tutti i widget visibili (angoli
-    arrotondati inclusi) → tremolio. Portare gli increment a `step_px` (default 3)
-    dà ~60px per scatto con un terzo dei ridisegni, SENZA toccare i binding CTk.
-
-    Usa `_parent_canvas` (non c'è API pubblica per gli increment): accesso protetto
-    e best-effort — doppi headless senza canvas, o canvas già distrutto → no-op,
-    lo scroll resta quello di default e la GUI vive."""
-    try:
-        sf._parent_canvas.configure(xscrollincrement=step_px, yscrollincrement=step_px)
-    except Exception:  # noqa: BLE001 — accordatura best-effort: mai rompere la costruzione
-        pass
-
-
 def _best_effort(widget, method, *args, **kwargs):
     """Chiama ``widget.method(...)`` se esiste; i doppi dei test non hanno Tk dietro."""
     fn = getattr(widget, method, None)

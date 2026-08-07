@@ -1101,12 +1101,31 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 
 ## 7. Hub Strumenti e finestre secondarie
 
-> **Scorrimento accordato (segnalazione proprietario 2026-08-04).** Su Windows CustomTkinter
-> scrolla 20px per scatto di rotellina: sull'editor del Parser (~2600px di contenuto) servivano
-> ~130 scatti, ognuno con ridisegno completo dei widget visibili → effetto «scatta/trema»,
-> massimo sulla Griglia regole. Ogni `CTkScrollableFrame` del package è ora accordata con
-> `ui_cards.tune_scrolling()` (increment 3px → ~60px per scatto, un terzo dei ridisegni);
-> un test sorgente impone che ogni scrollable nuova venga accordata — copertura estesa anche all'app **License Manager** separata (audit 2026-08-04: il suo pannello a schede era l'unica scrollable nuda; textbox e Treeview scrollano nativamente per righe e non richiedono accordatura).
+> **Scorrimento: nessuna accordatura, si usa il default di CustomTkinter (#319, 2026-08-07).**
+> Dal 04/08 al 07/08 ogni `CTkScrollableFrame` passava da `ui_cards.tune_scrolling()`, che
+> portava gli increment del canvas a 3px per rimediare a un «scatta/trema» segnalato sulla
+> Griglia regole del Parser. **Quella funzione è stata rimossa**, e con lei il test-guardia che
+> ne imponeva l'uso su entrambi i package.
+>
+> Motivo, misurato: CustomTkinter imposta **già** gli increment per piattaforma —
+> **Windows 1 · macOS 4/8 · Linux 30** (`CTkScrollableFrame._set_scroll_increments`). Quindi
+> l'accordatura a 1px su Windows **riscriveva il valore che CTk aveva già scritto** (effetto
+> zero), mentre su Linux sostituiva 30 con 3, rendendo lo scorrimento **dieci volte più lento**:
+> una regressione introdotta da una correzione pensata per un'altra piattaforma. Ora ogni
+> piattaforma ha il comportamento nativo della libreria.
+>
+> ⚠️ **Il difetto visivo della #319 NON è risolto e la issue resta aperta.** Il proprietario ha
+> filmato, sulla sola scheda **🧩 Parser**, una **scia di copie** del testo durante lo
+> scorrimento. Il valore dell'increment è stato **escluso come causa** da due prove indipendenti
+> (scia identica a 1px e a 3px), insieme ad altre undici ipotesi — struttura dei widget, master,
+> ricostruzione senza distruzione, `.place()`, `scrollregion`, `pack_propagate`, scrollable
+> annidate, thread secondari, variabili Tk condivise. Il perimetro delle esclusioni è nella
+> **#319**.
+>
+> **Per chi fa il design**: sulle schermate scorrevoli non c'è oggi alcuna regolazione nostra da
+> rispettare o descrivere; lo scorrimento è quello standard di CustomTkinter. La scia è un
+> artefatto di **resa su Windows**, non una scelta di interfaccia, e sparirà dal handoff quando
+> la #319 sarà chiusa.
 
 > **Le sezioni vuote non riservano spazio (segnalazione proprietario 2026-08-04).** Un
 > `CTkFrame` senza figli chiede l'altezza di **default** di CustomTkinter — **200px** — anche
