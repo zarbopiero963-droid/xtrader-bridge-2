@@ -555,30 +555,40 @@ def test_hardware_non_identificabile_si_ferma_senza_toccare_la_licenza(tool, tmp
 
 
 @pytest.mark.parametrize("quale", ["ripristina_licenza", "rimuovi_licenza_di_prova"])
-def test_prima_che_il_token_esista_nessuna_pulizia_si_attribuisce_il_file(tool, tmp_path, quale):
-    """Rilievo **GPT-5.5** sulla #310, secondo giro, ed è la coda della correzione precedente.
+@pytest.mark.parametrize("token_non_emesso, sul_disco", [
+    (None, "None"),     # `str(None)` combaciava con un token letteralmente «None»
+    ("", ""),           # `== ""` combacia con un file il cui token è vuoto: corrotto, non nostro
+])
+def test_prima_che_il_token_esista_nessuna_pulizia_si_attribuisce_il_file(
+        tool, tmp_path, quale, token_non_emesso, sul_disco):
+    """Rilievo **GPT-5.5** sulla #310, secondo e terzo giro, coda della correzione precedente.
 
     Da quando la pulizia si registra *prima* di emettere il token, esiste un istante in cui può
-    girare con `token_atteso` ancora `None`. GPT-5.5 chiedeva di verificare che in quell'istante
-    sia sempre un no-op sicuro. Non lo era del tutto: il confronto finiva in `str(None)`, cioè
-    nella stringa `"None"`, che combacia con un file il cui token fosse letteralmente `"None"`.
+    girare senza token. GPT-5.5 chiedeva di verificare che in quell'istante sia sempre un no-op
+    sicuro. Non lo era: il confronto finiva in `str(None)`, cioè nella stringa `"None"`, che
+    combacia con un file il cui token fosse letteralmente `"None"`.
 
     Coincidenza assurda, conseguenza no: nel ramo `rimuovi` il file veniva **cancellato**, nel
-    ramo `ripristina` veniva **sovrascritto** col backup, che veniva pure consumato. Adesso il
-    caso è rifiutato all'ingresso — prima di avere un token, niente è nostro — ed è fissato qui
-    su **entrambe** le pulizie, non su quella segnalata (Regola 2).
+    ramo `ripristina` veniva **sovrascritto** col backup, che veniva pure consumato.
+
+    Al terzo giro GPT-5.5 chiedeva di aggiungere il caso `""`. La risposta giusta non era
+    aggiungere un caso ma **allargare la guardia** a qualunque token falsy (Regola 2: la classe,
+    non il sito): la stringa vuota è la stessa condizione — non abbiamo un token da riconoscere —
+    e con `== ""` combacerebbe con un file dal token vuoto, cioè corrotto o modificato a mano.
+    I due casi restano parametrizzati qui perché è la coppia che il difetto produceva, e su
+    **entrambe** le pulizie, non solo su quella segnalata.
     """
     percorso = tmp_path / "license_state.json"
-    percorso.write_text('{"token": "None", "last_seen": 1}', encoding="utf-8")
+    percorso.write_text(f'{{"token": "{sul_disco}", "last_seen": 1}}', encoding="utf-8")
     intatto = percorso.read_bytes()
     backup = tmp_path / ("license_state.json" + tool.SUFFISSO_BACKUP)
     backup.write_text('{"token": "LICENZA-VERA", "last_seen": 0}', encoding="utf-8")
     salvato = backup.read_bytes()
 
     if quale == "rimuovi_licenza_di_prova":
-        tool.rimuovi_licenza_di_prova(percorso, None)
+        tool.rimuovi_licenza_di_prova(percorso, token_non_emesso)
     else:
-        tool.ripristina_licenza(str(backup), percorso, None)
+        tool.ripristina_licenza(str(backup), percorso, token_non_emesso)
 
     assert percorso.read_bytes() == intatto, (
         "senza un token nostro la pulizia ha comunque toccato il file: prima di scrivere qualcosa "

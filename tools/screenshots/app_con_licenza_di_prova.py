@@ -154,8 +154,8 @@ def _e_ancora_la_nostra(percorso, token_atteso) -> bool:
     stessa per entrambe, e tenerla in un posto solo è ciò che impedisce di proteggerne una e
     dimenticare l'altra — l'errore fatto tre volte in questa PR.
 
-    Fail-closed: `token_atteso` ancora `None` → `False`; file assente → `False`; illeggibile o
-    non JSON → `False`. Nel dubbio non si tocca, perché ciò che c'è dentro potrebbe essere la
+    Fail-closed: `token_atteso` **vuoto o assente** → `False`; file assente → `False`; illeggibile
+    o non JSON → `False`. Nel dubbio non si tocca, perché ciò che c'è dentro potrebbe essere la
     licenza vera di qualcuno.
 
     Il primo dei tre è nuovo (rilievo GPT-5.5 sulla #310, secondo giro) e ha una ragione precisa:
@@ -164,8 +164,14 @@ def _e_ancora_la_nostra(percorso, token_atteso) -> bool:
     è nostro** — e il confronto va rifiutato all'ingresso invece di finire in `str(None)`, che
     combacerebbe con un file il cui token fosse la stringa `"None"`. Assurdo? Sì. Ma è il
     genere di coincidenza che, quando capita, cancella la licenza di qualcuno.
+
+    La guardia è su **qualunque token falsy**, non sul solo `None` (Regola 2: la classe, non il
+    sito). GPT-5.5 chiedeva, al terzo giro, un test su `""`; la risposta giusta non era aggiungere
+    un caso ma allargare la guardia, perché la stringa vuota è la stessa condizione — «non
+    abbiamo un token da riconoscere» — e con `== ""` combacerebbe con un file il cui token è
+    vuoto, cioè un file corrotto o modificato a mano. Esattamente il tipo di file da non toccare.
     """
-    if token_atteso is None:
+    if not token_atteso:
         return False
     p = pathlib.Path(percorso)
     if not p.exists():
