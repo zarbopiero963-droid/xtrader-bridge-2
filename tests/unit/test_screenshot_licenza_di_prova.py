@@ -173,6 +173,53 @@ def test_il_gestore_di_segnale_conserva_il_comportamento_precedente(tool, monkey
             "l'handler precedente non e' stato richiamato: lo spegnimento dell'app cambia"
 
 
+def test_senza_licenza_preesistente_quella_di_prova_NON_resta_sul_disco(tool, tmp_path,
+                                                                       monkeypatch):
+    """Rilievo **Claude Fable 5** sulla #310, e mi era sfuggito.
+
+    Sulla macchina di documentazione tipica — quella **senza** licenza — non c'è niente da
+    mettere al riparo, quindi il ramo `backup` non scattava e **nessuna pulizia veniva
+    registrata**. Il token di test restava in `license_state.json` per sempre, e l'app di
+    produzione lo rifiuta perché firmato con la chiave di test: il computer passava da «non
+    attivato» a «licenza non valida: bridge bloccato». Peggio di prima, ed è la stessa classe
+    di danno che questo tool esiste per prevenire.
+    """
+    from xtrader_bridge import config_store, license_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: str(tmp_path))
+    percorso = pathlib.Path(license_store.license_state_path(str(tmp_path)))
+    assert not percorso.exists(), "il test parte da una macchina SENZA licenza"
+
+    registrati = []
+    monkeypatch.setattr(tool.atexit, "register",
+                        lambda fn, *a, **k: registrati.append((fn, a)))
+
+    tool._attiva_licenza_di_prova()
+    assert percorso.exists(), "la licenza di prova non è stata scritta: il test non prova nulla"
+
+    assert registrati, (
+        "nessuna pulizia registrata: la licenza di PROVA resterebbe sul disco e l'app di "
+        "produzione la rifiuterebbe — da «non attivato» a «licenza non valida»")
+    fn, args = registrati[0]
+    fn(*args)
+
+    assert not percorso.exists(), \
+        "la licenza di prova è ancora sul disco dopo la pulizia"
+
+
+def test_non_cancella_una_licenza_vera_attivata_durante_gli_scatti(tool, tmp_path):
+    """Caso opposto e altrettanto rovinoso: durante la sessione l'utente incolla una licenza
+    VERA nella scheda «🔒 Licenza». A fine scatti la pulizia non deve portarsela via."""
+    percorso = tmp_path / "license_state.json"
+    percorso.write_text('{"token": "LICENZA-VERA-APPENA-ATTIVATA", "last_seen": 9}',
+                        encoding="utf-8")
+
+    tool.rimuovi_licenza_di_prova(percorso, "IL-TOKEN-DI-PROVA-CHE-AVEVAMO-SCRITTO")
+
+    assert percorso.exists(), \
+        "la licenza vera attivata durante la sessione è stata cancellata dalla pulizia"
+
+
 def test_un_handler_precedente_che_solleva_vince_sul_nostro_sys_exit(tool, monkeypatch):
     """Contratto fissato su richiesta di GPT-5.5 (#310, quarto giro).
 

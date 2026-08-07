@@ -28,6 +28,7 @@ Poi `shoot.sh` cattura la finestra come sempre.
 """
 
 import atexit
+import json
 import os
 import pathlib
 import runpy
@@ -113,6 +114,32 @@ def ripristina_licenza(backup, percorso) -> None:
     os.replace(str(b), str(percorso))
 
 
+def rimuovi_licenza_di_prova(percorso, token_atteso) -> None:
+    """Toglie la licenza di prova quando NON c'era una licenza vera da rimettere.
+
+    Rilievo **Claude Fable 5** sulla #310, e aveva ragione: il ripristino era registrato solo
+    nel ramo `backup`. Su una macchina **senza** licenza — cioè la macchina di documentazione
+    tipica — il token di test restava in `license_state.json` per sempre, e l'app di produzione
+    lo **rifiuta** perché firmato con la chiave di test. Il computer passava da «non attivato» a
+    «licenza non valida: bridge bloccato», che è uno stato peggiore di quello di partenza: la
+    stessa classe di danno che questa PR esiste per prevenire, entrata dalla porta di servizio.
+
+    Cancella **solo se il token è ancora il nostro**. Durante gli scatti l'utente può aver
+    incollato una licenza VERA nella scheda «🔒 Licenza» dell'app: cancellarla a fine sessione
+    sarebbe di nuovo il danno di partenza. Se il contenuto non combacia, non si tocca niente.
+    """
+    p = pathlib.Path(percorso)
+    if not p.exists():
+        return
+    try:
+        stato = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return                      # illeggibile o non JSON: non è roba nostra, non si tocca
+    if str(stato.get("token", "")) != str(token_atteso):
+        return                      # qualcun altro l'ha cambiata (es. licenza vera attivata)
+    p.unlink()
+
+
 def _installa_ripristino_su_segnale(sig) -> None:
     """Su SIGTERM/SIGINT esce pulito — **senza mangiarsi l'handler che c'era prima**.
 
@@ -175,13 +202,22 @@ def _attiva_licenza_di_prova() -> str:
         # (rilievo GPT-5.5). Chi deve rimetterla a posto sa già in che cartella guardare.
         print(f"licenza esistente messa al riparo in «{pathlib.Path(backup).name}» "
               "(cartella dati dell'app) — verrà rimessa a posto all'uscita")
-        atexit.register(ripristina_licenza, backup, percorso)
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            _installa_ripristino_su_segnale(sig)
 
     adesso = int(time.time())
     token = core.issue_license(LICENSE_TEST_SEED_HEX, INTESTATARIO, GIORNI, identificativo, adesso)
     license_store.save_license(percorso, token, adesso)
+
+    # La pulizia si registra SEMPRE, non solo quando c'era una licenza da rimettere (rilievo
+    # Claude Fable 5). Senza il ramo `else` la licenza di prova restava sul disco per sempre
+    # sulla macchina di documentazione tipica — quella SENZA licenza — e l'app di produzione la
+    # rifiutava: da «non attivato» a «licenza non valida», cioè peggio di prima.
+    if backup:
+        atexit.register(ripristina_licenza, backup, percorso)
+    else:
+        atexit.register(rimuovi_licenza_di_prova, percorso, token)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        _installa_ripristino_su_segnale(sig)
+
     return identificativo
 
 
