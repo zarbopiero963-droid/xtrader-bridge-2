@@ -6,10 +6,25 @@
 # Le coordinate sono PARAMETRI e non costanti perché le etichette tradotte hanno
 # larghezze diverse e spostano il layout: con quelle italiane, in spagnolo il click
 # finisce sul pulsante «Asistente de primera configuración» e apre il Wizard invece
-# della tab. Valori verificati:
-#   it  394 93 260 482
-#   en  366 93 273 482
-#   es  366 93 278 482
+# della tab.
+#
+# Valori RI-MISURATI il 2026-08-07 su finestra 720x760, con la licenza di prova attiva
+# (cioè nella stessa condizione in cui questo script scatta — vedi sotto):
+#   it  356 93 268 482
+#   en  311 93 272 482
+#   es  318 93 279 482
+#
+# ⚠️ Le terne PRECEDENTI (`it 394 93 260 482`) erano stantie per DUE motivi insieme: erano
+# calibrate quando la tabview di configurazione aveva QUATTRO schede — oggi ce n'è una quinta,
+# «Licenza» — e su una macchina senza licenza la fascia rossa «bridge bloccato» spostava tutto
+# in basso di ~33 px. Con valori sbagliati i click cadono a vuoto e si ottengono TRE COPIE
+# della stessa schermata: misurato, tre file identici da 55 132 byte l'uno. Il sintomo è
+# insidioso perché lo script stampa comunque «OK» — va guardato il RISULTATO, non l'esito.
+#
+# Da quando lo script parte dal launcher con licenza di prova la fascia non c'è più, quindi
+# esiste UNA sola condizione di layout invece di due. Restano però da ri-misurare a ogni
+# cambio di schede o di traduzione delle etichette. Vedi la nota in
+# docs/assets/screenshots/linux-xvfb/README.md.
 #
 # Prerequisiti: Xvfb :99 attivo, deps di tools/screenshots/README.md, lanciato dalla
 # radice del repo. Il token nella config d'esempio è FITTIZIO: l'app non si connette.
@@ -94,13 +109,17 @@ except BaseException:
     raise
 PY
 
-DISPLAY=:99 python3 main.py > "$RUNDIR/app.log" 2>&1 &
+# Il launcher, non `main.py` diretto: attiva una licenza di PROVA (seed di test già nel
+# repository) e poi esegue `main.py` col suo vero `__main__`. Senza, l'app disegna la fascia
+# rossa «bridge bloccato», che documenta uno stato in cui nessuno userà il programma e in più
+# sposta il layout mandando a vuoto i click qui sotto. Vedi app_con_licenza_di_prova.py.
+DISPLAY=:99 python3 tools/screenshots/app_con_licenza_di_prova.py > "$RUNDIR/app.log" 2>&1 &
 APP_PID=$!
 sleep 14
 
-W="$(DISPLAY=:99 xdotool search --name "Signal Bridge" | tail -1)"
+W="$(DISPLAY=:99 xdotool search --name "BetRelay" | tail -1)"
 if [ -z "$W" ]; then
-  echo "Finestra «Signal Bridge» non trovata. Ultime righe del log:" >&2
+  echo "Finestra «BetRelay» non trovata. Ultime righe del log:" >&2
   tail -20 "$RUNDIR/app.log" >&2
   exit 1
 fi
