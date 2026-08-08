@@ -674,9 +674,18 @@ class CustomParserPanel(ctk.CTkFrame):
             tabs.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=(8, 0))
         self._tabs = tabs
 
+        # Nomi delle sotto-schede: registrati da `_scheda` mentre le crea, MAI riscritti a
+        # mano (rilievo GPT-5.5 #327). Una seconda lista sarebbe una copia della struttura,
+        # e le copie divergono: rinominare una scheda senza aggiornare l'elenco renderebbe
+        # fuorviante il guard che ci si appoggia. Una sorgente sola, quella che disegna.
+        self._tab_names = []
+
         def _scheda(titolo):
-            """Sotto-scheda + il suo contenitore scorrevole. Best-effort come il resto del
-            pannello: coi doppi dei test `add` può non esistere → si ricade su `tabs`."""
+            """Sotto-scheda + il suo contenitore scorrevole, registrando il titolo.
+
+            Best-effort come il resto del pannello: coi doppi dei test `add` può non
+            esistere → si ricade su `tabs`."""
+            self._tab_names.append(titolo)
             aggiungi = getattr(tabs, "add", None)
             contenitore = aggiungi(i18n.tr(titolo)) if callable(aggiungi) else tabs
             sf = ctk.CTkScrollableFrame(contenitore or tabs, fg_color="transparent")
@@ -692,11 +701,6 @@ class CustomParserPanel(ctk.CTkFrame):
         self._outer_gate = outer_gate
         self._outer_rules = outer_rules
         self._outer_prova = outer_prova
-        # Nomi delle sotto-schede come CONTRATTO del pannello, non come attributo privato
-        # di CustomTkinter (`_tabs._name_list`): un aggiornamento della libreria non deve
-        # rompere un guard che parla della NOSTRA struttura (rilievo Fable + GPT-5.5 #327).
-        self._tab_names = ["🧰 Anagrafiche e traduzioni", "⚙️ Output e condizioni",
-                           "📊 Griglia regole", "🧪 Prova"]
 
         top = ctk.CTkFrame(outer, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=8)
