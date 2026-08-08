@@ -7,8 +7,22 @@
 # CI di test e dagli sviluppatori; questi `.in` sono la sorgente del lock di build.
 #
 # Vincoli applicati:
-# - customtkinter >=5.2.2: la 5.2.0 importa `distutils` (rimosso in Python 3.12) → si
-#   rompe all'avvio su 3.12+. Le 5.2.x successive usano `packaging` (compatibili).
+# - customtkinter >=6.0.0: floor alzato dalla 5.2.2 (#319). Due motivi, uno tecnico e uno
+#   di processo.
+#   TECNICO: la 5.2.2 non isola le scrollable ANNIDATE — non ha `_check_if_valid_scroll`,
+#   introdotto nella 6.0.0 — e il bridge ne ha di annidate (scheda «Parser»). La versione
+#   precedente (5.2.0) era già esclusa perché importava `distutils`, rimosso in Python 3.12.
+#   DI PROCESSO, ed è il motivo per cui il floor sale invece di restare `>=5.2.2`:
+#   `pip-compile` senza `--upgrade` tratta il lockfile esistente come preferenza e tiene i
+#   pin che soddisfano ancora i vincoli. `requirements-build.lock` era stato ereditato dal
+#   repository PRECEDENTE — i suoi commenti dicevano ancora `D:\a\xtrader-bridge\...`, senza
+#   `-2` — dove era stato generato prima che la 6.0.0 uscisse (24/06/2026). Con un floor a
+#   5.2.2 quel pin restava legittimo, quindi ogni rigenerazione lo riconfermava: il lock si
+#   autoconfermava all'infinito, e l'EXE Windows girava un toolkit che NESSUN test esercitava
+#   (lock Linux e dev, creati da zero in questo repo, avevano già 6.0.0). Alzare il floor
+#   rende quel pin invalido e costringe la risalita senza toccare la CI.
+#   Guard di regressione: `tests/unit/test_dev_lockfile_76.py` verifica ora i floor su TUTTI
+#   e tre i lock e pretende che concordino sulla versione di customtkinter.
 # - python-telegram-bot >=21.0: la 20.0 trascina `h11 0.14` (CVE GHSA-vqfr-h8mv-ghfj,
 #   request smuggling). API usate dal bridge stabili dalla 20.x → upgrade a basso rischio.
 # - h11 >=0.16.0: esclude la CVE (dipendenza transitiva via httpx→httpcore).
@@ -16,7 +30,7 @@
 #   Credential Manager nativo (nessun servizio esterno). Dipendenza "soft" lato codice
 #   (import protetto in `token_store`): se manca o non ha backend, il bridge ripiega sul
 #   token in chiaro nel config con un avviso, senza crash.
-customtkinter>=5.2.2
+customtkinter>=6.0.0
 python-telegram-bot>=21.0
 h11>=0.16.0
 keyring>=24.0

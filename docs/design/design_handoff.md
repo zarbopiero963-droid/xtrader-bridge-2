@@ -88,7 +88,10 @@ sicurezza parte di default in **simulazione** (`dry_run=true`): riconosce i segn
 ## 3. Stack tecnico attuale (vincoli di design)
 
 - **Toolkit GUI:** [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) (`ctk`)
-  sopra Tkinter. È un layer di widget "moderni" su Tkinter.
+  sopra Tkinter, **≥ 6.0.0** (floor in `requirements.in`). È un layer di widget "moderni" su
+  Tkinter. Il floor è vincolante, non indicativo: fino alla #319 l'EXE Windows montava la 5.2.2
+  mentre i test giravano sulla 6.0.0, e le due si comportano diversamente sulle scrollable
+  annidate — vedi il riquadro in §7.
 - **Tema:** default **scuro** (`set_appearance_mode("dark")` + `set_default_color_theme("blue")`,
   accento blu). Dalla #288 Delta 1 è **commutabile** chiaro/scuro con un **toggle nell'header**
   (icona 🌙/☀️): la preferenza è persistita in `config.json` (chiave `theme`, valori `dark`/`light`,
@@ -1117,13 +1120,25 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > ⚠️ **Il difetto visivo della #319 NON è risolto e la issue resta aperta.** Il proprietario ha
 > filmato, sulla sola scheda **🧩 Parser**, una **scia di copie** del testo durante lo
 > scorrimento. Il valore dell'increment è stato **escluso come causa** da due prove indipendenti
-> (scia identica a 1px e a 3px), insieme ad altre undici ipotesi — struttura dei widget, master,
-> ricostruzione senza distruzione, `.place()`, `scrollregion`, `pack_propagate`, scrollable
-> annidate, thread secondari, variabili Tk condivise. Il perimetro delle esclusioni è nella
-> **#319**.
+> (scia identica a 1px e a 3px), insieme ad altre ipotesi — struttura dei widget, master,
+> ricostruzione senza distruzione, `.place()`, `scrollregion`, `pack_propagate`, thread
+> secondari, variabili Tk condivise. Il perimetro delle esclusioni è nella **#319**.
+>
+> ⚠️ **Una di quelle esclusioni era sbagliata, ed è rientrata: le scrollable ANNIDATE**
+> (2026-08-08). Era stata esclusa misurando CustomTkinter **6.0.0**, ma l'EXE Windows del
+> proprietario girava la **5.2.2** — i tre lockfile del repo divergevano, e quello di build
+> Windows era stato ereditato dal repository precedente, dove `pip-compile` senza `--upgrade`
+> continuava a riconfermarlo. Le due versioni differiscono **esattamente lì**: la 6.0.0 ha
+> `_check_if_valid_scroll`, che impedisce alla rotellina di muovere insieme una scrollable e
+> quella che la contiene; la **5.2.2 non ha alcun isolamento**. La scheda «Parser» è l'unica con
+> scrollable annidate, ed è l'unica dove la scia è stata filmata. Il floor è stato alzato a
+> `customtkinter>=6.0.0` così che l'EXE monti la versione che isola; **se questo chiuda davvero
+> la #319 lo dirà solo la build Windows provata sul PC del proprietario**, non una misura sotto
+> Xvfb — che è precisamente l'errore che ha prodotto l'esclusione sbagliata.
 >
 > **Per chi fa il design**: sulle schermate scorrevoli non c'è oggi alcuna regolazione nostra da
-> rispettare o descrivere; lo scorrimento è quello standard di CustomTkinter. La scia è un
+> rispettare o descrivere; lo scorrimento è quello standard di CustomTkinter **6.0.0**, ed è da
+> quella versione in su che va assunto il comportamento delle scrollable annidate. La scia è un
 > artefatto di **resa su Windows**, non una scelta di interfaccia, e sparirà dal handoff quando
 > la #319 sarà chiusa.
 
