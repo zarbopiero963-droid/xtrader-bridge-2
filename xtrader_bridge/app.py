@@ -212,6 +212,11 @@ _GEN_LABEL_WIDTH = 140             # etichetta del campo
 _GEN_FIELD_ENTRY_WIDTH = 470       # casella dei campi SENZA pulsanti
 _CSV_PATH_ENTRY_WIDTH = 250        # casella CSV Path: più stretta, la riga porta 2 pulsanti
 _CSV_ROW_BTN_WIDTH = 100           # larghezza dei pulsanti «📁 Sfoglia…» / «📄 Crea CSV»
+# I due pulsanti della riga CSV Path stanno nella STESSA CELLA della casella (#321 A), non in
+# colonne proprie del grid. Serve ai test di layout per sapere se si SOMMANO alla colonna
+# condivisa (celle proprie) o se ci competono dentro (cella unica): finché erano colonne 2 e 3
+# la riga misurava 810px in una finestra larga 720, e i due controlli finivano fuori schermo.
+_CSV_ROW_BTN_IN_FIELD_CELL = True
 # Padding orizzontale (`padx`) dei widget della riga «⚙️ Generale» e della tabview. Estratti in
 # costanti così `_build_ui` e il test di budget layout condividono UNA SOLA fonte di verità e non
 # possono andare fuori sync (drift): se qui cambia un padding, il test lo recepisce da solo
@@ -1838,12 +1843,21 @@ class App(ctk.CTk):
         for r, (label, key, is_pwd) in enumerate(gen_fields):
             ctk.CTkLabel(tab_gen, text=i18n.tr(label), width=_GEN_LABEL_WIDTH, anchor="w").grid(
                 row=r, column=0, padx=_GEN_LABEL_PADX, pady=4, sticky="w")
-            # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella:
-            # entro la larghezza MINIMA della finestra (`_WINDOW_WIDTH`)
-            # l'entry va ristretta, altrimenti i pulsanti sforano/vengono tagliati (CodeRabbit
-            # #330). Gli altri campi (senza pulsanti) restano a `_GEN_FIELD_ENTRY_WIDTH`.
+            # La riga CSV Path porta DUE pulsanti (Sfoglia + Crea CSV) accanto alla casella.
+            # Dalla #321 A stanno nella STESSA CELLA della casella, non in colonne proprie:
+            # la colonna 1 è condivisa con le altre quattro righe (larghe
+            # `_GEN_FIELD_ENTRY_WIDTH`) e in un `grid` la colonna vale quanto il suo widget
+            # più largo — quindi due celle in più si sommavano a 470, non a 250, e finivano
+            # 28px e 134px FUORI dalla finestra. Dentro la cella, invece, competono con quei
+            # 470 e non allargano la riga. La casella resta ristretta perché deve stare nella
+            # cella insieme ai pulsanti; gli altri campi restano a larghezza piena.
+            contenitore_campo = tab_gen
+            if key == "csv_path":
+                contenitore_campo = ctk.CTkFrame(tab_gen, fg_color="transparent")
+                contenitore_campo.grid(row=r, column=1, padx=_GEN_ENTRY_PADX, pady=4,
+                                       sticky="w")
             e = ctk.CTkEntry(
-                tab_gen, show="●" if is_pwd else "",
+                contenitore_campo, show="●" if is_pwd else "",
                 placeholder_text=_FIELD_PLACEHOLDERS.get(key, ""),   # aiuto a campo vuoto (#288 Delta 2)
                 width=(_CSV_PATH_ENTRY_WIDTH if key == "csv_path" else _GEN_FIELD_ENTRY_WIDTH))
             # Inserisci il valore SOLO se non vuoto: un `insert(0, "")` su un campo vuoto può
@@ -1852,22 +1866,25 @@ class App(ctk.CTk):
             val = str(self._config.get(key, ""))
             if val:
                 e.insert(0, val)
-            e.grid(row=r, column=1, padx=_GEN_ENTRY_PADX, pady=4, sticky="w")
+            if key == "csv_path":
+                e.pack(side="left")
+            else:
+                e.grid(row=r, column=1, padx=_GEN_ENTRY_PADX, pady=4, sticky="w")
             self._entries[key] = e
             self._register_lockable(e)   # #140 PR 4: campo operativo → bloccato senza licenza
             # CSV Path: pulsante «📁 Sfoglia…» (#284) che apre il selettore file e salva
             # subito il percorso scelto (opzione b), invece di digitarlo a mano.
             if key == "csv_path":
-                btn_browse = ctk.CTkButton(tab_gen, text=i18n.tr("📁 Sfoglia…"),
+                btn_browse = ctk.CTkButton(contenitore_campo, text=i18n.tr("📁 Sfoglia…"),
                                            width=_CSV_ROW_BTN_WIDTH, command=self._browse_csv_path)
-                btn_browse.grid(row=r, column=2, padx=_CSV_BROWSE_PADX, pady=4, sticky="w")
+                btn_browse.pack(side="left", padx=_CSV_BROWSE_PADX)
                 self._register_lockable(btn_browse)
                 # «📄 Crea CSV» (#286): genera un CSV a solo header nel formato XTrader
                 # nella cartella scelta e lo imposta come csv_path (azione complementare a
                 # «Sfoglia…»: creare un file nuovo invece di selezionarne uno esistente).
-                btn_create = ctk.CTkButton(tab_gen, text=i18n.tr("📄 Crea CSV"),
+                btn_create = ctk.CTkButton(contenitore_campo, text=i18n.tr("📄 Crea CSV"),
                                            width=_CSV_ROW_BTN_WIDTH, command=self._browse_create_csv)
-                btn_create.grid(row=r, column=3, padx=_CSV_CREATE_PADX, pady=4, sticky="w")
+                btn_create.pack(side="left", padx=_CSV_CREATE_PADX)
                 self._register_lockable(btn_create)
         self._e_token    = self._entries["bot_token"]
         self._e_chat     = self._entries["chat_id"]
