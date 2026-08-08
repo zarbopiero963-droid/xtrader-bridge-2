@@ -864,9 +864,42 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 |---|---|---|
 | 🔑 Bot Token | `bot_token` | campo password (mascherato) |
 | 💬 Chat ID | `chat_id` | testo |
-| 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — la riga è compatta perché porta due pulsanti e deve stare nella **larghezza minima** (720px) |
+| 📄 CSV Path | `csv_path` | testo (percorso file, casella **più corta** delle altre) **+ pulsante «📁 Sfoglia…»** (#284) **+ pulsante «📄 Crea CSV»** (#286) — casella e due pulsanti stanno **nella stessa cella**, affiancati, e l'insieme deve stare nella **larghezza minima** della finestra (720px). Vedi il riquadro qui sotto: non è un dettaglio implementativo, è ciò che rende i due pulsanti raggiungibili |
 | ⏱️ Timeout (sec) | `clear_delay` | intero **> 0 e ≤ 86400** (24 h — B2 audit #114: un timeout enorme disattiverebbe di fatto lo svuotamento del CSV) |
 | 🏷️ Provider | `provider` | testo |
+
+> **⚠️ Vincolo di layout della riga CSV Path — non è cosmetico (#321 A, corretto 2026-08-08).**
+> I cinque campi stanno in una griglia, e la colonna dei valori è **condivisa**: la sua
+> larghezza è quella del campo più largo, cioè i 470px di Bot Token/Chat ID/Timeout/Provider.
+> Finché i due pulsanti avevano **celle proprie** accanto a quella colonna, si sommavano a
+> quei 470 e non ai 250 della casella CSV: la riga misurava **810px in una finestra larga
+> 720**, e a schermo «📁 Sfoglia…» finiva **28px** oltre il bordo e «📄 Crea CSV» **134px**
+> oltre — cioè **non esisteva** alla dimensione con cui il programma si apre. Non era un
+> troncamento estetico: «Crea CSV» è la via d'uscita documentata quando il CSV esistente non
+> è del bridge (§6.4), e un utente alla prima configurazione non poteva sapere che c'era.
+>
+> Ora casella e pulsanti stanno **nella stessa cella**: competono con quei 470px invece di
+> aggiungersi. Misurato su CustomTkinter reale a 720px — «Sfoglia…» finisce a 520
+> (200px di margine), «Crea CSV» a 626 (94px).
+>
+> **Per chi disegna:** qualunque controllo aggiunto a questa riga va messo *dentro* la cella
+> del campo, e la somma casella + pulsanti deve restare sotto la larghezza dei campi senza
+> pulsanti. Aggiungerne uno a fianco della colonna lo rende invisibile all'apertura, in
+> silenzio.
+>
+> **Tre controlli lo impediscono**, e sono complementari di proposito — perché il difetto
+> originale era proprio un controllo che modellava un'app diversa da quella che gira:
+>
+> | controllo | cosa guarda | dove gira |
+> |---|---|---|
+> | `test_gen_layout_budget.py` — budget | il conto della riga, col **massimo della colonna** | ovunque |
+> | `test_gen_layout_budget.py` — struttura | il **sorgente di `app.py` letto con l'AST**: a quale contenitore vanno davvero casella e pulsanti | ovunque |
+> | `test_gen_layout_reale.py` | **dove Tk ha messo i pulsanti**, misurato su widget veri | dove c'è un display: Xvfb e runner **Windows** (su Windows non si salta mai: se Tk non parte è rosso) |
+>
+> Il secondo esiste perché il primo si appoggia a `_CSV_ROW_BTN_IN_FIELD_CELL`, una costante
+> che dichiara la struttura: una costante scritta a mano è una **copia**, e le copie
+> divergono. Leggendo il sorgente, una modifica al layout che dimenticasse di aggiornare la
+> costante diventa rossa invece di far tornare vacuo il conto.
 
 - **Segnaposto d'aiuto nei campi (#288 Delta 2):** ogni casella mostra un **placeholder** grigio a
   campo vuoto (es. Chat ID → `es. -1001234567890`, Bot Token → `incolla qui il token del bot`, CSV
