@@ -172,7 +172,12 @@ def test_l_editor_e_diviso_in_sotto_schede(pannello):
     )
 
 
-_AZIONI = ("💾 Salva parser", "🧪 Prova messaggio", "📋 Copia diagnostica")
+# Etichette dei pulsanti nella lingua GREZZA. Vanno passate da `i18n.tr` prima del
+# confronto (bloccante Claude Fable 5 #327): i pulsanti sono costruiti con
+# `i18n.tr(...)`, quindi con l'app in inglese o spagnolo il testo a schermo è tradotto e
+# un confronto sulle stringhe grezze renderebbe rosso un pannello sano. In italiano `tr`
+# è identità, ed è per questo che il difetto non si vedeva qui.
+_AZIONI_GREZZE = ("💾 Salva parser", "🧪 Prova messaggio", "📋 Copia diagnostica")
 
 
 def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
@@ -188,7 +193,11 @@ def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
     Senza questo guard, un refactor futuro potrebbe rimetterli dentro uno scorrimento e
     tutti gli altri test resterebbero verdi.
     """
+    from xtrader_bridge import i18n
+
     ctk_scroll = _CTkScrollableFrame()
+    # Nella lingua ATTIVA, qualunque sia: è così che i pulsanti sono stati disegnati.
+    attese = {i18n.tr(t): t for t in _AZIONI_GREZZE}
     trovati = {}
     pila = [pannello]
     while pila:
@@ -201,14 +210,14 @@ def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
             # azione. Le tre eccezioni sono quelle che Tk e CustomTkinter usano per
             # «questa opzione non esiste»; qualunque altra è un difetto e deve emergere.
             pass
-        if isinstance(testo, str) and testo in _AZIONI:
+        if isinstance(testo, str) and testo in attese:
             trovati[testo] = nodo
         try:
             pila.extend(nodo.winfo_children())
         except tkinter.TclError:                   # widget in teardown
             pass
 
-    mancanti = [t for t in _AZIONI if t not in trovati]
+    mancanti = [t for t in attese if t not in trovati]
     assert not mancanti, (
         f"pulsanti azione non trovati nel pannello: {mancanti}. Se sono stati rinominati "
         "va aggiornato questo guard, non rimosso: difende l'unica cosa che li tiene "
@@ -223,3 +232,65 @@ def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
         f"pulsanti azione finiti DENTRO un contenitore scorrevole: {colpevoli}. "
         "Devono stare nella barra fissa: dentro uno scorrimento spariscono dalla vista "
         "proprio quando servono, ed è il difetto che questa struttura ha corretto")
+
+
+@pytest.mark.parametrize("lingua", ["IT", "EN", "ES"])
+def test_il_guard_dei_pulsanti_regge_in_TUTTE_le_lingue(lingua):
+    """Il guard sopra non deve dipendere dalla lingua dell'app (bloccante Fable #327).
+
+    I pulsanti sono costruiti con `i18n.tr(...)`: confrontarli con le stringhe grezze
+    funziona **solo in italiano**, dove `tr` è l'identità. Con l'app in inglese o spagnolo
+    il testo a schermo è tradotto e il confronto grezzo non trova nulla — cioè il guard
+    diventerebbe **rosso su un pannello perfettamente sano**, che è il modo in cui un
+    controllo si fa disattivare.
+
+    Qui il pannello viene costruito DAVVERO nella lingua sotto esame e ci si esegue sopra
+    la stessa ricerca del guard: se il confronto per lingua attiva si rompesse, questo
+    diventerebbe rosso. Misurato: in EN «💾 Salva parser» diventa «💾 Save parser».
+    """
+    ctk = pytest.importorskip("customtkinter")
+    from xtrader_bridge import i18n
+    from xtrader_bridge.custom_parser_gui import CustomParserPanel
+    from xtrader_bridge.parser_builder import ParserBuilder
+
+    precedente = i18n.get_language()
+    root = None
+    try:
+        i18n.set_language(lingua)
+        root = ctk.CTk()
+        root.geometry("1140x720")
+        pan = CustomParserPanel(root, builder=ParserBuilder())
+        pan.pack(fill="both", expand=True)
+        root.update()
+        root.update_idletasks()
+
+        attese = {i18n.tr(t) for t in _AZIONI_GREZZE}
+        assert len(attese) == len(_AZIONI_GREZZE), (
+            f"in {lingua} due pulsanti diversi hanno la stessa etichetta: {attese}")
+
+        trovati = set()
+        pila = [pan]
+        while pila:
+            nodo = pila.pop()
+            try:
+                testo = nodo.cget("text")
+            except (tkinter.TclError, ValueError, AttributeError):
+                testo = None
+            if isinstance(testo, str) and testo in attese:
+                trovati.add(testo)
+            try:
+                pila.extend(nodo.winfo_children())
+            except tkinter.TclError:
+                pass
+
+        assert trovati == attese, (
+            f"con l'app in {lingua} il guard non trova i pulsanti azione: "
+            f"attesi {sorted(attese)}, trovati {sorted(trovati)}. Il confronto deve usare "
+            "la lingua ATTIVA, non le stringhe grezze")
+    finally:
+        i18n.set_language(precedente)
+        if root is not None:
+            try:
+                root.destroy()
+            except tkinter.TclError:               # pragma: no cover - root già distrutta
+                pass
