@@ -32,9 +32,21 @@ def _master_dei_widget_della_riga_csv():
     """Nome della variabile passata come *master* a casella e pulsanti della riga CSV Path,
     letto dal SORGENTE di `app.py` con l'AST — non dal flag, non da un commento.
 
+    **Vincolo dichiarato** (rilievo GPT-5.5 sulla PR #326): il riconoscimento si appoggia ai
+    testi verbatim dei due pulsanti e al nome della variabile-contenitore. È una dipendenza
+    voluta, non una svista, ed è **sicura nella direzione giusta**: se qualcuno rinomina
+    l'etichetta o il contenitore, il guard non trova più la riga e diventa **rosso** con un
+    messaggio che dice di aggiornarlo. Il modo in cui un guard può fare danno è il falso
+    verde, non il falso rosso — e questo, rompendosi, chiede attenzione invece di concederla.
+
+    Le caselle sono raccolte in **lista**, non in un singolo valore (secondo rilievo GPT-5.5:
+    con più `CTkEntry` candidate l'ultima visitata dall'AST sovrascriveva le precedenti, e il
+    guard poteva finire ad esaminare la casella di un'altra schermata). L'ambiguità ora è un
+    fallimento esplicito, non un risultato arbitrario.
+
     Returns:
-        Dict `{"entry": nome, "📁 Sfoglia…": nome, "📄 Crea CSV": nome}`; una chiave manca
-        se quel widget non è stato trovato.
+        Dict `{"entry_masters": [nomi], "📁 Sfoglia…": nome, "📄 Crea CSV": nome}`; una
+        chiave dei pulsanti manca se quel pulsante non è stato trovato.
     """
     import ast
     import pathlib
@@ -68,10 +80,11 @@ def _master_dei_widget_della_riga_csv():
                 trovati[testo] = _nome_master(nodo)
         elif nodo.func.attr == "CTkEntry":
             master = _nome_master(nodo)
-            # La sola CTkEntry della scheda Generale: la si riconosce dal master dedicato
-            # introdotto per questa riga, o dal contenitore della scheda.
+            # Le CTkEntry della scheda Generale: le si riconosce dal contenitore. Si
+            # ACCUMULANO — se ne comparisse una seconda, il test lo dice invece di lasciare
+            # che l'ultima visitata decida in silenzio.
             if master in ("contenitore_campo", "tab_gen"):
-                trovati["entry"] = master
+                trovati.setdefault("entry_masters", []).append(master)
     return trovati
 
 
@@ -138,12 +151,20 @@ def test_il_flag_di_struttura_non_puo_mentire(app_mod):
     diventa rosso — offline, senza display, quindi in ogni job della CI.
     """
     master = _master_dei_widget_della_riga_csv()
-    assert set(master) >= {"entry", "📁 Sfoglia…", "📄 Crea CSV"}, (
+    assert set(master) >= {"entry_masters", "📁 Sfoglia…", "📄 Crea CSV"}, (
         f"riga CSV Path non riconosciuta nel sorgente di app.py: trovato {master}. "
         "Se i widget sono stati rinominati va aggiornato questo guard, non rimosso: "
         "senza, il modello offline torna a fidarsi di una costante dichiarativa")
 
-    stessa_cella = master["entry"] == master["📁 Sfoglia…"] == master["📄 Crea CSV"]
+    # Una sola casella candidata, altrimenti non si sa QUALE riga si sta esaminando
+    # (rilievo GPT-5.5). Un guard che sceglie a caso fra due è peggio di uno assente.
+    caselle = master["entry_masters"]
+    assert len(caselle) == 1, (
+        f"attesa UNA sola CTkEntry nella scheda Generale, trovate {len(caselle)} "
+        f"(master: {caselle}). Il guard non può stabilire quale sia la riga CSV Path: "
+        "vanno distinti i contenitori, o va reso più specifico questo riconoscimento")
+
+    stessa_cella = caselle[0] == master["📁 Sfoglia…"] == master["📄 Crea CSV"]
     assert stessa_cella == app_mod._CSV_ROW_BTN_IN_FIELD_CELL, (
         f"_CSV_ROW_BTN_IN_FIELD_CELL={app_mod._CSV_ROW_BTN_IN_FIELD_CELL} ma nel sorgente i "
         f"master sono {master}: il flag descrive una struttura che il codice non ha più")
