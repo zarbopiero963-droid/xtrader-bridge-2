@@ -49,9 +49,22 @@ def riga_generale():
     # `TclError` e non `Exception`: l'unico fallimento previsto qui è «il display c'è come
     # variabile d'ambiente ma Tk non riesce ad aprirlo». Qualunque altro errore è un difetto
     # del test o dell'app, e deve emergere invece di travestirsi da skip.
+    #
+    # ⚠️ Su WINDOWS non si salta MAI (rilievo convergente di Claude Fable 5 e GPT-5.5 sulla
+    # PR #326: «assicurarsi che almeno un job lo esegua davvero»). Windows è la piattaforma
+    # bersaglio e l'unica su cui il difetto è stato osservato dall'utente: se lì Tk non parte,
+    # il problema è la CI, e va detto in rosso. Un guard che si auto-silenzia proprio dove
+    # serve è indistinguibile da un guard assente — è la stessa classe del test vacuo che
+    # questa PR sta correggendo.
     try:
         root = ctk.CTk()
     except tkinter.TclError as exc:               # pragma: no cover - display dichiarato ma inservibile
+        if os.name == "nt":
+            pytest.fail(
+                f"Tk non inizializzabile su Windows: {exc}. Questo test è il guard di layout "
+                "della piattaforma bersaglio e NON deve degradare in skip: se il runner non "
+                "riesce ad aprire una finestra, va sistemata la CI, non silenziato il guard."
+            )
         pytest.skip(f"Tk non inizializzabile: {exc}")
 
     try:

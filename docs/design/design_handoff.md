@@ -885,9 +885,21 @@ resta l'AMBRA (mostrare «REALE ATTIVA» durante il collaudo sarebbe fuorviante)
 > **Per chi disegna:** qualunque controllo aggiunto a questa riga va messo *dentro* la cella
 > del campo, e la somma casella + pulsanti deve restare sotto la larghezza dei campi senza
 > pulsanti. Aggiungerne uno a fianco della colonna lo rende invisibile all'apertura, in
-> silenzio. Due guard lo impediscono: `test_gen_layout_budget.py` (modello offline, ora
-> basato sul **massimo della colonna**) e `test_gen_layout_reale.py`, che costruisce la riga
-> con Tk vero e **chiede dove sono finiti i pulsanti**.
+> silenzio.
+>
+> **Tre controlli lo impediscono**, e sono complementari di proposito — perché il difetto
+> originale era proprio un controllo che modellava un'app diversa da quella che gira:
+>
+> | controllo | cosa guarda | dove gira |
+> |---|---|---|
+> | `test_gen_layout_budget.py` — budget | il conto della riga, col **massimo della colonna** | ovunque |
+> | `test_gen_layout_budget.py` — struttura | il **sorgente di `app.py` letto con l'AST**: a quale contenitore vanno davvero casella e pulsanti | ovunque |
+> | `test_gen_layout_reale.py` | **dove Tk ha messo i pulsanti**, misurato su widget veri | dove c'è un display: Xvfb e runner **Windows** (su Windows non si salta mai: se Tk non parte è rosso) |
+>
+> Il secondo esiste perché il primo si appoggia a `_CSV_ROW_BTN_IN_FIELD_CELL`, una costante
+> che dichiara la struttura: una costante scritta a mano è una **copia**, e le copie
+> divergono. Leggendo il sorgente, una modifica al layout che dimenticasse di aggiornare la
+> costante diventa rossa invece di far tornare vacuo il conto.
 
 - **Segnaposto d'aiuto nei campi (#288 Delta 2):** ogni casella mostra un **placeholder** grigio a
   campo vuoto (es. Chat ID → `es. -1001234567890`, Bot Token → `incolla qui il token del bot`, CSV
