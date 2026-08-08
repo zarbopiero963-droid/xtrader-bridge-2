@@ -177,7 +177,12 @@ def test_l_editor_e_diviso_in_sotto_schede(pannello):
 # `i18n.tr(...)`, quindi con l'app in inglese o spagnolo il testo a schermo è tradotto e
 # un confronto sulle stringhe grezze renderebbe rosso un pannello sano. In italiano `tr`
 # è identità, ed è per questo che il difetto non si vedeva qui.
-_AZIONI_GREZZE = ("💾 Salva parser", "🧪 Prova messaggio", "📋 Copia diagnostica")
+# TUTTI E QUATTRO i pulsanti della barra, non tre (bloccante Fugu Ultra #327): ne mancava
+# uno, e un refactor che avesse rimesso proprio quello dentro uno scorrimento avrebbe
+# lasciato il guard verde — sull'invariante centrale di questa PR. L'elenco va tenuto
+# allineato ai `CTkButton` costruiti su `actions` in `custom_parser_gui._build_ui`.
+_AZIONI_GREZZE = ("💾 Salva parser", "🧪 Prova messaggio",
+                  "🧪🧪 Prova più messaggi (separati da ---)", "📋 Copia diagnostica")
 
 
 def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
