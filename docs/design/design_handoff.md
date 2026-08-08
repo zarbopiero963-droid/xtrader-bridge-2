@@ -1217,7 +1217,7 @@ senza toccare il codice. È il cuore della configurazione avanzata.
 > |---|---|---|
 > | **🧰 Anagrafiche e traduzioni** | intestazione (Nome · Modalità · Sport), Anagrafiche e dizionari, Catalogo Betfair, Traduzioni attive | ~106 |
 > | **⚙️ Output e condizioni** | Output multi-riga, Condizioni di gate | ~48 |
-> | **📊 Griglia regole** | la griglia a 14 colonne — ora visibile **tutta in una schermata**, senza scorrere | ~280 |
+> | **📊 Griglia regole** | la griglia a 14 colonne, nel proprio contenitore scorrevole: a dimensione predefinita (1140×720) le quattordici righe **ci stanno tutte**, e lo scorrimento serve solo a finestra ridotta | ~280 |
 > | **🧪 Prova** | messaggio di prova, anteprima righe generate, diagnostica | ~90 |
 >
 > La **lista parser resta fuori** dalla tabview, nella colonna fissa: deve restare visibile da

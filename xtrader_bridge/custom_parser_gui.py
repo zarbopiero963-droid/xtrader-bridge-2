@@ -656,7 +656,7 @@ class CustomParserPanel(ctk.CTkFrame):
             side.pack_propagate(False)   # la larghezza la decide la card, non il contenuto
         self._side = side
 
-        # ── colonna destra: editor in TRE sotto-schede (#321 E + #319) ──
+        # ── colonna destra: editor in QUATTRO sotto-schede (#321 E + #319) ──
         # Prima era un unico `CTkScrollableFrame` con dentro TUTTO l'editor: misurato su
         # CustomTkinter reale, 467 widget in un solo canvas scorrevole — contro i 4 o 5 per
         # contenitore di ogni altra scheda dell'app, e i 61 del pannello più affollato del
@@ -692,6 +692,11 @@ class CustomParserPanel(ctk.CTkFrame):
         self._outer_gate = outer_gate
         self._outer_rules = outer_rules
         self._outer_prova = outer_prova
+        # Nomi delle sotto-schede come CONTRATTO del pannello, non come attributo privato
+        # di CustomTkinter (`_tabs._name_list`): un aggiornamento della libreria non deve
+        # rompere un guard che parla della NOSTRA struttura (rilievo Fable + GPT-5.5 #327).
+        self._tab_names = ["🧰 Anagrafiche e traduzioni", "⚙️ Output e condizioni",
+                           "📊 Griglia regole", "🧪 Prova"]
 
         top = ctk.CTkFrame(outer, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=8)

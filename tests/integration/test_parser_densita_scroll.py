@@ -48,6 +48,31 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _CTkScrollableFrame():
+    """La CLASSE, non il suo nome (rilievo Sourcery #327).
+
+    Confrontare `type(x).__name__` con una stringa manca le sottoclassi e si rompe in
+    silenzio se la libreria rinomina: un guard che smette di trovare i contenitori
+    scorrevoli diventa verde su un pannello che li ha ancora tutti."""
+    import customtkinter
+
+    return customtkinter.CTkScrollableFrame
+
+
+def _antenati(widget):
+    """Catena dei genitori di `widget`, dal più vicino alla radice."""
+    catena, nodo = [], widget
+    while True:
+        try:
+            nodo = nodo.master
+        except AttributeError:
+            break
+        if nodo is None:
+            break
+        catena.append(nodo)
+    return catena
+
+
 def _conta(widget) -> int:
     """Widget nell'albero che parte da `widget`, incluso lui."""
     totale, pila = 0, [widget]
@@ -97,7 +122,7 @@ def _scorrevoli(pannello):
     trovati, pila = [], [pannello]
     while pila:
         nodo = pila.pop()
-        if type(nodo).__name__ == "CTkScrollableFrame":
+        if isinstance(nodo, _CTkScrollableFrame()):
             trovati.append((_conta(nodo), nodo))
         try:
             pila.extend(nodo.winfo_children())
@@ -124,8 +149,19 @@ def test_l_editor_e_diviso_in_sotto_schede(pannello):
     Senza questo, qualcuno potrebbe far scendere il conteggio togliendo funzioni invece che
     dividendole — il test resterebbe verde su un pannello impoverito. Le sotto-schede sono
     la forma che il proprietario ha approvato negli sketch, ed è quella che va difesa."""
-    schede = list(getattr(pannello._tabs, "_name_list", []))
-    assert len(schede) >= 3, f"attese almeno 3 sotto-schede nell'editor, trovate: {schede}"
+    # `_tab_names` è il contratto del PANNELLO, non `_tabs._name_list` che è un attributo
+    # privato di CustomTkinter: un upgrade della libreria non deve rompere un guard che
+    # parla della nostra struttura (rilievo convergente Fable + GPT-5.5 #327).
+    schede = list(getattr(pannello, "_tab_names", []))
+    # I quattro NOMI attesi, non un conteggio (rilievo CodeRabbit #327: `>= 3` resta verde
+    # se una scheda richiesta sparisce). Sui nomi e non su `== 4` perché una divisione
+    # FUTURA in cinque schede è un miglioramento, non una regressione: qui si difende che
+    # le quattro aree esistano, non che nessuno ne aggiunga.
+    attese = {"🧰 Anagrafiche e traduzioni", "⚙️ Output e condizioni",
+              "📊 Griglia regole", "🧪 Prova"}
+    assert attese <= set(schede), (
+        f"sotto-schede mancanti nell'editor: {sorted(attese - set(schede))}. "
+        f"Presenti: {schede}")
 
     # Almeno tre contenitori scorrevoli NON banali: uno per sotto-scheda di contenuto.
     # I piccoli (lista parser, strisce dei profili) non contano come divisione dell'editor.
@@ -134,3 +170,56 @@ def test_l_editor_e_diviso_in_sotto_schede(pannello):
         f"l'editor non risulta diviso: contenitori scorrevoli sostanziali {sostanziali}. "
         "Le sotto-schede esistono ma il contenuto è tornato in uno solo?"
     )
+
+
+_AZIONI = ("💾 Salva parser", "🧪 Prova messaggio", "📋 Copia diagnostica")
+
+
+def test_i_pulsanti_azione_restano_FUORI_da_ogni_scorrimento(pannello):
+    """L'invariante centrale di questa PR, che nessun altro test difendeva.
+
+    Rilievo Sourcery (#327), fondato: i test sulla densità e sulla struttura non dicono
+    nulla su DOVE stanno i quattro pulsanti. «💾 Salva parser» e i comandi di prova servono
+    da tutte le sotto-schede, e prima vivevano dentro il contenitore scorrevole: sparivano
+    dalla vista proprio mentre si lavorava in fondo alla griglia, cioè quando servono di
+    più. Il proprietario ha già perso il lavoro di un parser configurato e collaudato
+    perché «Salva» non era dove lo cercava (#182 PR A ⑦).
+
+    Senza questo guard, un refactor futuro potrebbe rimetterli dentro uno scorrimento e
+    tutti gli altri test resterebbero verdi.
+    """
+    ctk_scroll = _CTkScrollableFrame()
+    trovati = {}
+    pila = [pannello]
+    while pila:
+        nodo = pila.pop()
+        testo = None
+        try:
+            testo = nodo.cget("text")
+        except (tkinter.TclError, ValueError, AttributeError):
+            # widget senza opzione `text` (frame, canvas, textbox): non è un pulsante
+            # azione. Le tre eccezioni sono quelle che Tk e CustomTkinter usano per
+            # «questa opzione non esiste»; qualunque altra è un difetto e deve emergere.
+            pass
+        if isinstance(testo, str) and testo in _AZIONI:
+            trovati[testo] = nodo
+        try:
+            pila.extend(nodo.winfo_children())
+        except tkinter.TclError:                   # widget in teardown
+            pass
+
+    mancanti = [t for t in _AZIONI if t not in trovati]
+    assert not mancanti, (
+        f"pulsanti azione non trovati nel pannello: {mancanti}. Se sono stati rinominati "
+        "va aggiornato questo guard, non rimosso: difende l'unica cosa che li tiene "
+        "raggiungibili da tutte le sotto-schede")
+
+    dentro_scroll = {
+        testo: [type(a).__name__ for a in _antenati(w) if isinstance(a, ctk_scroll)]
+        for testo, w in trovati.items()
+    }
+    colpevoli = {t: a for t, a in dentro_scroll.items() if a}
+    assert not colpevoli, (
+        f"pulsanti azione finiti DENTRO un contenitore scorrevole: {colpevoli}. "
+        "Devono stare nella barra fissa: dentro uno scorrimento spariscono dalla vista "
+        "proprio quando servono, ed è il difetto che questa struttura ha corretto")
