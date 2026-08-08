@@ -668,7 +668,7 @@ class CustomParserPanel(ctk.CTkFrame):
         # cosa si sta configurando (anagrafiche e traduzioni), poi come si scompone il
         # messaggio (output multi-riga e gate), poi la griglia che mappa le colonne CSV.
         # La lista parser resta FUORI dalla tabview, nella colonna fissa a sinistra: deve
-        # restare visibile da tutte e tre le sotto-schede, che è il senso della colonna.
+        # restare visibile da tutte e quattro le sotto-schede, che è il senso della colonna.
         tabs = ctk.CTkTabview(body)
         if callable(getattr(tabs, "grid", None)):
             tabs.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=(8, 0))
@@ -922,7 +922,7 @@ class CustomParserPanel(ctk.CTkFrame):
 
         # #182 restyle: azioni + area di prova in un'unica card («Azioni e prova» dello sketch).
         # Azioni e prova: barra FISSA sotto la tabview, fuori da ogni scorrimento (#321 E).
-        # «💾 Salva parser» e «🧪 Prova messaggio» servono da tutte e tre le sotto-schede, e
+        # «💾 Salva parser» e «🧪 Prova messaggio» servono da tutte e quattro le sotto-schede, e
         # dentro un contenitore scorrevole sparivano dalla vista proprio mentre si lavorava
         # in fondo alla griglia — cioè quando servono di più.
         # `grid` e non `pack`: `body` dispone già `side` e `tabs` con grid, e mescolare i due
