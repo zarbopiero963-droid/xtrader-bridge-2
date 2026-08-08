@@ -1213,6 +1213,20 @@ dipendenza pinnata **prima di pubblicare una release**.
 
 ### Come (ri)generare il lockfile
 
+> ⚠️ **«Rigenerare» NON vuol dire «aggiornare».** `pip-compile` gira senza `--upgrade`, e in
+> quella modalità tratta il lockfile **esistente** come preferenza: tiene i pin che soddisfano
+> ancora i vincoli dei `.in`. Con un floor `pkg>=1.0` e un lock che dice `pkg==1.0`, rilanciare
+> il workflow riconferma `1.0` all'infinito — anche se su PyPI c'è la `2.0` da mesi. È
+> esattamente quello che è successo alla #319: `requirements-build.lock` era stato **ereditato
+> dal repository precedente** (i suoi commenti dicevano ancora `D:\a\xtrader-bridge\...`, senza
+> `-2`) e teneva `customtkinter==5.2.2` mentre gli altri due lock, creati da zero qui, erano
+> già alla 6.0.0 — cioè **l'EXE girava un toolkit grafico che nessun test esercitava**.
+>
+> Per far salire davvero una dipendenza: **alza il suo floor in `requirements.in`** (il vecchio
+> pin diventa invalido e la risalita è forzata), poi rigenera. Il guard
+> `test_i_lock_concordano_sulla_versione_del_toolkit_grafico` in
+> `tests/unit/test_dev_lockfile_76.py` impedisce che i tre lock tornino a divergere in silenzio.
+
 1. Modifica `requirements.in` e/o `requirements-build.in` se cambi le dipendenze.
 2. Vai su **Actions → "Generate Windows Lockfile" → Run workflow** (oppure si avvia da
    solo in una PR che tocca quei file). Gira su `windows-latest` + Python 3.11, esegue

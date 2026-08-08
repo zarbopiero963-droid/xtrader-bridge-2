@@ -766,7 +766,7 @@ Legenda severità: 🔴 critico · 🟠 medio-alto/alto · 🟡 medio/basso.
 | A4 | `xtrader_bridge/parser.py` · `_find_teams()`: riga con `" v "` in testo libero (senza emoji) scambiata per squadre → **EventName errato scritto nel CSV** (riga sbagliata, non solo perdita: con prezzo/mercato validi `resolve_row()` ritorna VALID per l'evento sbagliato) | Claude + Codex | ✅ Confermato | 🟠 Medio | PR-A3 |
 | A5 | `xtrader_bridge/transforms.py` · `_score_to_over()`: nessun cap sulla somma gol (`999-999` → `Over 1998,5`) | Claude | ✅ Confermato | 🟡 Basso | PR-A3 |
 | A6 | Token Telegram persistito in `config.json` in chiaro | Claude + Codex | ✅ Fatto — **documentato** (README → Sicurezza: tradeoff, `.gitignore`, redazione log, revoca) | 🟡 Basso | PR-minors |
-| A7 | Dipendenze runtime non pinnate (`requirements.txt` usa `>=`) | Codex + CodeRabbit | 🟡 Parziale — floor di **sicurezza/compatibilità**: `customtkinter>=5.2.2` (la 5.2.0 importa `distutils`, rotto su Python 3.12), `python-telegram-bot>=21.0` + `h11>=0.16.0` (la 20.0 trascinava `h11 0.14` vulnerabile, GHSA-vqfr-h8mv-ghfj). **Lock riproducibile completo** (pip-compile/constraints con hash) = follow-up (richiede rete + build Windows) | 🟡 Basso | PR-minors |
+| A7 | Dipendenze runtime non pinnate (`requirements.txt` usa `>=`) | Codex + CodeRabbit | 🟡 Parziale — floor di **sicurezza/compatibilità**: `customtkinter>=6.0.0` (alzato dalla 5.2.2 nella #319 — vedi sotto; la 5.2.0 importava `distutils`, rotto su Python 3.12), `python-telegram-bot>=21.0` + `h11>=0.16.0` (la 20.0 trascinava `h11 0.14` vulnerabile, GHSA-vqfr-h8mv-ghfj). **Lock riproducibile completo** (pip-compile/constraints con hash) = follow-up (richiede rete + build Windows) | 🟡 Basso | PR-minors |
 | A8 | `xtrader_bridge/mapping.py` · `_index()` e `xtrader_bridge/custom_pipeline.py` · `_default_registry()`: cache globale lazy non sotto lock (doppia costruzione possibile al primo uso concorrente) | Claude | ✅ **Fatto** — double-checked locking con `threading.Lock` su entrambe le cache (`_index` pubblica un dict locale a build finita); test di concorrenza dedicato (8 thread → 1 sola costruzione) | 🟡 Basso | PR-A4 (opz.) |
 | A9 | `xtrader_bridge/app.py` · `_start()` imposta `_running=True` e mette la GUI in stato ATTIVO **prima** di `init_csv(csv_path)`, senza catturare `OSError`: con un path CSV non scrivibile/lockato l'avvio si interrompe ma la UI resta "attiva" fino allo STOP manuale (listener non partito) | Codex | ✅ Confermato | 🟠 Medio | PR-A2 |
 | A10 | `xtrader_bridge/custom_parser_engine.py` · `matches_message()`: il gate di contenuto accetta **qualsiasi** regola di estrazione non-fissa, anche **opzionale** (non solo i campi-segnale obbligatori). Un parser coi campi scommessa **fissi** + una regola di estrazione opzionale "larga" produce una riga piazzabile su un messaggio **non-segnale** che attiva quella regola → **bet fisso scritto per un messaggio non pertinente** (scommessa spuria, in chat ammessa) | Codex | ✅ **Fatto** — `matches_message()` richiede ora un'estrazione non-fissa che sia **obbligatoria** (`required`) **oppure** su un **campo di riconoscimento rilevante per la modalità** (NAME_ONLY→nomi, ID_ONLY→ID, BOTH→entrambi); un'opzionale "larga" su campo non di riconoscimento non basta + test mirato | 🟠 Medio | PR-A5 |
@@ -5493,3 +5493,71 @@ originale, rientrato dalla finestra.
 
 Suite completa: **5164 passed, 1 skipped**. Nessun impatto sul percorso runtime: la funzione è
 diagnostica e sola-lettura sulla config.
+
+---
+
+## #319 — Il lock di build Windows si autoconfermava (debito tecnico chiuso)
+
+**Sintomo**: scorrendo la scheda «Parser» nell'EXE Windows restavano tracce fantasma dei widget
+(«scroll ghosting»). Indagine lunga: dodici ipotesi escluse con misure sotto Xvfb, tutte
+negative.
+
+**Perché le misure non trovavano niente.** Erano fatte su una libreria diversa da quella
+installata. Il repository ha tre lockfile:
+
+| lock | piattaforma | `customtkinter` prima della #319 |
+|---|---|---|
+| `requirements-dev.lock` | constraints dei job di test (Linux) | 6.0.0 |
+| `requirements-build-linux.lock` | build EXE Linux | 6.0.0 |
+| `requirements-build.lock` | **build EXE Windows — quello che il proprietario installa** | **5.2.2** |
+
+Le due versioni divergono esattamente dove serviva: la 5.2.2 non ha `_check_if_valid_scroll`,
+l'isolamento delle scrollable **annidate**, introdotto nella 6.0.0. Il bridge ne ha di annidate.
+Confermato su runner Windows reale: la run #1 di *Generate Windows Lockfile* con l'interruttore
+di verifica acceso ha installato il lock committato e visto fallire
+`test_customtkinter_isola_le_scrollable_ANNIDATE` con `ValueError: substring not found`.
+
+**Causa radice, che non è customtkinter.** `pip-compile` senza `--upgrade` tratta il file di
+output esistente come **preferenza**: tiene i pin che soddisfano ancora i vincoli. Il lock
+Windows era stato **ereditato dal repository precedente** — i suoi commenti dicevano ancora
+`D:\a\xtrader-bridge\xtrader-bridge\`, senza `-2` — dove era stato generato **prima** che la
+6.0.0 uscisse (24/06/2026). Con un floor `customtkinter>=5.2.2` quel pin restava legittimo, e
+ogni rigenerazione lo riconfermava. I lock Linux e dev, creati **da zero** in questo repo, non
+avevano pin da rispettare e presero la 6.0.0.
+
+Riprodotto in laboratorio su pip-tools 7.4.1 reale, stesso `.in`:
+
+| esperimento | condizione | esito |
+|---|---|---|
+| A | nessun lock preesistente | `customtkinter==6.0.0`, `packaging==26.3` |
+| B | lock preesistente 5.2.2, senza `--upgrade` | `customtkinter==5.2.2`, `packaging==26.2` |
+| C | stesso lock, con `--upgrade` | `customtkinter==6.0.0`, `packaging==26.3` |
+| D | lock preesistente 5.2.2, senza `--upgrade`, floor alzato a `>=6.0.0` | `customtkinter==6.0.0`, resto invariato |
+
+B riproduce il lock Windows **esatto**, compresa `packaging==26.2`. Non erano fermi solo
+customtkinter: anche `certifi` (2026.6.17) e `setuptools` (82.0.1).
+
+**Correzione scelta** (decisione del proprietario, ambito minimo): alzare il floor a
+`customtkinter>=6.0.0` in `requirements.in`. Il pin 5.2.2 diventa invalido e la risalita è
+forzata **senza toccare la CI** — che l'audit #192 ha dichiarato sana (regola 5). Esperimento D
+mostra che sale solo il toolkit: `packaging`/`certifi`/`setuptools` restano dove sono, raggio
+d'azione minimo.
+
+**Debito che resta aperto e va deciso a parte.** Il meccanismo appiccicoso è ancora lì: senza
+`--upgrade`, i tre lock continueranno a divergere nel tempo, e la prossima volta il floor andrà
+alzato di nuovo a mano. La cura della classe sarebbe un input `upgrade` (default off) nei
+workflow `Generate Windows Lockfile` / `Generate Linux Lockfile`, accanto all'esistente
+`verify_committed_lock`. Tocca la CI, quindi richiede una decisione esplicita del proprietario.
+
+**Guard di regressione** (`tests/unit/test_dev_lockfile_76.py`):
+
+- `test_lock_rispetta_i_floor_di_sicurezza` è ora parametrizzato sui **tre** lock. Prima
+  guardava solo `requirements-dev.lock`, cioè l'unico che **non** finisce dentro l'eseguibile:
+  i due lock di build potevano scendere sotto un floor di sicurezza (`h11>=0.16.0`, la CVE
+  GHSA-vqfr-h8mv-ghfj) senza che nessuno se ne accorgesse;
+- `test_i_lock_concordano_sulla_versione_del_toolkit_grafico` pretende che i tre pin di
+  `customtkinter` coincidano. È il guard che avrebbe reso visibile il difetto il primo giorno
+  invece che dopo dodici ipotesi.
+
+**Non chiude la #319**: il floor porta l'EXE sulla versione che ha l'isolamento, ma se il
+ghosting sia davvero quello lo dice solo la build Windows provata sul PC del proprietario.

@@ -55,6 +55,10 @@ _CONSTRAINT_OPTS = ("-c", "--constraint")
 _DEV_REQ_FILE = "requirements-dev.txt"
 _DEV_LOCK_FILE = "requirements-dev.lock"
 
+# TUTTI i lock del repo, non solo quello dei test (#319): i due lock di BUILD decidono cosa
+# finisce dentro l'eseguibile, quindi i guard sui floor devono valere prima di tutto per loro.
+_LOCK_FILES = (_DEV_LOCK_FILE, "requirements-build.lock", "requirements-build-linux.lock")
+
 
 def _srotola_folded(testo: str) -> str:
     """Ricongiunge i blocchi YAML `run: >` in una riga sola.
@@ -132,17 +136,46 @@ def _install_costretto(testo: str) -> bool:
                for a in _comandi_pip(testo))
 
 
-def _lock_pins():
+def _lock_pins(nome: str = _DEV_LOCK_FILE):
+    """I pin `pkg==ver` di un lockfile, indicizzati per nome normalizzato.
+
+    Parametrizzato sul file (#319): serviva anche per i due lock di BUILD, che hanno la
+    stessa forma `pkg==ver` ma con la continuazione ` \\` e le righe `--hash=` sotto.
+    Prima leggeva solo `requirements-dev.lock` — ed è per questo che i guard sui floor
+    coprivano un lock su tre."""
     pins = {}
-    for line in (_ROOT / "requirements-dev.lock").read_text(encoding="utf-8").splitlines():
+    for line in (_ROOT / nome).read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith("#") and "==" in line:
-            name, ver = line.split("==", 1)
-            # via l'eventuale environment marker (es. `; sys_platform == 'win32'`):
-            # i suoi digit corromperebbero il confronto di versione (CodeRabbit #88).
-            ver = ver.split(";", 1)[0]
-            pins[name.strip().lower().replace("_", "-")] = ver.strip()
+        # `--hash=sha256:...` NON è un pin: va scartata prima del test su `==`, altrimenti
+        # nei lock hashati entrerebbe come pacchetto fantasma.
+        if not line or line.startswith(("#", "--hash")):
+            continue
+        if line.endswith("\\"):          # continuazione dei lock con hash
+            line = line[:-1].strip()
+        if "==" not in line:
+            continue
+        name, ver = line.split("==", 1)
+        # via l'eventuale environment marker (es. `; sys_platform == 'win32'`):
+        # i suoi digit corromperebbero il confronto di versione (CodeRabbit #88).
+        ver = ver.split(";", 1)[0]
+        pins[name.strip().lower().replace("_", "-")] = ver.strip()
     return pins
+
+
+def _floors():
+    """I FLOOR `>=` dichiarati nella catena single-source, in un posto solo (regola 3).
+
+    Erano inline dentro il test dei floor; ora li leggono tre test parametrizzati, e
+    duplicarli sarebbe la divergenza-futura che la regola 3 vieta."""
+    floors = {}
+    for fname in ("requirements.in", "requirements-dev.txt"):
+        for line in (_ROOT / fname).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            # (?:\[...\])? — tollera gli extras (es. `pkg[extra]>=1.0`, CodeRabbit #88)
+            m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]+\])?\s*>=\s*([0-9.]+)", line)
+            if m:
+                floors[m.group(1).lower().replace("_", "-")] = m.group(2)
+    return floors
 
 
 def _vtuple(ver):
@@ -174,25 +207,51 @@ def test_lock_copre_tutte_le_top_level():
     assert not missing, f"top-level senza pin nel lock: {sorted(missing)}"
 
 
-def test_lock_rispetta_i_floor_di_sicurezza():
+@pytest.mark.parametrize("lock_name", _LOCK_FILES)
+def test_lock_rispetta_i_floor_di_sicurezza(lock_name):
     """I pin devono soddisfare i FLOOR `>=` di requirements.in E requirements-dev.txt
     (review GPT #88: anche una dipendenza dev può avere un floor di sicurezza) — sono
     vincoli di SICUREZZA: h11>=0.16 esclude una CVE, ptb>=21 esclude h11 vulnerabile:
-    un lock rigenerato male che retrocedesse sotto un floor deve fallire qui."""
-    pins = _lock_pins()
-    floors = {}
-    for fname in ("requirements.in", "requirements-dev.txt"):
-        for line in (_ROOT / fname).read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            # (?:\[...\])? — tollera gli extras (es. `pkg[extra]>=1.0`, CodeRabbit #88)
-            m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]+\])?\s*>=\s*([0-9.]+)", line)
-            if m:
-                floors[m.group(1).lower().replace("_", "-")] = m.group(2)
+    un lock rigenerato male che retrocedesse sotto un floor deve fallire qui.
+
+    Parametrizzato sui TRE lock (#319). Prima guardava solo `requirements-dev.lock`, cioè
+    proprio il lock che NON finisce dentro l'eseguibile: i due lock di build — quelli che
+    decidono cosa gira sul PC del proprietario — non erano controllati da nessuno. Il floor
+    è un vincolo di sicurezza: se vale per i job di test, a maggior ragione vale per l'EXE."""
+    pins = _lock_pins(lock_name)
+    floors = _floors()
     assert floors, "requirements.in: attesi floor >= (vincoli di sicurezza)"
     for name, floor in floors.items():
-        assert name in pins, f"{name}: floor di sicurezza senza pin nel lock"
+        assert name in pins, f"{lock_name}: {name} ha un floor di sicurezza ma nessun pin"
         assert _vtuple(pins[name]) >= _vtuple(floor), (
-            f"{name}: pin {pins[name]} sotto il floor di sicurezza >={floor}")
+            f"{lock_name}: {name} pinnato a {pins[name]}, sotto il floor >={floor}")
+
+
+def test_i_lock_concordano_sulla_versione_del_toolkit_grafico():
+    """I tre lock devono pinnare la STESSA `customtkinter` — #319.
+
+    Bug reale, trovato consumando due giorni di indagine sull'ipotesi sbagliata. Il lock di
+    build Windows era stato ereditato dal repository PRECEDENTE (i suoi commenti dicevano
+    ancora `D:\\a\\xtrader-bridge\\xtrader-bridge\\`) e lì era stato generato prima che
+    uscisse la 6.0.0. `pip-compile` senza `--upgrade` tratta il file di output esistente
+    come preferenza e tiene i pin che soddisfano ancora i vincoli: con `customtkinter>=5.2.2`
+    la 5.2.2 restava valida, quindi ogni rigenerazione riconfermava sé stessa. I lock Linux
+    e dev, creati da zero in questo repo, avevano invece 6.0.0.
+
+    Risultato: l'EXE girava su 5.2.2 mentre l'INTERA suite lo esercitava su 6.0.0 — e le due
+    versioni differiscono proprio dove serviva, perché la 5.2.2 non ha `_check_if_valid_scroll`
+    (l'isolamento delle scrollable annidate). Ogni misura fatta sotto Xvfb riguardava una
+    libreria diversa da quella installata sul PC del proprietario.
+
+    Il toolkit grafico è un wheel universale `py3-none-any`: non c'è ragione di piattaforma
+    perché i tre lock divergano, e se divergono il difetto è invisibile ai test per costruzione.
+    Questo guard è l'unica cosa che lo rende visibile senza rileggere tre file a mano."""
+    versioni = {nome: _lock_pins(nome).get("customtkinter") for nome in _LOCK_FILES}
+    mancanti = [n for n, v in versioni.items() if v is None]
+    assert not mancanti, f"customtkinter non pinnato in: {mancanti}"
+    assert len(set(versioni.values())) == 1, (
+        "i lock divergono sulla versione di customtkinter → l'EXE gira un toolkit che i test "
+        f"non esercitano mai: {versioni}")
 
 
 def test_ci_installa_con_le_constraints():
