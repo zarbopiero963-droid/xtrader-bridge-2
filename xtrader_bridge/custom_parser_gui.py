@@ -684,10 +684,24 @@ class CustomParserPanel(ctk.CTkFrame):
             """Sotto-scheda + il suo contenitore scorrevole, registrando il titolo.
 
             Best-effort come il resto del pannello: coi doppi dei test `add` può non
-            esistere → si ricade su `tabs`."""
-            self._tab_names.append(titolo)
+            esistere → si ricade su `tabs`.
+
+            Il titolo si registra **dopo** che la scheda è stata creata davvero (rilievo
+            Claude Fable 5 #327): registrarlo prima significherebbe che, se `add` fallisse,
+            `_tab_names` dichiarerebbe una scheda inesistente — e il guard che ci si appoggia
+            tornerebbe a difendere un elenco invece della struttura.
+
+            In `_tab_names` finisce il titolo **grezzo**, non quello tradotto con cui la
+            scheda viene creata (rilievo Fugu Ultra #327). È deliberato: `_tab_names` è
+            l'elenco delle AREE dell'editor, non delle etichette a schermo. Un guard che
+            confrontasse le stringhe tradotte diventerebbe rosso semplicemente cambiando la
+            lingua dell'app — cioè fallirebbe su un pannello perfettamente sano. Le etichette
+            visibili sono responsabilità dei test i18n, che è dove vanno verificate."""
             aggiungi = getattr(tabs, "add", None)
-            contenitore = aggiungi(i18n.tr(titolo)) if callable(aggiungi) else tabs
+            contenitore = tabs
+            if callable(aggiungi):
+                contenitore = aggiungi(i18n.tr(titolo))
+                self._tab_names.append(titolo)
             sf = ctk.CTkScrollableFrame(contenitore or tabs, fg_color="transparent")
             if callable(getattr(sf, "pack", None)):
                 sf.pack(fill="both", expand=True)
