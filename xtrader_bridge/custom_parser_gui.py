@@ -656,11 +656,65 @@ class CustomParserPanel(ctk.CTkFrame):
             side.pack_propagate(False)   # la larghezza la decide la card, non il contenuto
         self._side = side
 
-        # ── colonna destra: editor scrollabile (tutte le sezioni-card) ──
-        outer = ctk.CTkScrollableFrame(body, fg_color="transparent")
-        if callable(getattr(outer, "grid", None)):
-            outer.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=8)
+        # ── colonna destra: editor in QUATTRO sotto-schede (#321 E + #319) ──
+        # Prima era un unico `CTkScrollableFrame` con dentro TUTTO l'editor: misurato su
+        # CustomTkinter reale, 467 widget in un solo canvas scorrevole — contro i 4 o 5 per
+        # contenitore di ogni altra scheda dell'app, e i 61 del pannello più affollato del
+        # License Manager. Su Windows Tk crea una finestra di sistema per ogni widget:
+        # scorrere quel canvas significa spostarne e ridipingerne 467 in un colpo, ed è
+        # l'unica scheda dove il proprietario ha filmato la scia di ridisegno della #319.
+        #
+        # Le sezioni sono divise per FLUSSO, non per pareggiare i numeri: prima si dichiara
+        # cosa si sta configurando (anagrafiche e traduzioni), poi come si scompone il
+        # messaggio (output multi-riga e gate), poi la griglia che mappa le colonne CSV.
+        # La lista parser resta FUORI dalla tabview, nella colonna fissa a sinistra: deve
+        # restare visibile da tutte e quattro le sotto-schede, che è il senso della colonna.
+        tabs = ctk.CTkTabview(body)
+        if callable(getattr(tabs, "grid", None)):
+            tabs.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=(8, 0))
+        self._tabs = tabs
+
+        # Nomi delle sotto-schede: registrati da `_scheda` mentre le crea, MAI riscritti a
+        # mano (rilievo GPT-5.5 #327). Una seconda lista sarebbe una copia della struttura,
+        # e le copie divergono: rinominare una scheda senza aggiornare l'elenco renderebbe
+        # fuorviante il guard che ci si appoggia. Una sorgente sola, quella che disegna.
+        self._tab_names = []
+
+        def _scheda(titolo):
+            """Sotto-scheda + il suo contenitore scorrevole, registrando il titolo.
+
+            Best-effort come il resto del pannello: coi doppi dei test `add` può non
+            esistere → si ricade su `tabs`.
+
+            Il titolo si registra **dopo** che la scheda è stata creata davvero (rilievo
+            Claude Fable 5 #327): registrarlo prima significherebbe che, se `add` fallisse,
+            `_tab_names` dichiarerebbe una scheda inesistente — e il guard che ci si appoggia
+            tornerebbe a difendere un elenco invece della struttura.
+
+            In `_tab_names` finisce il titolo **grezzo**, non quello tradotto con cui la
+            scheda viene creata (rilievo Fugu Ultra #327). È deliberato: `_tab_names` è
+            l'elenco delle AREE dell'editor, non delle etichette a schermo. Un guard che
+            confrontasse le stringhe tradotte diventerebbe rosso semplicemente cambiando la
+            lingua dell'app — cioè fallirebbe su un pannello perfettamente sano. Le etichette
+            visibili sono responsabilità dei test i18n, che è dove vanno verificate."""
+            aggiungi = getattr(tabs, "add", None)
+            contenitore = tabs
+            if callable(aggiungi):
+                contenitore = aggiungi(i18n.tr(titolo))
+                self._tab_names.append(titolo)
+            sf = ctk.CTkScrollableFrame(contenitore or tabs, fg_color="transparent")
+            if callable(getattr(sf, "pack", None)):
+                sf.pack(fill="both", expand=True)
+            return sf
+
+        outer = _scheda("🧰 Anagrafiche e traduzioni")
+        outer_gate = _scheda("⚙️ Output e condizioni")
+        outer_rules = _scheda("📊 Griglia regole")
+        outer_prova = _scheda("🧪 Prova")
         self._outer = outer
+        self._outer_gate = outer_gate
+        self._outer_rules = outer_rules
+        self._outer_prova = outer_prova
 
         top = ctk.CTkFrame(outer, fg_color="transparent")
         top.pack(fill="x", padx=10, pady=8)
@@ -814,19 +868,19 @@ class CustomParserPanel(ctk.CTkFrame):
         # single-row come prima. La logica (round-trip, anteprima) sta nel controller, testata
         # in CI; qui SOLO i widget. Il banner sotto avvisa quando entrambi attivi (righe
         # separate, non cartesiane).
-        self._build_multi_section(outer)
+        self._build_multi_section(outer_gate)
 
         # Condizioni di gate (PR-1): il parser scatta SOLO se il messaggio soddisfa le
         # condizioni (contiene/NON contiene ⟨testo⟩; modo E/O). Solo widget; lo stato vive nel
         # ParserBuilder (round-trip testato in CI). Serve a far agire un parser solo sui
         # messaggi pertinenti (filtro fail-closed), es. «un mercato diverso per scenario».
-        self._build_conditions_section(outer)
+        self._build_conditions_section(outer_gate)
 
         # #182 restyle: la griglia delle 14 colonne vive in una card dedicata, col titolo di
         # sezione degli sketch e — QUI SOTTO la griglia, non più sopra le Anagrafiche — i due
         # avvisi che parlano delle sue righe (valore fisso ⑥ e nota BetType ⑧: erano
         # impacchettati lontani da ciò che spiegavano, rilievo proprietario sugli screenshot).
-        rules_card = ctk.CTkFrame(outer, **ui_cards.card_style())
+        rules_card = ctk.CTkFrame(outer_rules, **ui_cards.card_style())
         rules_card.pack(fill="x", padx=10, pady=(4, 6))
         ctk.CTkLabel(rules_card, text=i18n.tr("Griglia regole — 14 colonne CSV"),
                      font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w", padx=8, pady=(6, 0))
@@ -867,8 +921,15 @@ class CustomParserPanel(ctk.CTkFrame):
             anchor="w", justify="left", wraplength=860).pack(fill="x", padx=12, pady=(0, 6))
 
         # #182 restyle: azioni + area di prova in un'unica card («Azioni e prova» dello sketch).
-        prova_card = ctk.CTkFrame(outer, **ui_cards.card_style())
-        prova_card.pack(fill="x", padx=10, pady=(0, 8))
+        # Azioni e prova: barra FISSA sotto la tabview, fuori da ogni scorrimento (#321 E).
+        # «💾 Salva parser» e «🧪 Prova messaggio» servono da tutte e quattro le sotto-schede, e
+        # dentro un contenitore scorrevole sparivano dalla vista proprio mentre si lavorava
+        # in fondo alla griglia — cioè quando servono di più.
+        # `grid` e non `pack`: `body` dispone già `side` e `tabs` con grid, e mescolare i due
+        # gestori nello STESSO contenitore è un errore Tk, non una questione di stile.
+        prova_card = ctk.CTkFrame(body, **ui_cards.card_style())
+        if callable(getattr(prova_card, "grid", None)):
+            prova_card.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 8))
         actions = ctk.CTkFrame(prova_card, fg_color="transparent")
         actions.pack(fill="x", padx=8, pady=(6, 4))
         # #182 PR A ⑦: «💾 Salva parser», non «💾 Salva». È il primo di quattro pulsanti in fila
@@ -886,9 +947,14 @@ class CustomParserPanel(ctk.CTkFrame):
                       command=self._test_batch).pack(side="left", padx=4)
         ctk.CTkButton(actions, text=i18n.tr("📋 Copia diagnostica"), command=self._copy_diag).pack(side="left", padx=4)
 
-        # test-live — dentro la card «Azioni e prova»
-        test = ctk.CTkFrame(prova_card, fg_color="transparent")
-        test.pack(fill="x", padx=8, pady=(0, 6))
+        # test-live — nella sua SOTTO-SCHEDA, non nella barra fissa (#321 E).
+        # Tenerlo attaccato ai pulsanti sembrava naturale — sono le azioni di prova — ma il
+        # box del messaggio, l'anteprima delle righe e la diagnostica occupavano da soli
+        # quasi metà dell'altezza della finestra, schiacciando le sotto-schede di
+        # configurazione a una striscia. Fissi restano i quattro PULSANTI, che servono da
+        # ovunque; il loro output torna dove c'è spazio per leggerlo.
+        test = ctk.CTkFrame(outer_prova, fg_color="transparent")
+        test.pack(fill="both", expand=True, padx=8, pady=(0, 6))
         ctk.CTkLabel(test, text=i18n.tr("Messaggio di prova:")).pack(anchor="w", padx=6)
         self._msg_box = ctk.CTkTextbox(test, height=120)
         self._msg_box.pack(fill="x", padx=6, pady=4)

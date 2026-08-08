@@ -1209,6 +1209,39 @@ senza toccare il codice. È il cuore della configurazione avanzata.
 > e nota BetType ⑧) stanno **sotto la griglia**, dentro la sua card — non più sopra le
 > Anagrafiche, lontani da ciò che spiegano.
 
+> **Aggiornamento 2026-08-08 — la colonna destra è ora a QUATTRO SOTTO-SCHEDE (#319 + #321).**
+> La composizione a due colonne resta; cambia il contenuto della destra, che non è più un
+> unico contenitore scorrevole ma una `CTkTabview`, ciascuna scheda col proprio scorrimento:
+>
+> | sotto-scheda | contiene | widget |
+> |---|---|---|
+> | **🧰 Anagrafiche e traduzioni** | intestazione (Nome · Modalità · Sport), Anagrafiche e dizionari, Catalogo Betfair, Traduzioni attive | ~106 |
+> | **⚙️ Output e condizioni** | Output multi-riga, Condizioni di gate | ~48 |
+> | **📊 Griglia regole** | la griglia a 14 colonne, nel proprio contenitore scorrevole: a dimensione predefinita (1140×720) le quattordici righe **ci stanno tutte**, e lo scorrimento serve solo a finestra ridotta | ~280 |
+> | **🧪 Prova** | messaggio di prova, anteprima righe generate, diagnostica | ~90 |
+>
+> La **lista parser resta fuori** dalla tabview, nella colonna fissa: deve restare visibile da
+> tutte e quattro le sotto-schede, che è il senso di quella colonna. E i **quattro pulsanti**
+> «💾 Salva parser · 🧪 Prova messaggio · 🧪🧪 Prova più messaggi · 📋 Copia diagnostica» sono
+> una **barra fissa in fondo**, fuori da ogni scorrimento: servono da ovunque, e prima
+> sparivano dalla vista proprio quando si lavorava in fondo alla griglia.
+>
+> **Perché, e non è estetica.** L'editor unico reggeva **467 widget in un solo canvas
+> scorrevole** — contro i 4-5 per contenitore di ogni altra scheda dell'app e i 61 del
+> pannello più affollato del License Manager. Su Windows Tk crea una finestra di sistema per
+> ogni widget: scorrere significa spostarne e ridipingerne 467 in un colpo, ed è l'unica
+> schermata dove il proprietario ha filmato la **scia di ridisegno della #319**. Dopo la
+> divisione il contenitore più affollato è ~280.
+>
+> ⚠️ **Questo NON dichiara risolta la #319.** La soglia non viene da una misura del difetto —
+> quella si può fare solo sul PC del proprietario — ma dalla distanza fra i due estremi noti
+> (61 pulito · 467 smera). Il guard `tests/integration/test_parser_densita_scroll.py` impedisce
+> la **regressione strutturale**, cioè che si torni a impilare tutto in un unico scorrimento.
+>
+> **Per chi disegna:** una sezione nuova va in una delle quattro sotto-schede, non appesa in
+> coda a quella più comoda. Se una scheda cresce oltre ~320 widget il guard diventa rosso: è
+> il momento di dividerla, non di alzare il tetto.
+
 Sezioni (colonna destra, dall'alto):
 
 - **Intestazione:** `Nome parser`, `Modalità` (`(eredita globale)` + opzioni), `Sport`
